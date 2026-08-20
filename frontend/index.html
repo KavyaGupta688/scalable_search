@@ -3,56 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b172a" />
-    <title>Atlas Search</title>
+    <meta name="theme-color" content="#1428a0" />
+    <title>Prism | Multimodal Library</title>
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/ingest.css" />
+    <link rel="stylesheet" href="/prism.css" />
+    <link rel="stylesheet" href="/interactions.css" />
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Atlas Search home"><span class="brand-mark">A</span> atlas</a>
-      <nav><a href="#results">Library</a><a href="#activity">Activity</a><button class="avatar" aria-label="Open account menu">AK</button></nav>
-    </header>
-
-    <main>
-      <section class="intro">
-        <p class="eyebrow">Multimodal library</p>
-        <h1>Find the file,<br /><em>not the filename.</em></h1>
-        <p class="lede">Search across images, documents, audio, and video with one clear query.</p>
-        <form id="search-form" class="search-box">
-          <span class="search-icon" aria-hidden="true">⌕</span>
-          <input id="query" type="search" placeholder="Try “product launch photography”" autocomplete="off" required />
-          <select id="mode" aria-label="Search mode"><option value="text">Keyword</option><option value="vector">Meaning</option><option value="similar">Similar</option></select>
-          <button type="submit">Search <span aria-hidden="true">↗</span></button>
-        </form>
-      </section>
-
-      <section class="ingest-panel" id="ingest">
-        <div><p class="eyebrow">Add to library</p><h2>Ingest a document</h2><p>Upload a PDF, DOCX, TXT, or CSV. Extraction, AI enrichment, and indexing will run as one tracked job.</p></div>
-        <form id="upload-form" class="upload-form"><label class="file-picker" for="document"><span id="file-name">Choose a document</span><small>PDF, DOCX, TXT, CSV</small></label><input id="document" type="file" accept=".pdf,.docx,.txt,.csv" required /><button type="submit">Queue upload <span aria-hidden="true">↗</span></button></form>
-        <div id="upload-status" class="upload-status" aria-live="polite">No ingestion jobs running.</div>
-      </section>
-
-      <section id="results" class="workspace">
-        <aside class="filters">
-          <div class="section-label"><span>Refine</span><button id="clear-filters">Clear</button></div>
-          <label class="filter-title" for="content-type">Content type</label>
-          <select id="content-type"><option value="">All formats</option><option value="image">Images</option><option value="document">Documents</option><option value="video">Video</option><option value="audio">Audio</option></select>
-          <div class="filter-rule"></div>
-          <p class="filter-title">Quick access</p>
-          <a class="quick-link active" href="#results"><span>✦</span> All files <b>2</b></a>
-          <a class="quick-link" href="#results"><span>◷</span> Recently added</a>
-          <a class="quick-link" href="#activity"><span>↗</span> Shared with me</a>
-        </aside>
-        <div class="results-panel">
-          <div class="results-heading"><div><p class="eyebrow">Your library</p><h2 id="result-title">Start with a search</h2></div><button class="icon-button" aria-label="Change view">▦</button></div>
-          <div id="status" class="status" aria-live="polite">Search your library to see results.</div>
-          <div id="result-grid" class="result-grid"></div>
-        </div>
-      </section>
-
-      <section id="activity" class="activity"><span class="activity-dot"></span><span><strong>System status</strong> Search index is up to date</span><span class="activity-time">Just now</span></section>
-    </main>
+    <section id="login-screen" class="login-screen">
+      <div class="login-art" aria-hidden="true"><div class="prism-orbit orbit-one"></div><div class="prism-orbit orbit-two"></div><div class="login-spark">P</div></div>
+      <div class="login-card"><div class="prism-logo"><span>✦</span> Prism</div><p class="eyebrow">Samsung Digital Library</p><h1>Everything you need,<br /><em>within reach.</em></h1><p class="login-copy">Your intelligent home for files, ideas, and the moments that matter.</p><form id="login-form"><label>Email address<input id="login-email" type="email" value="alex.kim@samsung.com" required /></label><label>Password<input id="login-password" type="password" value="prism-demo" required /></label><div class="login-options"><label class="check"><input type="checkbox" checked /> Remember me</label><a href="#">Forgot password?</a></div><button class="primary-button" type="submit">Sign in <span>↗</span></button></form><p class="demo-note">Demo access is ready. Use any valid email.</p></div>
+    </section>
+    <div id="app-shell" class="app-shell hidden">
+      <aside class="sidebar"><a class="brand" href="#library" data-route="library"><span class="brand-mark">✦</span><span>Prism</span></a><p class="side-label">Workspace</p><nav class="side-nav"><a href="#library" data-route="library"><span>⌂</span> Library</a><a href="#search" data-route="search"><span>⌕</span> Search</a><a href="#datasets" data-route="datasets"><span>▦</span> Datasets</a><a href="#uploads" data-route="uploads"><span>↑</span> Uploads</a></nav><p class="side-label">Manage</p><nav class="side-nav"><a href="#favorites" data-route="favorites"><span>♡</span> Favorites <b class="nav-count" id="favorites-count">0</b></a><a href="#activity" data-route="activity"><span>◷</span> Activity</a><a href="#profile" data-route="profile"><span>◎</span> Profile</a></nav><div class="sidebar-bottom"><div class="mini-user"><span class="user-avatar">AK</span><span><b>Alex Kim</b><small>Design team</small></span></div><button id="logout-button" class="logout-button">Sign out</button></div></aside>
+      <main class="main-content"><header class="app-header"><button id="mobile-menu" class="mobile-menu" aria-label="Open navigation">☰</button><div class="header-search"><span>⌕</span><input id="global-search" type="search" placeholder="Search your library" /></div><div class="header-actions"><button class="notification" aria-label="Notifications">♢<i></i></button><span class="user-avatar">AK</span></div></header><div id="view-root"></div></main>
+    </div>
+    <div id="upload-celebration" class="upload-celebration" aria-hidden="true"></div>
+    <div id="toast" class="toast" role="status"></div>
     <script src="/app.js"></script>
   </body>
 </html>
