@@ -1,0 +1,20 @@
+[project]
+name = "smsprsm-2026"
+version = "0.1.0"
+description = "Multimodal file search platform module foundation"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "python-multipart>=0.0.9,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+]
+
+[project.scripts]
+smsprsm-api = "server:run"
+
+[tool.setuptools.packages.find]
+include = ["modules*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["modules"]

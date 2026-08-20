@@ -1,0 +1,1 @@
+"""AI tag and description generation module."""
