@@ -1,0 +1,214 @@
+/* ==========================================================================
+   Samsung Prism Enterprise Design System - AI Enrichment Screen Styles
+   ========================================================================== */
+
+.enrichment-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 4-Stage Pipeline Flow Panel */
+.pipeline-flow-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.neural-stage-track {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.neural-stage-step {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.neural-stage-step.active {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary-subtle);
+}
+
+.neural-stage-step.completed {
+  border-color: var(--status-success-border);
+}
+
+.neural-step-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.neural-stage-step.active .neural-step-badge {
+  color: var(--brand-primary-text);
+}
+
+.neural-step-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.neural-step-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 6px;
+  margin-top: auto;
+}
+
+/* Active Models Grid */
+.model-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.model-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.model-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.model-stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  background: var(--bg-surface-elevated);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.model-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.model-stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.model-stat-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-primary-text);
+}
+
+/* Interactive S3 Object AI Enrichment Inspector */
+.ai-inspector-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-inspector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.ai-preview-box {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-results-box {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ai-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.ai-vector-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  background: var(--bg-surface);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.ai-vector-slice {
+  flex: 1;
+  height: 100%;
+  background: var(--brand-primary);
+  border-radius: 1px;
+}
+
+/* Responsive */
+@media (max-width: 960px) {
+  .neural-stage-track {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ai-inspector-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,269 @@
+/* ==========================================================================
+   Samsung Prism Enterprise Design System - Document Detail Inspector
+   ========================================================================== */
+
+.detail-drawer-panel {
+  width: 100%;
+  max-width: 680px;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-strong);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  position: relative;
+}
+
+.detail-drawer-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-surface-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.detail-header-filename {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-drawer-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Media Preview Containers */
+.preview-container {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-media-viewport {
+  position: relative;
+  background: #080c12;
+  min-height: 220px;
+  max-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.preview-media-viewport img {
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+
+/* Synthetic Bounding Box Overlay */
+.bounding-box-overlay {
+  position: absolute;
+  border: 1.5px solid #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+.bounding-box-tag {
+  position: absolute;
+  top: -18px;
+  left: -1px;
+  background: #0284c7;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* Waveform Audio Mockup */
+.waveform-container {
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.waveform-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 50px;
+  justify-content: center;
+}
+
+.waveform-bar {
+  flex: 1;
+  background: var(--brand-primary);
+  border-radius: 1px;
+  opacity: 0.85;
+}
+
+.audio-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Document Page Preview Mockup */
+.document-preview-box {
+  padding: 20px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: #111822;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* Tabs inside Detail Drawer */
+.detail-tabs-bar {
+  display: flex;
+  border-bottom: 1px solid var(--border-default);
+  gap: 16px;
+}
+
+.detail-tab-btn {
+  padding: 8px 2px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.detail-tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.detail-tab-btn.active {
+  color: var(--brand-primary-text);
+  border-bottom-color: var(--brand-primary);
+}
+
+/* Spec Tables */
+.spec-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  font-size: 11px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.spec-key-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.spec-val-text {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+/* OCR & Transcript Box */
+.content-text-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+/* Similar Items Strip */
+.similar-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.similar-item-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.similar-item-card:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-default);
+}
+
+.similar-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.similar-item-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.similar-score-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--brand-primary-text);
+  font-weight: 700;
+}
+
+/* Drawer Action Footer */
+.detail-drawer-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-surface-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  bottom: 0;
+}
