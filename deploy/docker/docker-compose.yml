@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ':9001'
+    volumes:
+      - minio_data:/data
+    networks:
+      - ingestion-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:29092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    networks:
+      - ingestion-net
+
+  vault:
+    image: hashicorp/vault:1.16
+    cap_add:
+      - IPC_LOCK
+    command: server -dev -dev-root-token-id=dev-root-token
+    networks:
+      - ingestion-net
+
+  tika:
+    image: apache/tika:latest
+    networks:
+      - ingestion-net
+
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    networks:
+      - ingestion-net
+
+  logstash:
+    image: logstash:8.13.0
+    volumes:
+      - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    networks:
+      - ingestion-net
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: kibana:8.13.0
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - ingestion-net
+    depends_on:
+      - elasticsearch
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - ingestion-net
+
+  grafana:
+    image: grafana/grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - ingestion-net
+
+  ingestion-api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      ENTRYPOINT_SCRIPT: scripts/run_api.py
+    env_file: .env
+    networks:
+      - ingestion-net
+    depends_on:
+      - minio
+      - kafka
+      - vault
+      - tika
+
+  ingestion-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      ENTRYPOINT_SCRIPT: scripts/run_worker.py
+    env_file: .env
+    networks:
+      - ingestion-net
+    depends_on:
+      - minio
+      - kafka
+      - vault
+      - tika
+
+  ingestion-enumerator:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      ENTRYPOINT_SCRIPT: scripts/run_enumerator.py
+    env_file: .env
+    networks:
+      - ingestion-net
+    profiles:
+      - tools
+    depends_on:
+      - kafka
+      - vault
+
+networks:
+  ingestion-net:
+
+volumes:
+  minio_data:
+  grafana_data:

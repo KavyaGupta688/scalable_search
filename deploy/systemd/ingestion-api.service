@@ -1,0 +1,27 @@
+[Unit]
+Description=Data Ingestion API Server
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ingestion
+Group=ingestion
+WorkingDirectory=/opt/ingestion
+EnvironmentFile=/etc/ingestion/ingestion.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ingestion/venv/bin/python scripts/run_api.py
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ingestion-api
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
