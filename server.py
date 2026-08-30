@@ -24,4 +24,7 @@ def run() -> None:
     uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
 
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
+import os
+
+dist_dir = "frontend/dist" if os.path.exists("frontend/dist") else "frontend"
+app.mount("/", StaticFiles(directory=dist_dir, html=True), name="frontend")

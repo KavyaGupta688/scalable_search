@@ -1,0 +1,209 @@
+/* ==========================================================================
+   Samsung Prism Enterprise Platform - Login View Styles
+   Dark Slate Theme Matching the Application Design System:
+   - Centered card with dark slate background
+   - Top dark badge with database icon
+   - Form inputs with crisp 1px borders and high contrast
+   - High-contrast buttons and subtle divider
+   ========================================================================== */
+
+.login-page-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-app);
+  padding: 24px;
+}
+
+.login-auth-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 400px;
+  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+}
+
+.login-auth-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.login-app-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  color: var(--brand-primary-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.login-app-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+.login-app-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.login-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.login-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.login-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.login-input:focus {
+  border-color: var(--brand-primary);
+  background: var(--bg-surface-elevated);
+}
+
+.login-input::placeholder {
+  color: var(--text-muted);
+}
+
+.login-toggle-pw {
+  position: absolute;
+  right: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+}
+
+.login-toggle-pw:hover {
+  color: var(--text-primary);
+}
+
+.login-field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.login-btn-primary {
+  height: 42px;
+  background: var(--brand-primary);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--brand-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.login-btn-primary:hover {
+  background: #1e3a8a;
+  border-color: #1e3a8a;
+}
+
+.login-btn-primary:active {
+  background: #172554;
+}
+
+.login-divider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0;
+}
+
+.login-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-default);
+}
+
+.login-divider-text {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.login-btn-sso {
+  height: 42px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.login-btn-sso:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.login-forgot-link {
+  font-size: 13px;
+  color: var(--brand-primary-text);
+  text-align: center;
+  text-decoration: none;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+.login-forgot-link:hover {
+  text-decoration: underline;
+}

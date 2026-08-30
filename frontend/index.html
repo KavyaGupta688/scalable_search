@@ -3,24 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#1428a0" />
-    <title>Prism | Multimodal Library</title>
-    <link rel="stylesheet" href="/styles.css" />
-    <link rel="stylesheet" href="/ingest.css" />
-    <link rel="stylesheet" href="/prism.css" />
-    <link rel="stylesheet" href="/interactions.css" />
+    <meta name="theme-color" content="#0d131a" />
+    <meta name="description" content="Samsung Prism - Enterprise Multimodal S3 Data Platform" />
+    <title>Samsung Prism | S3 Multimodal Data Platform</title>
   </head>
-  <body>
-    <section id="login-screen" class="login-screen">
-      <div class="login-art" aria-hidden="true"><div class="prism-orbit orbit-one"></div><div class="prism-orbit orbit-two"></div><div class="login-spark">P</div></div>
-      <div class="login-card"><div class="prism-logo"><span>✦</span> Prism</div><p class="eyebrow">Samsung Digital Library</p><h1>Everything you need,<br /><em>within reach.</em></h1><p class="login-copy">Your intelligent home for files, ideas, and the moments that matter.</p><form id="login-form"><label>Email address<input id="login-email" type="email" value="alex.kim@samsung.com" required /></label><label>Password<input id="login-password" type="password" value="prism-demo" required /></label><div class="login-options"><label class="check"><input type="checkbox" checked /> Remember me</label><a href="#">Forgot password?</a></div><button class="primary-button" type="submit">Sign in <span>↗</span></button></form><p class="demo-note">Demo access is ready. Use any valid email.</p></div>
-    </section>
-    <div id="app-shell" class="app-shell hidden">
-      <aside class="sidebar"><a class="brand" href="#library" data-route="library"><span class="brand-mark">✦</span><span>Prism</span></a><p class="side-label">Workspace</p><nav class="side-nav"><a href="#library" data-route="library"><span>⌂</span> Library</a><a href="#search" data-route="search"><span>⌕</span> Search</a><a href="#datasets" data-route="datasets"><span>▦</span> Datasets</a><a href="#uploads" data-route="uploads"><span>↑</span> Uploads</a></nav><p class="side-label">Manage</p><nav class="side-nav"><a href="#favorites" data-route="favorites"><span>♡</span> Favorites <b class="nav-count" id="favorites-count">0</b></a><a href="#activity" data-route="activity"><span>◷</span> Activity</a><a href="#profile" data-route="profile"><span>◎</span> Profile</a></nav><div class="sidebar-bottom"><div class="mini-user"><span class="user-avatar">AK</span><span><b>Alex Kim</b><small>Design team</small></span></div><button id="logout-button" class="logout-button">Sign out</button></div></aside>
-      <main class="main-content"><header class="app-header"><button id="mobile-menu" class="mobile-menu" aria-label="Open navigation">☰</button><div class="header-search"><span>⌕</span><input id="global-search" type="search" placeholder="Search your library" /></div><div class="header-actions"><button class="notification" aria-label="Notifications">♢<i></i></button><span class="user-avatar">AK</span></div></header><div id="view-root"></div></main>
-    </div>
-    <div id="upload-celebration" class="upload-celebration" aria-hidden="true"></div>
-    <div id="toast" class="toast" role="status"></div>
-    <script src="/app.js"></script>
+  <body class="bg-prism-bg text-prism-textPrimary antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
