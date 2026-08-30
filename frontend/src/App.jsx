@@ -100,7 +100,7 @@ export const App = () => {
       case 'enrichment':
         return <EnrichmentView onShowToast={showToast} />;
       case 'audit':
-        return (initialMockData.currentUser.role === 'Administrator' || initialMockData.currentUser.role === 'admin')
+        return (['admin', 'administrator', 'platform administrator'].includes((initialMockData.currentUser.role || '').toLowerCase()))
           ? <AuditView onShowToast={showToast} />
           : <OverviewView onNavigate={handleNavigate} onOpenDocument={setActiveDocId} />;
       default:
