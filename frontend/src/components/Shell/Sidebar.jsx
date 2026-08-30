@@ -38,7 +38,7 @@ export const Sidebar = ({ currentRoute, onNavigate, onLogout, currentUser }) => 
         <div className="text-[10px] font-semibold text-prism-textMuted uppercase tracking-wider px-2 py-1.5 mt-1">
           Navigation
         </div>
-        {navItems.map((item) => {
+        {navItems.filter((item) => item.id !== 'audit' || currentUser.role === 'Administrator' || currentUser.role === 'admin').map((item) => {
           const Icon = item.icon;
           const isActive = currentRoute === item.id;
           return (

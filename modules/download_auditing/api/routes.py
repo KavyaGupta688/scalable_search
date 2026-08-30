@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from modules.download_auditing.application.service import DownloadAuditingService
 from modules.download_auditing.domain.models import (
@@ -7,6 +7,7 @@ from modules.download_auditing.domain.models import (
     DownloadBatch,
     DownloadRequest,
 )
+from modules.shared.auth import require_roles
 
 router = APIRouter()
 service = DownloadAuditingService()
@@ -26,6 +27,7 @@ def audit_events(
     actor: str | None = Query(default=None, min_length=1, max_length=120),
     download_id: str | None = Query(default=None, min_length=1, max_length=120),
     limit: int = Query(default=50, ge=1, le=200),
+    user: dict[str, str] = Depends(require_roles("admin")),
 ) -> AuditEventsResponse:
     return service.list_audit_events(action=action, actor=actor, entity_id=download_id, limit=limit)
 
@@ -34,6 +36,7 @@ def audit_events(
 def download_status(
     download_id: str,
     actor: str = Query(default="auditor-demo", min_length=1, max_length=120),
+    user: dict[str, str] = Depends(require_roles("admin", "analyst", "viewer")),
 ) -> DownloadBatch:
     try:
         return service.get_download(download_id, actor=actor)

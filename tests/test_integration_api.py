@@ -50,6 +50,7 @@ def test_upload_and_download_audit_flow():
     download = client.post("/downloads/batch", headers=headers, json={"file_ids": ["file-001"]})
     assert download.status_code == 202
     download_id = download.json()["download_id"]
-    events = client.get("/downloads/audit/events", headers=headers)
+    admin_headers = {"Authorization": f"Bearer {token(role='admin')}"}
+    events = client.get("/downloads/audit/events", headers=admin_headers)
     assert events.status_code == 200
     assert any(event["entity_id"] == download_id for event in events.json()["events"])
