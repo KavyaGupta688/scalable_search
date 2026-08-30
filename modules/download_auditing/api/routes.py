@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+import csv, io
 from pydantic import BaseModel, Field
 
 from modules.download_auditing.application.service import DownloadAuditingService
@@ -28,6 +30,18 @@ def create_audit_event(request: AuditEventRequest, user: dict[str, str] = Depend
                                  query=request.query, device=request.device, location=request.location,
                                  metadata=request.metadata)
     return event.model_dump(mode="json")
+
+@router.get("/audit/export.csv")
+def export_audit_csv(user: dict[str, str] = Depends(require_roles("admin"))) -> StreamingResponse:
+    events = service.list_audit_events(limit=200).events
+    stream = io.StringIO()
+    writer = csv.writer(stream)
+    writer.writerow(["event_id", "action", "actor", "entity_type", "entity_id", "occurred_at", "query", "device_code", "location_code"])
+    for event in events:
+        writer.writerow([event.event_id, event.action, event.actor, event.entity_type, event.entity_id,
+                         event.occurred_at.isoformat(), event.query or "", event.device_code or "", event.location_code or ""])
+    return StreamingResponse(iter([stream.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=audit-events.csv"})
 
 
 @router.post("/batch", status_code=202, response_model=DownloadBatch)

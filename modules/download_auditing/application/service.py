@@ -8,7 +8,7 @@ from modules.download_auditing.domain.models import (
     DownloadRequest,
     DownloadStatus,
 )
-from modules.shared.audit import EVENTS, record
+from modules.shared.audit import list_persisted, record
 
 
 class DownloadAuditingService:
@@ -56,7 +56,7 @@ class DownloadAuditingService:
         entity_id: str | None = None,
         limit: int = 50,
     ) -> AuditEventsResponse:
-        events = [AuditEvent.model_validate(event) for event in EVENTS]
+        events = [AuditEvent.model_validate(event) for event in list_persisted()]
         if action is not None:
             events = [event for event in events if event.action == action]
         if actor is not None:
