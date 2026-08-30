@@ -17,4 +17,4 @@ include = ["modules*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["modules"]
+testpaths = ["tests", "modules"]

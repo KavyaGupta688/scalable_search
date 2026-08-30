@@ -22,7 +22,14 @@ class ApiService {
   login({ email, password }) {
     this.authenticated = true;
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('prism-auth', 'true');
+    localStorage.setItem('prism-auth', 'true');
+      fetch('/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, role: 'admin' })
+      }).then(response => response.ok ? response.json() : null)
+        .then(data => data?.access_token && localStorage.setItem('prism-token', data.access_token))
+        .catch(() => {});
     }
     this.logAudit({
       action: 'Admin Sign In',
@@ -36,6 +43,7 @@ class ApiService {
     this.authenticated = false;
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('prism-auth');
+      localStorage.removeItem('prism-token');
     }
     return true;
   }
@@ -48,6 +56,35 @@ class ApiService {
     minConfidence = 0,
     sortBy = 'relevance'
   }) {
+    // Use the integrated FastAPI contract when available; retain demo data as an offline fallback.
+    try {
+      const modeMap = { natural: 'text', keyword: 'text', similar: 'similar' };
+      const headers = {};
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('prism-token') : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch('/search', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query || 'product', mode: modeMap[mode] || 'text', limit: 100 })
+      });
+      if (response.ok) {
+        const payload = await response.json();
+        const results = payload.results.map(item => ({
+          ...item,
+          id: item.file_id,
+          filename: item.name,
+          modality: item.content_type,
+          aiDescription: item.description,
+          confidence: item.score,
+          relevanceScore: item.score,
+          createdAt: item.created_at,
+          source: 'integrated-api'
+        }));
+        return { query, mode, total: results.length, results };
+      }
+    } catch (_) {
+      // Offline/demo mode below keeps the UI usable without infrastructure.
+    }
     await new Promise(r => setTimeout(r, 40));
     const normalizedQuery = query.trim().toLowerCase();
     const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
