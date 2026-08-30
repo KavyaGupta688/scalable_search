@@ -1,0 +1,97 @@
+from typing import List, Optional, Tuple, Dict, Any
+import logging
+from qdrant_client import QdrantClient
+from qdrant_client.http import models as qmodels
+from app.clients.embedding_client import EmbeddingClient
+from app.db.qdrant import get_qdrant_client
+from app.core.config import get_settings
+from app.schemas.filters import SearchFilters
+from app.utils.filters import build_qdrant_filter
+from app.utils.rrf import RankedItem
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+class VectorSearchService:
+    def __init__(self, qdrant_client: QdrantClient, embedding_client: EmbeddingClient):
+        self.qdrant = qdrant_client
+        self.embedder = embedding_client
+        self.collection_name = settings.QDRANT_COLLECTION_NAME
+
+    async def search_by_query(
+        self,
+        query: str,
+        filters: Optional[SearchFilters] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Tuple[List[RankedItem], int]:
+        """
+        Generates query embedding and searches Qdrant vector index with filters.
+        """
+        query_vector = self.embedder.generate_text_embedding(query)
+        return await self.search_by_vector(query_vector, filters=filters, limit=limit, offset=offset)
+
+    async def search_by_vector(
+        self,
+        vector: List[float],
+        filters: Optional[SearchFilters] = None,
+        limit: int = 50,
+        offset: int = 0,
+        exclude_id: Optional[str] = None
+    ) -> Tuple[List[RankedItem], int]:
+        """
+        Searches Qdrant with an explicit vector embedding and filters.
+        """
+        qdrant_filter = build_qdrant_filter(filters)
+        
+        # If exclude_id is provided, exclude matching file_id in payload
+        if exclude_id:
+            must_not = [qmodels.FieldCondition(key="file_id", match=qmodels.MatchValue(value=exclude_id))]
+            if qdrant_filter:
+                qdrant_filter.must_not = (qdrant_filter.must_not or []) + must_not
+            else:
+                qdrant_filter = qmodels.Filter(must_not=must_not)
+
+        try:
+            # Check if query_points is supported (qdrant-client >= 1.10)
+            if hasattr(self.qdrant, "query_points"):
+                response = self.qdrant.query_points(
+                    collection_name=self.collection_name,
+                    query=vector,
+                    query_filter=qdrant_filter,
+                    limit=limit + offset,
+                    with_payload=True
+                )
+                search_result = response.points if hasattr(response, "points") else response
+            else:
+                search_result = self.qdrant.search(
+                    collection_name=self.collection_name,
+                    query_vector=vector,
+                    query_filter=qdrant_filter,
+                    limit=limit + offset,
+                    with_payload=True
+                )
+            
+            # Apply offset
+            sliced_results = search_result[offset : offset + limit]
+            ranked_items: List[RankedItem] = []
+            
+            for rank_idx, hit in enumerate(sliced_results, start=1):
+                payload = getattr(hit, "payload", {}) or {}
+                file_id = payload.get("file_id") if payload else str(getattr(hit, "id", ""))
+                score = float(getattr(hit, "score", 0.0))
+                ranked_items.append(
+                    RankedItem(
+                        id=file_id,
+                        rank=rank_idx,
+                        raw_score=score,
+                        metadata=payload
+                    )
+                )
+
+            total_hits = len(search_result)
+            return ranked_items, total_hits
+
+        except Exception as e:
+            logger.error(f"Error querying Qdrant: {e}", exc_info=True)
+            return [], 0
