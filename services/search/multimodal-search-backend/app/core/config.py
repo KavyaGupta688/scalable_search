@@ -42,7 +42,8 @@ class Settings(BaseSettings):
 
     # Integrations
     DOWNLOAD_AUDITING_SERVICE_URL: str = "http://localhost:8001/api/v1/audit"
-    AUTH_SECRET_KEY: str = "multimodal-search-secure-jwt-secret-key-2025"
+    # Must be injected through the environment; never use a shared default secret.
+    AUTH_SECRET_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
+*.db
+qdrant_storage/
+async_downloads_staging/
+sample_s3_data/
 .venv/
 venv/
 ENV/
