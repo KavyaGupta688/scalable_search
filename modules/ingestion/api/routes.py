@@ -1,7 +1,9 @@
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 router = APIRouter()
+from modules.shared.audit import record
+from modules.shared.auth import current_user
 ALLOWED_DOCUMENT_TYPES = {"application/pdf", "text/plain", "text/csv", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 jobs: dict[str, dict[str, object]] = {}
 
@@ -12,14 +14,15 @@ class IngestionRequest(BaseModel):
 
 
 @router.post("", status_code=202)
-def start_ingestion(request: IngestionRequest) -> dict[str, object]:
+def start_ingestion(request: IngestionRequest, user: dict[str, str] = Depends(current_user)) -> dict[str, object]:
     job = {"ingestion_id": "ingestion-001", "filename": request.filename, "content_type": request.content_type, "status": "queued"}
     jobs["ingestion-001"] = job
+    record("job", user["sub"], "ingestion_job", "ingestion-001", metadata={"status": "queued"})
     return job
 
 
 @router.post("/upload", status_code=202)
-async def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
+async def upload_document(file: UploadFile = File(...), user: dict[str, str] = Depends(current_user)) -> dict[str, object]:
     if file.content_type not in ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(status_code=415, detail="Supported documents are PDF, DOCX, TXT, and CSV")
     content = await file.read()
@@ -35,6 +38,7 @@ async def upload_document(file: UploadFile = File(...)) -> dict[str, object]:
         "pipeline": {"extraction": "queued", "ai_enrichment": "queued", "indexing": "queued"},
     }
     jobs[ingestion_id] = job
+    record("upload", user["sub"], "file", ingestion_id, metadata={"filename": job["filename"], "size_bytes": len(content)})
     return job
 
 

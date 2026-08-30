@@ -26,6 +26,11 @@ def test_rbac_rejects_viewer_from_enrichment():
     assert response.status_code == 403
 
 
+def test_audit_log_is_admin_only():
+    response = client.get("/downloads/audit/events", headers={"Authorization": f"Bearer {token(role='viewer')}"})
+    assert response.status_code == 403
+
+
 def test_enrichment_and_search_flow():
     headers = {"Authorization": f"Bearer {token()}"}
     enriched = client.post("/ai/enrich", headers=headers, json={"file_id": "file-001", "filename": "panel-crack.jpg"})

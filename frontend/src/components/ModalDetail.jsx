@@ -15,6 +15,9 @@ import {
 
 export const ModalDetail = ({ docId, onClose, onShowToast }) => {
   const doc = api.getDocument(docId);
+  React.useEffect(() => {
+    if (doc) api.logEvent({ action: 'preview', entityType: 'file', entityId: doc.id });
+  }, [docId]);
   if (!doc) return null;
 
   const [isSaved, setIsSaved] = useState(api.isDocumentSaved(doc.id));

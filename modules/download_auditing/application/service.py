@@ -8,6 +8,7 @@ from modules.download_auditing.domain.models import (
     DownloadRequest,
     DownloadStatus,
 )
+from modules.shared.audit import EVENTS, record
 
 
 class DownloadAuditingService:
@@ -35,17 +36,8 @@ class DownloadAuditingService:
         )
         self._downloads[download_id] = batch
 
-        self._events.append(
-            AuditEvent(
-                event_id=f"audit-{len(self._events) + 1:04d}",
-                action=AuditAction.BATCH_CREATED,
-                actor=request.requested_by,
-                entity_type="download_batch",
-                entity_id=download_id,
-                occurred_at=now,
-                metadata={"file_count": len(request.file_ids), "file_ids": request.file_ids},
-            )
-        )
+        record(AuditAction.BATCH_CREATED, request.requested_by, "download_batch", download_id,
+               metadata={"file_count": len(request.file_ids), "file_ids": request.file_ids})
         return batch
 
     def get_download(self, download_id: str, actor: str) -> DownloadBatch:
@@ -53,17 +45,7 @@ class DownloadAuditingService:
         if batch is None:
             raise KeyError(download_id)
 
-        self._events.append(
-            AuditEvent(
-                event_id=f"audit-{len(self._events) + 1:04d}",
-                action=AuditAction.BATCH_VIEWED,
-                actor=actor,
-                entity_type="download_batch",
-                entity_id=download_id,
-                occurred_at=datetime.now(UTC),
-                metadata={"status": batch.status},
-            )
-        )
+        record(AuditAction.BATCH_VIEWED, actor, "download_batch", download_id, metadata={"status": batch.status})
         return batch
 
     def list_audit_events(
@@ -74,7 +56,7 @@ class DownloadAuditingService:
         entity_id: str | None = None,
         limit: int = 50,
     ) -> AuditEventsResponse:
-        events = self._events
+        events = [AuditEvent.model_validate(event) for event in EVENTS]
         if action is not None:
             events = [event for event in events if event.action == action]
         if actor is not None:
@@ -83,18 +65,12 @@ class DownloadAuditingService:
             events = [event for event in events if event.entity_id == entity_id]
 
         now = datetime.now(UTC)
-        self._events.append(
-            AuditEvent(
-                event_id=f"audit-{len(self._events) + 1:04d}",
-                action=AuditAction.AUDIT_VIEWED,
-                actor=actor or "auditor-demo",
-                entity_type="audit_log",
-                entity_id="downloads",
-                occurred_at=now,
-                metadata={"result_count": min(limit, len(events))},
-            )
-        )
+        record(AuditAction.AUDIT_VIEWED, actor or "auditor-demo", "audit_log", "platform",
+               metadata={"result_count": min(limit, len(events))})
 
         ordered = sorted(events, key=lambda event: event.occurred_at, reverse=True)
         return AuditEventsResponse(events=ordered[:limit])
+
+    def record_event(self, action: str, actor: str, entity_type: str, entity_id: str, **kwargs: object) -> AuditEvent:
+        return AuditEvent.model_validate(record(action, actor, entity_type, entity_id, **kwargs))
 

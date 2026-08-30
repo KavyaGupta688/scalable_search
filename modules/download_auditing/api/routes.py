@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from modules.download_auditing.application.service import DownloadAuditingService
 from modules.download_auditing.domain.models import (
@@ -11,6 +12,22 @@ from modules.shared.auth import require_roles
 
 router = APIRouter()
 service = DownloadAuditingService()
+
+class AuditEventRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=80)
+    entity_type: str = Field(min_length=1, max_length=120)
+    entity_id: str = Field(min_length=1, max_length=200)
+    query: str | None = Field(default=None, max_length=500)
+    device: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+@router.post("/events", status_code=201)
+def create_audit_event(request: AuditEventRequest, user: dict[str, str] = Depends(require_roles("admin", "analyst"))) -> dict[str, object]:
+    event = service.record_event(request.action, user["sub"], request.entity_type, request.entity_id,
+                                 query=request.query, device=request.device, location=request.location,
+                                 metadata=request.metadata)
+    return event.model_dump(mode="json")
 
 
 @router.post("/batch", status_code=202, response_model=DownloadBatch)

@@ -10,6 +10,15 @@ class DownloadStatus(StrEnum):
 
 
 class AuditAction(StrEnum):
+    SEARCH = "search"
+    PREVIEW = "preview"
+    LOGIN = "login"
+    UPLOAD = "upload"
+    EDIT = "edit"
+    DELETE = "delete"
+    BATCH = "batch"
+    JOB = "job"
+    RETRY = "retry"
     BATCH_CREATED = "download.batch.created"
     BATCH_VIEWED = "download.batch.viewed"
     AUDIT_VIEWED = "download.audit.viewed"
@@ -37,6 +46,9 @@ class AuditEvent(BaseModel):
     entity_type: str = Field(min_length=1, max_length=120)
     entity_id: str = Field(min_length=1, max_length=120)
     occurred_at: datetime
+    query: str | None = None
+    device_code: str | None = None
+    location_code: str | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
 
 

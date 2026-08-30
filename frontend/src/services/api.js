@@ -212,6 +212,17 @@ class ApiService {
     return [...this.auditEvents];
   }
 
+  async logEvent({ action, entityType, entityId, query, metadata = {} }) {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('prism-token') : null;
+    try {
+      await fetch('/downloads/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action, entity_type: entityType, entity_id: entityId, query, metadata })
+      });
+    } catch (_) { /* offline demo mode */ }
+  }
+
   logAudit({ action, target, details, status = 'Success' }) {
     const event = {
       id: `evt-${Date.now()}`,

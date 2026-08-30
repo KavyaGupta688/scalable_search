@@ -1,9 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { DownloadIcon } from '../components/Icons';
 
 export const AuditView = ({ onShowToast }) => {
-  const [events] = useState(api.getAuditEvents());
+  const [events, setEvents] = useState([]);
+
+  useEffect(() => {
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('prism-token') : null;
+    fetch('/downloads/audit/events', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Audit access denied')))
+      .then((payload) => setEvents(payload.events.map((event) => ({
+        id: event.event_id,
+        timestamp: event.occurred_at,
+        user: event.actor,
+        role: 'admin',
+        action: event.action,
+        target: `${event.entity_type}:${event.entity_id}`,
+        status: 'Recorded',
+        complianceCode: event.device_code || event.location_code || 'AUDIT'
+      }))))
+      .catch(() => setEvents(api.getAuditEvents()));
+  }, []);
 
   const handleExportCSV = () => {
     const headers = ["Timestamp", "User", "Role", "Action", "Target", "Status", "Compliance Code"];
