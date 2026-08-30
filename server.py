@@ -5,12 +5,14 @@ from modules.ai_tag_description_generation.api.routes import router as ai_router
 from modules.download_auditing.api.routes import router as download_router
 from modules.ingestion.api.routes import router as ingestion_router
 from modules.searching.api.routes import router as search_router
+from modules.shared.api import router as auth_router
 
 app = FastAPI(title="SMSPRSM Platform API", version="0.1.0")
 app.include_router(search_router, prefix="/search", tags=["search"])
 app.include_router(ingestion_router, prefix="/ingestion", tags=["ingestion"])
 app.include_router(ai_router, prefix="/ai", tags=["ai-enrichment"])
 app.include_router(download_router, prefix="/downloads", tags=["downloads"])
+app.include_router(auth_router)
 
 
 @app.get("/health", tags=["system"])
