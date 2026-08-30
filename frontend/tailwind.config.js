@@ -8,7 +8,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        prism: {
+        nexus: {
           bg: '#0d131a',
           surface: '#131b26',
           elevated: '#1a2433',
@@ -21,6 +21,12 @@ export default {
           brandHover: '#1c34c5',
           brandSubtle: '#1428a020',
           brandText: '#60a5fa',
+          textPrimary: '#f8fafc',
+          textSecondary: '#94a3b8',
+          textMuted: '#64748b',
+          success: '#4ade80',
+          warning: '#f59e0b',
+          danger: '#f87171',
         },
         modality: {
           image: '#38bdf8',

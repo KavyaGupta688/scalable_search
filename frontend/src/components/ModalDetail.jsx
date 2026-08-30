@@ -1,5 +1,8 @@
-import React, { useState } from 'react';
-import { api } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { getFile, postSearchEvent } from '../services/searchApi';
+import { createBatchDownload } from '../services/downloadApi';
+import { SimilarSearchButton } from './SimilarSearchButton';
+import { ModalityBadge } from './ModalityBadge';
 import {
   CloseIcon,
   BookmarkIcon,
@@ -9,39 +12,97 @@ import {
   VideoIcon,
   AudioIcon,
   DocumentIcon,
-  TabularIcon,
-  PlayIcon
+  PlayIcon,
+  SpinnerIcon,
 } from './Icons';
 
-export const ModalDetail = ({ docId, onClose, onShowToast }) => {
-  const doc = api.getDocument(docId);
-  if (!doc) return null;
+/**
+ * ModalDetail — Inspector drawer for viewing file metadata, neural enrichment tags,
+ * vector similarity search, and dispatching download presigned URLs.
+ */
+export const ModalDetail = ({ docId, onClose, showToast }) => {
+  const [doc, setDoc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isSaved, setIsSaved] = useState(false);
 
-  const [isSaved, setIsSaved] = useState(api.isDocumentSaved(doc.id));
+  useEffect(() => {
+    if (!docId) return;
+    setLoading(true);
+
+    // Track FILE_PREVIEW event
+    postSearchEvent('FILE_PREVIEW', { file_id: docId });
+
+    getFile(docId)
+      .then((data) => {
+        setDoc(data);
+        // Check saved status in localStorage
+        const savedList = JSON.parse(localStorage.getItem('nexus_saved_docs') || '[]');
+        setIsSaved(savedList.includes(docId));
+      })
+      .catch((err) => {
+        if (showToast) showToast(`Failed to load file details: ${err.message}`, 'error');
+      })
+      .finally(() => setLoading(false));
+  }, [docId, showToast]);
+
+  if (!docId) return null;
 
   const handleToggleSave = () => {
-    const saved = api.toggleSaveDocument(doc.id);
-    setIsSaved(saved);
-    onShowToast(saved ? 'Saved S3 object to bookmarks' : 'Removed from bookmarks', 'info');
+    const savedList = JSON.parse(localStorage.getItem('nexus_saved_docs') || '[]');
+    let updated;
+    if (savedList.includes(docId)) {
+      updated = savedList.filter((id) => id !== docId);
+      setIsSaved(false);
+      if (showToast) showToast('Removed from saved bookmarks', 'info');
+    } else {
+      updated = [...savedList, docId];
+      setIsSaved(true);
+      if (showToast) showToast('Saved file to bookmarks', 'success');
+    }
+    localStorage.setItem('nexus_saved_docs', JSON.stringify(updated));
   };
 
   const handleCopyUri = () => {
-    if (navigator.clipboard) navigator.clipboard.writeText(doc.sourceUri);
-    onShowToast(`Copied S3 URI: ${doc.sourceUri}`, 'success');
+    const uri = doc?.sourceUri || doc?.endpoint_or_path || `s3://data-lake/${doc?.filename || docId}`;
+    if (navigator.clipboard) navigator.clipboard.writeText(uri);
+    if (showToast) showToast(`Copied URI: ${uri}`, 'success');
   };
 
-  const handleDownload = () => {
-    onShowToast(`Dispatched secure presigned URL for ${doc.filename}`, 'success');
+  const handleDownload = async () => {
+    if (!doc) return;
+    try {
+      if (showToast) showToast(`Generating presigned URL for ${doc.filename || doc.name}...`, 'info');
+      const data = await createBatchDownload([doc.id || docId]);
+      if (data.download_url) {
+        window.open(data.download_url, '_blank', 'noopener');
+      }
+      if (showToast) showToast(`Download ready for ${doc.filename || doc.name}`, 'success');
+    } catch (err) {
+      if (showToast) showToast(err.message || 'Download request failed', 'error');
+    }
   };
 
   const renderMediaViewer = () => {
-    if (doc.modality === 'image') {
+    if (!doc) return null;
+    const modality = (doc.modality || doc.content_type || 'document').toLowerCase();
+
+    if (modality === 'image') {
       return (
-        <div className="h-60 bg-black rounded-sm relative flex items-center justify-center overflow-hidden border border-prism-borderSubtle">
-          <div className="text-center text-prism-textMuted flex flex-col items-center gap-1">
-            <ImageIcon className="w-8 h-8" />
-            <span className="text-[10px] font-mono uppercase tracking-wider">Optical Micrograph Sample</span>
-          </div>
+        <div className="h-56 bg-black rounded-sm relative flex items-center justify-center overflow-hidden border border-nexus-borderSubtle">
+          {doc.thumbnail_url || doc.preview_url ? (
+            <img
+              src={doc.thumbnail_url || doc.preview_url}
+              alt={doc.filename}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="text-center text-nexus-textMuted flex flex-col items-center gap-1.5">
+              <ImageIcon className="w-8 h-8 text-nexus-brandText" />
+              <span className="text-[10px] font-mono uppercase tracking-wider">
+                Optical Micrograph Sample
+              </span>
+            </div>
+          )}
           {doc.detectedObjects && doc.detectedObjects.length > 0 && (
             <div className="absolute top-[20%] left-[55%] w-[30%] h-[35%] border-2 border-red-500 bg-red-500/15 rounded-xs">
               <span className="absolute -top-4 left-0 bg-red-500 text-white text-[9px] font-bold px-1 py-0.5">
@@ -53,37 +114,43 @@ export const ModalDetail = ({ docId, onClose, onShowToast }) => {
       );
     }
 
-    if (doc.modality === 'video') {
+    if (modality === 'video') {
       return (
-        <div className="h-52 bg-black rounded-sm flex flex-col items-center justify-center gap-2 border border-prism-borderSubtle relative">
+        <div className="h-48 bg-black rounded-sm flex flex-col items-center justify-center gap-2 border border-nexus-borderSubtle relative">
           <div className="w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white cursor-pointer transition-colors">
             <PlayIcon className="w-5 h-5 ml-0.5" />
           </div>
-          <span className="text-[11px] text-prism-textMuted font-mono">Line 02 Robotic Feed (1080p 60fps)</span>
+          <span className="text-[11px] text-nexus-textMuted font-mono">
+            Inspection Feed (1080p 60fps)
+          </span>
         </div>
       );
     }
 
-    if (doc.modality === 'audio') {
+    if (modality === 'audio') {
       return (
-        <div className="bg-prism-elevated border border-prism-borderSubtle rounded-sm p-4 flex flex-col gap-3">
+        <div className="bg-nexus-elevated border border-nexus-borderSubtle rounded-sm p-4 flex flex-col gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-prism-brand text-white flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full bg-nexus-brand text-white flex items-center justify-center">
               <PlayIcon className="w-4 h-4 ml-0.5" />
             </div>
             <div>
-              <div className="text-xs font-bold text-prism-textPrimary">Acoustic Vibration Track</div>
-              <div className="font-mono text-[10px] text-prism-textMuted">48 kHz · 24-bit PCM WAV</div>
+              <div className="text-xs font-bold text-nexus-textPrimary">
+                Acoustic Sensor Audio Stream
+              </div>
+              <div className="font-mono text-[10px] text-nexus-textMuted">
+                48 kHz · 24-bit PCM WAV
+              </div>
             </div>
           </div>
-          <div className="h-9 flex items-center gap-0.5">
-            {Array.from({ length: 42 }).map((_, i) => (
+          <div className="h-8 flex items-center gap-0.5">
+            {Array.from({ length: 36 }).map((_, i) => (
               <div
                 key={i}
-                className="flex-1 bg-blue-500 rounded-2xs"
+                className="flex-1 bg-nexus-brandText rounded-2xs"
                 style={{
-                  height: `${Math.sin(i * 0.4) * 14 + 18}px`,
-                  opacity: i < 18 ? 0.9 : 0.3
+                  height: `${Math.sin(i * 0.45) * 12 + 16}px`,
+                  opacity: i < 16 ? 0.9 : 0.35,
                 }}
               />
             ))}
@@ -93,13 +160,13 @@ export const ModalDetail = ({ docId, onClose, onShowToast }) => {
     }
 
     return (
-      <div className="bg-prism-elevated border border-prism-borderSubtle rounded-sm p-4 flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-xs font-bold text-prism-textPrimary">
-          <DocumentIcon className="w-4 h-4 text-prism-brandText" />
-          <span>{doc.filename}</span>
+      <div className="bg-nexus-elevated border border-nexus-borderSubtle rounded-sm p-4 flex flex-col gap-2">
+        <div className="flex items-center gap-2 text-xs font-bold text-nexus-textPrimary">
+          <DocumentIcon className="w-4 h-4 text-nexus-brandText" />
+          <span>{doc.filename || doc.name}</span>
         </div>
-        <div className="font-mono text-[11px] text-prism-textSecondary bg-prism-surface p-2.5 rounded-xs border border-prism-borderSubtle leading-relaxed">
-          {doc.ocrText || 'Extracted document content indexed in multimodal database.'}
+        <div className="font-mono text-[11px] text-nexus-textSecondary bg-nexus-surface p-2.5 rounded-xs border border-nexus-borderSubtle leading-relaxed">
+          {doc.ocrText || doc.ocr_text || doc.description || 'Extracted document content indexed in multimodal database.'}
         </div>
       </div>
     );
@@ -111,110 +178,157 @@ export const ModalDetail = ({ docId, onClose, onShowToast }) => {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-prism-surface border-l border-prism-borderStrong h-full p-6 flex flex-col gap-5 overflow-y-auto drawer-enter"
+        className="w-full max-w-xl bg-nexus-surface border-l border-nexus-borderStrong h-full p-6 flex flex-col gap-5 overflow-y-auto drawer-enter"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-prism-border pb-3.5">
-          <div className="flex flex-col min-w-0 pr-4">
-            <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded-xs bg-blue-500/10 text-blue-400 self-start">
-              {doc.modality}
-            </span>
-            <h2 className="text-sm font-bold text-prism-textPrimary truncate mt-1" title={doc.filename}>
-              {doc.filename}
-            </h2>
+        {loading ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-nexus-textMuted py-16">
+            <SpinnerIcon className="w-6 h-6 animate-spin text-nexus-brandText" />
+            <span className="text-xs">Loading file inspector...</span>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={handleToggleSave}
-              className={`p-1.5 rounded-xs border text-xs flex items-center gap-1 transition-colors ${
-                isSaved
-                  ? 'bg-prism-brandSubtle border-[#23426e] text-prism-brandText'
-                  : 'bg-prism-elevated border-prism-border text-prism-textMuted hover:text-prism-textPrimary'
-              }`}
-            >
-              <BookmarkIcon className="w-3.5 h-3.5" />
-              <span>{isSaved ? 'Saved' : 'Save'}</span>
-            </button>
+        ) : !doc ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-nexus-textMuted py-16">
+            <span className="text-xs">File details could not be retrieved.</span>
             <button
               onClick={onClose}
-              className="p-1.5 text-prism-textMuted hover:text-prism-textPrimary"
+              className="mt-2 text-xs px-3 py-1.5 bg-nexus-elevated border border-nexus-border rounded-sm text-nexus-textPrimary"
             >
-              <CloseIcon className="w-4 h-4" />
+              Close
             </button>
           </div>
-        </div>
+        ) : (
+          <>
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-nexus-border pb-3.5">
+              <div className="flex flex-col min-w-0 pr-4">
+                <ModalityBadge type={doc.modality || doc.content_type} />
+                <h2
+                  className="text-sm font-bold text-nexus-textPrimary truncate mt-1.5"
+                  title={doc.filename || doc.name}
+                >
+                  {doc.filename || doc.name}
+                </h2>
+              </div>
 
-        {/* Media Preview Box */}
-        {renderMediaViewer()}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleToggleSave}
+                  className={`p-1.5 rounded-xs border text-xs flex items-center gap-1 transition-colors ${
+                    isSaved
+                      ? 'bg-nexus-brandSubtle border-[#23426e] text-nexus-brandText'
+                      : 'bg-nexus-elevated border-nexus-border text-nexus-textMuted hover:text-nexus-textPrimary'
+                  }`}
+                >
+                  <BookmarkIcon className="w-3.5 h-3.5" />
+                  <span>{isSaved ? 'Saved' : 'Save'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 text-nexus-textMuted hover:text-nexus-textPrimary"
+                >
+                  <CloseIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
 
-        {/* AI Summary */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-bold text-prism-textMuted uppercase tracking-wider font-mono">
-            AI Summary & Findings
-          </span>
-          <p className="text-xs text-prism-textPrimary bg-prism-elevated p-3 rounded-xs border border-prism-borderSubtle leading-relaxed">
-            {doc.aiDescription}
-          </p>
-        </div>
+            {/* Media Viewer */}
+            {renderMediaViewer()}
 
-        {/* AI Tags */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-bold text-prism-textMuted uppercase tracking-wider font-mono">
-            AI Tags
-          </span>
-          <div className="flex flex-wrap gap-1.5">
-            {doc.tags.map((t) => (
-              <span
-                key={t}
-                className="text-[11px] px-2 py-0.5 bg-prism-elevated border border-prism-border rounded-xs text-prism-brandText font-medium"
-              >
-                {t}
+            {/* AI Summary */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+                AI Summary & Findings
               </span>
-            ))}
-          </div>
-        </div>
+              <p className="text-xs text-nexus-textPrimary bg-nexus-elevated p-3 rounded-xs border border-nexus-borderSubtle leading-relaxed">
+                {doc.aiDescription || doc.description || 'Neural classification completed. Modality vector extracted and indexed in Qdrant cluster.'}
+              </p>
+            </div>
 
-        {/* Technical Specs List */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-bold text-prism-textMuted uppercase tracking-wider font-mono">
-            S3 Technical Details
-          </span>
-          <div className="grid grid-cols-[130px_1fr] gap-2.5 text-xs bg-prism-elevated p-3.5 rounded-sm border border-prism-borderSubtle">
-            <span className="text-prism-textMuted">Document ID:</span>
-            <span className="font-mono text-prism-brandText truncate">{doc.id}</span>
-            <span className="text-prism-textMuted">S3 Location:</span>
-            <span className="font-mono text-prism-textPrimary break-all">{doc.sourceUri}</span>
-            <span className="text-prism-textMuted">S3 Bucket:</span>
-            <span className="text-prism-textPrimary">{doc.source}</span>
-            <span className="text-prism-textMuted">SHA-256 Checksum:</span>
-            <span className="font-mono text-prism-textMuted text-[10px] truncate">{doc.checksum}</span>
-            <span className="text-prism-textMuted">File Size:</span>
-            <span className="font-mono text-prism-textPrimary">{doc.fileSize}</span>
-            <span className="text-prism-textMuted">AI Confidence:</span>
-            <span className="text-emerald-400 font-semibold">{Math.round(doc.confidence * 100)}%</span>
-            <span className="text-prism-textMuted">Governance:</span>
-            <span className="text-prism-textPrimary">{doc.governance}</span>
-          </div>
-        </div>
+            {/* AI Tags */}
+            {doc.tags && doc.tags.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+                  AI Tags
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {doc.tags.map((t) => (
+                    <span
+                      key={t}
+                      className="text-[11px] px-2 py-0.5 bg-nexus-elevated border border-nexus-border rounded-xs text-nexus-brandText font-medium"
+                    >
+                      #{t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
-        {/* Footer Actions */}
-        <div className="mt-auto flex items-center justify-end gap-2.5 border-t border-prism-border pt-4">
-          <button
-            onClick={handleCopyUri}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-prism-elevated hover:bg-prism-hover border border-prism-border rounded-sm text-xs font-semibold text-prism-textPrimary transition-colors"
-          >
-            <CopyIcon className="w-3.5 h-3.5" />
-            <span>Copy S3 URI</span>
-          </button>
-          <button
-            onClick={handleDownload}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-prism-brand hover:bg-prism-brandHover text-white rounded-sm text-xs font-semibold transition-colors"
-          >
-            <DownloadIcon className="w-3.5 h-3.5" />
-            <span>Download S3 Object</span>
-          </button>
-        </div>
+            {/* Technical Metadata */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+                Storage & Technical Details
+              </span>
+              <div className="grid grid-cols-[130px_1fr] gap-2 text-xs bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
+                <span className="text-nexus-textMuted">File ID:</span>
+                <span className="font-mono text-nexus-brandText truncate">{doc.id || docId}</span>
+
+                <span className="text-nexus-textMuted">Storage Location:</span>
+                <span className="font-mono text-nexus-textPrimary break-all">
+                  {doc.sourceUri || doc.endpoint_or_path || `s3://data-fabric/${doc.filename || doc.name}`}
+                </span>
+
+                <span className="text-nexus-textMuted">Data Source:</span>
+                <span className="text-nexus-textPrimary">{doc.source || 'S3 Production Bucket'}</span>
+
+                {doc.checksum && (
+                  <>
+                    <span className="text-nexus-textMuted">SHA-256:</span>
+                    <span className="font-mono text-nexus-textMuted text-[10px] truncate">{doc.checksum}</span>
+                  </>
+                )}
+
+                <span className="text-nexus-textMuted">File Size:</span>
+                <span className="font-mono text-nexus-textPrimary">{doc.fileSize || '3.4 MB'}</span>
+
+                {(doc.confidence || doc.score) != null && (
+                  <>
+                    <span className="text-nexus-textMuted">Confidence:</span>
+                    <span className="text-[#4ade80] font-semibold font-mono">
+                      {Math.round((doc.confidence || doc.score) * 100)}%
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Similar Vector Search Feature */}
+            <div className="pt-1">
+              <SimilarSearchButton fileId={doc.id || docId} />
+            </div>
+
+            {/* Actions */}
+            <div className="mt-auto flex items-center justify-end gap-2.5 border-t border-nexus-border pt-4">
+              <button
+                type="button"
+                onClick={handleCopyUri}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border rounded-sm text-xs font-semibold text-nexus-textPrimary transition-colors"
+              >
+                <CopyIcon className="w-3.5 h-3.5" />
+                <span>Copy S3 URI</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover text-white rounded-sm text-xs font-semibold transition-colors"
+              >
+                <DownloadIcon className="w-3.5 h-3.5" />
+                <span>Download Object</span>
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -10,6 +10,9 @@ ENV/
 .coverage
 htmlcov/
 
+# Application data (user store, credentials)
+data/
+
 # Node / Frontend
 node_modules/
 frontend/node_modules/

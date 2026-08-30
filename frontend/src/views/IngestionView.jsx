@@ -1,66 +1,77 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
+import { StatusBadge } from '../components/StatusBadge';
 import { RefreshIcon, CloseIcon } from '../components/Icons';
 
-export const IngestionView = ({ onShowToast }) => {
-  const [jobs] = useState(api.getIngestionJobs());
+export const IngestionView = ({ showToast }) => {
+  const [jobs, setJobs] = useState(api.getIngestionJobs());
   const [selectedJob, setSelectedJob] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setJobs(api.getIngestionJobs());
+    await new Promise((r) => setTimeout(r, 400));
+    setRefreshing(false);
+    if (showToast) showToast('Refreshed ingestion telemetry stream status', 'info');
+  };
 
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-bold font-mono tracking-widest text-prism-brandText uppercase">
-            Object Storage Connectors
+          <span className="text-[10px] font-bold font-mono tracking-widest text-nexus-brandText uppercase">
+            Data Pipelines & Streamers
           </span>
-          <h1 className="text-xl font-bold text-prism-textPrimary tracking-tight">S3 Ingestion Monitor</h1>
-          <p className="text-xs text-prism-textMuted mt-0.5">
-            Automated event streaming, MIME validation, SHA-256 deduplication, and UUID v7 stamping from connected Amazon S3 buckets.
+          <h1 className="text-xl font-bold text-nexus-textPrimary tracking-tight">Ingestion Monitor</h1>
+          <p className="text-xs text-nexus-textMuted mt-0.5">
+            Automated event streaming, MIME validation, SHA-256 deduplication, and UUID v7 stamping from connected storage buckets.
           </p>
         </div>
         <button
-          onClick={() => onShowToast('Refreshed S3 ingestion telemetry', 'info')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-prism-surface hover:bg-prism-hover border border-prism-border text-prism-textPrimary text-xs font-semibold rounded-sm transition-colors self-start"
+          type="button"
+          onClick={handleRefresh}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-nexus-surface hover:bg-nexus-hover border border-nexus-border text-nexus-textPrimary text-xs font-semibold rounded-sm transition-colors self-start"
         >
-          <RefreshIcon className="w-3.5 h-3.5" />
+          <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           <span>Refresh Streams</span>
         </button>
       </div>
 
       {/* 3 Telemetry Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-prism-surface border border-prism-border p-4 rounded-sm flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold text-prism-textMuted">Active S3 Ingest Speed</span>
-          <span className="text-2xl font-bold text-prism-brandText font-mono">31.2 GB/s</span>
-          <span className="text-[10px] text-prism-textMuted">Continuous S3 EventBridge & SQS feeds</span>
+        <div className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold text-nexus-textMuted">Active Ingest Speed</span>
+          <span className="text-2xl font-bold text-nexus-brandText font-mono">31.2 GB/s</span>
+          <span className="text-[10px] text-nexus-textMuted">Continuous Event & Kafka feeds</span>
         </div>
 
-        <div className="bg-prism-surface border border-prism-border p-4 rounded-sm flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold text-prism-textMuted">Validated Today</span>
-          <span className="text-2xl font-bold text-prism-textPrimary font-mono">3,561,454</span>
-          <span className="text-[10px] text-emerald-400">99.1% checksum & MIME pass rate</span>
+        <div className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold text-nexus-textMuted">Validated Today</span>
+          <span className="text-2xl font-bold text-nexus-textPrimary font-mono">3,561,454</span>
+          <span className="text-[10px] text-[#4ade80]">99.1% checksum & MIME pass rate</span>
         </div>
 
-        <div className="bg-prism-surface border border-prism-border p-4 rounded-sm flex flex-col gap-1.5">
-          <span className="text-[11px] font-semibold text-prism-textMuted">Deduplicated Objects</span>
+        <div className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-1.5">
+          <span className="text-[11px] font-semibold text-nexus-textMuted">Deduplicated Objects</span>
           <span className="text-2xl font-bold text-amber-400 font-mono">31,566</span>
-          <span className="text-[10px] text-prism-textMuted">Avoided duplicate AI re-indexing</span>
+          <span className="text-[10px] text-nexus-textMuted">Avoided duplicate neural re-indexing</span>
         </div>
       </div>
 
       {/* Ingestion Streams Table */}
-      <div className="bg-prism-surface border border-prism-border rounded-sm flex flex-col">
-        <div className="p-4 border-b border-prism-border flex items-center justify-between">
-          <h3 className="text-xs font-bold text-prism-textPrimary">Active S3 Ingestion Streams</h3>
-          <span className="font-mono text-[11px] text-prism-textMuted">{jobs.length} Active Streams</span>
+      <div className="bg-nexus-surface border border-nexus-border rounded-sm flex flex-col">
+        <div className="p-4 border-b border-nexus-border flex items-center justify-between">
+          <h3 className="text-xs font-bold text-nexus-textPrimary">Active Ingestion Streams</h3>
+          <span className="font-mono text-[11px] text-nexus-textMuted">{jobs.length} Active Streams</span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-prism-border bg-prism-elevated text-prism-textMuted font-mono text-[10px] uppercase">
-                <th className="p-3">Stream & S3 Bucket</th>
+              <tr className="border-b border-nexus-border bg-nexus-elevated text-nexus-textMuted font-mono text-[10px] uppercase">
+                <th className="p-3">Stream & Storage Bucket</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Throughput</th>
                 <th className="p-3">Volume</th>
@@ -69,57 +80,46 @@ export const IngestionView = ({ onShowToast }) => {
                 <th className="p-3 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-prism-borderSubtle">
+            <tbody className="divide-y divide-nexus-borderSubtle">
               {jobs.map((job) => (
                 <tr
                   key={job.id}
                   onClick={() => setSelectedJob(job)}
-                  className="hover:bg-prism-hover cursor-pointer transition-colors"
+                  className="hover:bg-nexus-hover cursor-pointer transition-colors"
                 >
                   <td className="p-3">
-                    <strong className="text-prism-textPrimary block">{job.name}</strong>
-                    <span className="font-mono text-[10px] text-prism-textMuted">{job.bucket}</span>
+                    <strong className="text-nexus-textPrimary block">{job.name}</strong>
+                    <span className="font-mono text-[10px] text-nexus-textMuted">{job.bucket}</span>
                   </td>
                   <td className="p-3">
-                    <span
-                      className={`text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded-xs ${
-                        job.status === 'Completed'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : 'bg-blue-500/10 text-blue-400'
-                      }`}
-                    >
-                      {job.status}
-                    </span>
+                    <StatusBadge status={job.status} size="sm" />
                   </td>
-                  <td className="p-3 font-mono font-bold text-prism-brandText">{job.currentThroughput}</td>
-                  <td className="p-3 font-mono text-prism-textSecondary">{job.dataVolume}</td>
-                  <td className="p-3 font-mono text-prism-textSecondary">
+                  <td className="p-3 font-mono font-bold text-nexus-brandText">{job.currentThroughput}</td>
+                  <td className="p-3 font-mono text-nexus-textSecondary">{job.dataVolume}</td>
+                  <td className="p-3 font-mono text-nexus-textSecondary">
                     {job.validatedCount.toLocaleString()} / {job.discoveredCount.toLocaleString()}
                   </td>
                   <td className="p-3 min-w-[140px]">
                     <div className="flex items-center gap-2">
-                      <div className="h-1.5 flex-1 bg-prism-elevated rounded-full overflow-hidden">
+                      <div className="flex-1 bg-nexus-elevated h-1.5 rounded-full overflow-hidden border border-nexus-borderSubtle">
                         <div
-                          className={`h-full rounded-full ${
-                            job.status === 'Completed' ? 'bg-emerald-500' : 'bg-blue-500'
-                          }`}
-                          style={{ width: job.status === 'Completed' ? '100%' : '88%' }}
+                          className="bg-nexus-brand h-full rounded-full transition-all duration-300"
+                          style={{ width: `${job.progress}%` }}
                         />
                       </div>
-                      <span className="font-mono text-[10px] text-prism-textMuted">
-                        {job.status === 'Completed' ? '100%' : '88%'}
-                      </span>
+                      <span className="font-mono text-[10px] text-nexus-textMuted">{job.progress}%</span>
                     </div>
                   </td>
                   <td className="p-3 text-right">
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setSelectedJob(job);
                       }}
-                      className="px-2.5 py-1 bg-prism-elevated hover:bg-prism-hover border border-prism-borderSubtle text-prism-textSecondary hover:text-prism-textPrimary rounded-xs text-[11px] transition-colors"
+                      className="text-[11px] font-medium text-nexus-brandText hover:underline"
                     >
-                      Inspect
+                      Details
                     </button>
                   </td>
                 </tr>
@@ -129,94 +129,81 @@ export const IngestionView = ({ onShowToast }) => {
         </div>
       </div>
 
-      {/* Ingestion Stream Inspection Modal */}
+      {/* Stream Detail Drawer */}
       {selectedJob && (
         <div
-          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4 backdrop-enter"
+          className="fixed inset-0 z-50 bg-black/75 flex justify-end backdrop-enter"
           onClick={() => setSelectedJob(null)}
         >
           <div
-            className="w-full max-w-lg bg-prism-surface border border-prism-borderStrong rounded-sm p-5 flex flex-col gap-4 modal-enter"
+            className="w-full max-w-lg bg-nexus-surface border-l border-nexus-borderStrong h-full p-6 flex flex-col gap-5 overflow-y-auto drawer-enter"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-start justify-between border-b border-prism-border pb-3">
+            <div className="flex items-start justify-between border-b border-nexus-border pb-3">
               <div>
-                <h3 className="text-sm font-bold text-prism-textPrimary">{selectedJob.name}</h3>
-                <span className="text-xs text-prism-textMuted font-mono">S3 Bucket: {selectedJob.bucket}</span>
+                <h3 className="text-sm font-bold text-nexus-textPrimary">{selectedJob.name}</h3>
+                <span className="text-xs text-nexus-textMuted font-mono">{selectedJob.bucket}</span>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedJob(null)}
-                className="p-1 text-prism-textMuted hover:text-prism-textPrimary"
+                className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary"
               >
                 <CloseIcon className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 bg-prism-elevated p-3.5 rounded-sm border border-prism-borderSubtle text-xs">
-              <div>
-                <span className="text-prism-textMuted block text-[10px] uppercase">Status:</span>
-                <span className="text-emerald-400 font-semibold">{selectedJob.status}</span>
-              </div>
-              <div>
-                <span className="text-prism-textMuted block text-[10px] uppercase">Current Speed:</span>
-                <span className="font-mono font-bold text-prism-brandText">{selectedJob.currentThroughput}</span>
-              </div>
-              <div>
-                <span className="text-prism-textMuted block text-[10px] uppercase">Data Volume:</span>
-                <span className="font-mono text-prism-textPrimary">{selectedJob.dataVolume}</span>
-              </div>
-              <div>
-                <span className="text-prism-textMuted block text-[10px] uppercase">Validated Objects:</span>
-                <span className="font-mono text-prism-textPrimary">
-                  {selectedJob.validatedCount.toLocaleString()} / {selectedJob.discoveredCount.toLocaleString()}
-                </span>
+            <div className="flex flex-col gap-3">
+              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+                Stream Pipeline Configuration
+              </span>
+              <div className="grid grid-cols-[130px_1fr] gap-2.5 text-xs bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
+                <span className="text-nexus-textMuted">Job ID:</span>
+                <span className="font-mono text-nexus-brandText truncate">{selectedJob.id}</span>
+                <span className="text-nexus-textMuted">Status:</span>
+                <StatusBadge status={selectedJob.status} size="sm" />
+                <span className="text-nexus-textMuted">Live Speed:</span>
+                <span className="font-mono text-nexus-textPrimary">{selectedJob.currentThroughput}</span>
+                <span className="text-nexus-textMuted">Data Volume:</span>
+                <span className="font-mono text-nexus-textPrimary">{selectedJob.dataVolume}</span>
+                <span className="text-nexus-textMuted">Target Prefix:</span>
+                <span className="font-mono text-[11px] text-nexus-textSecondary">{selectedJob.prefix || '/'}</span>
+                <span className="text-nexus-textMuted">Worker Tasks:</span>
+                <span className="text-nexus-textPrimary">{selectedJob.activeWorkers || '16 Parallel Celery Workers'}</span>
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-bold text-prism-textMuted uppercase tracking-wider font-mono">
-                Ingestion Stages
+              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+                Pipeline Progression Breakdown
               </span>
-              <div className="flex flex-col gap-2">
-                {selectedJob.stages.map((stg) => (
-                  <div
-                    key={stg.name}
-                    className="flex items-center justify-between text-xs bg-prism-elevated p-2.5 rounded-xs border border-prism-borderSubtle"
-                  >
-                    <span className="font-semibold text-prism-textPrimary">{stg.name}</span>
-                    <div className="flex items-center gap-2 w-44">
-                      <div className="h-1.5 flex-1 bg-prism-surface rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${
-                            stg.status === 'completed' ? 'bg-emerald-500' : 'bg-blue-500'
-                          }`}
-                          style={{ width: `${stg.progress}%` }}
-                        />
-                      </div>
-                      <span className="font-mono text-[10px] text-prism-textMuted w-8 text-right">
-                        {stg.progress}%
-                      </span>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex flex-col gap-2 bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle text-xs">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-nexus-textSecondary">1. S3 Enumeration & Checksum Validation</span>
+                  <span className="text-[#4ade80] font-mono font-semibold">100%</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-nexus-textSecondary">2. Content Extraction & OCR Analysis</span>
+                  <span className="text-[#4ade80] font-mono font-semibold">{selectedJob.progress}%</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-nexus-textSecondary">3. Neural Embeddings Generation (1536-d)</span>
+                  <span className="text-nexus-brandText font-mono font-semibold">
+                    {Math.max(0, selectedJob.progress - 12)}%
+                  </span>
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-prism-border">
+            <div className="mt-auto flex items-center justify-end gap-2.5 border-t border-nexus-border pt-4">
               <button
-                onClick={() => setSelectedJob(null)}
-                className="px-3 py-1.5 text-xs text-prism-textMuted hover:text-prism-textPrimary"
-              >
-                Close
-              </button>
-              <button
+                type="button"
                 onClick={() => {
-                  onShowToast(`Triggered S3 checksum validation for ${selectedJob.bucket}`, 'info');
-                  setSelectedJob(null);
+                  if (showToast) showToast(`Triggered checksum validation for ${selectedJob.bucket}`, 'info');
                 }}
-                className="px-3.5 py-1.5 bg-prism-brand hover:bg-prism-brandHover text-white text-xs font-semibold rounded-sm transition-colors"
+                className="px-3.5 py-1.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border rounded-sm text-xs font-semibold text-nexus-textPrimary transition-colors"
               >
-                Trigger Verification
+                Validate Checksums
               </button>
             </div>
           </div>
