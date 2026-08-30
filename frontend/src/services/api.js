@@ -78,7 +78,10 @@ class ApiService {
           confidence: item.score,
           relevanceScore: item.score,
           createdAt: item.created_at,
-          source: 'integrated-api'
+          source: 'integrated-api',
+          sourceUri: `s3://integrated-api/${item.name}`,
+          fileSizeBytes: item.file_size_bytes || 0,
+          tags: item.tags || []
         }));
         return { query, mode, total: results.length, results };
       }
