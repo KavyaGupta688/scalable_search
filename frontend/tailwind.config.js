@@ -9,18 +9,10 @@ export default {
     extend: {
       colors: {
         prism: {
-          bg: '#0d131a',
-          surface: '#131b26',
-          elevated: '#1a2433',
-          hover: '#223044',
-          input: '#0a0f15',
-          border: '#1f2937',
-          borderStrong: '#2b3b52',
-          borderSubtle: '#192330',
-          brand: '#1428a0',
-          brandHover: '#1c34c5',
-          brandSubtle: '#1428a020',
-          brandText: '#60a5fa',
+          bg: 'var(--bg-app)', surface: 'var(--bg-surface)', elevated: 'var(--bg-surface-elevated)',
+          hover: 'var(--bg-surface-hover)', input: 'var(--bg-input)', border: 'var(--border-default)',
+          borderStrong: 'var(--border-strong)', borderSubtle: 'var(--border-subtle)', brand: 'var(--brand-primary)',
+          brandHover: 'var(--brand-primary-hover)', brandSubtle: 'var(--brand-primary-subtle)', brandText: 'var(--brand-primary-text)',
         },
         modality: {
           image: '#38bdf8',

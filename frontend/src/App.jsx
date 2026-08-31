@@ -19,6 +19,12 @@ export const App = () => {
   const [currentRoute, setCurrentRoute] = useState('overview');
   const [activeDocId, setActiveDocId] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [theme, setTheme] = useState(() => localStorage.getItem('prism-theme') || 'dark');
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
+    localStorage.setItem('prism-theme', theme);
+  }, [theme]);
 
   // Hash-based routing synchronization
   useEffect(() => {
@@ -123,6 +129,8 @@ export const App = () => {
         <Header
           onOpenSearch={() => handleNavigate('search')}
           onLogout={handleLogout}
+          theme={theme}
+          onToggleTheme={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')}
         />
         <main key={currentRoute} className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto page-transition">
           {renderActiveView()}

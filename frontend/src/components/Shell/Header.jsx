@@ -1,10 +1,17 @@
 import React from 'react';
 import { SearchIcon, LogoutIcon } from '../Icons';
 
-export const Header = ({ onOpenSearch, onLogout }) => {
+export const Header = ({ onOpenSearch, onLogout, theme, onToggleTheme }) => {
   return (
     <header className="h-13 bg-prism-surface border-b border-prism-border flex items-center justify-between px-6 sticky top-0 z-20">
       <div className="flex items-center gap-3">
+        <button
+          onClick={onToggleTheme}
+          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          className="px-2.5 py-1.5 text-xs text-prism-textSecondary hover:text-prism-textPrimary hover:bg-prism-hover rounded-sm border border-prism-border"
+        >
+          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+        </button>
         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold rounded-sm bg-[#122a1e] border border-[#1f5739] text-[#4ade80] uppercase tracking-wider">
           <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80]" />
           <span>PRD-AP-EAST-1</span>
