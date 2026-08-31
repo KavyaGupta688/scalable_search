@@ -1,1 +1,1 @@
-"""AI tag and description generation module."""
+"""AI Tagging & Description Generation Module."""
