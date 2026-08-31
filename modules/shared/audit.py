@@ -5,6 +5,9 @@ import hashlib, os
 import json
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
+from dotenv import load_dotenv
+
+load_dotenv()
 
 EVENTS: list[dict[str, object]] = []
 
