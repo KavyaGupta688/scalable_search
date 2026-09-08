@@ -270,15 +270,15 @@ class FileRepository:
         pii_rows = (await self.db.execute(pii_stmt)).all()
         top_tags_rows = await self._compute_top_tags(filters, query, limit=15)
 
-        ai_label = {True: "AI-Generated", False: "Human / Authentic"}
-        pii_label = {True: "PII Detected", False: "No PII (Safe)"}
+        ai_label = {True: "AI-Generated", False: "Human / Authentic", None: "Unknown"}
+        pii_label = {True: "PII Detected", False: "No PII (Safe)", None: "Unknown"}
 
         return FacetsResponse(
             file_types=[FacetCountItem(value=v, count=c) for v, c in file_types_rows],
             categories=[FacetCountItem(value=v, count=c) for v, c in categories_rows],
             datasets=[FacetCountItem(value=v, count=c) for v, c in datasets_rows],
-            ai_generated=[FacetCountItem(value=ai_label[bool(v)], count=c) for v, c in ai_rows if c > 0],
-            pii_detected=[FacetCountItem(value=pii_label[bool(v)], count=c) for v, c in pii_rows if c > 0],
+            ai_generated=[FacetCountItem(value=ai_label[v], count=c) for v, c in ai_rows if c > 0],
+            pii_detected=[FacetCountItem(value=pii_label[v], count=c) for v, c in pii_rows if c > 0],
             top_tags=[FacetCountItem(value=v, count=c) for v, c in top_tags_rows],
             total_matches=total
         )
@@ -356,7 +356,7 @@ class FileRepository:
             if settings.is_postgres:
                 raw_sql = f"""
                     SELECT tag, COUNT(*) AS cnt FROM (
-                        SELECT json_array_elements_text(tags) AS tag
+                        SELECT json_array_elements_text(COALESCE(tags, '[]'::json)) AS tag
                         FROM file_metadata
                         WHERE {where_sql}
                     ) t

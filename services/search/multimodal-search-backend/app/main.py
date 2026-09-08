@@ -87,16 +87,18 @@ async def readiness_check():
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         checks["postgres" if settings.is_postgres else "database"] = "ok"
-    except Exception as e:
+    except Exception:
         healthy = False
-        checks["database"] = f"unavailable: {e}"
+        logger.exception("Readiness database check failed")
+        checks["database"] = "unavailable"
 
     try:
         await asyncio.to_thread(get_qdrant_client().get_collections)
         checks["qdrant"] = "ok"
-    except Exception as e:
+    except Exception:
         healthy = False
-        checks["qdrant"] = f"unavailable: {e}"
+        logger.exception("Readiness qdrant check failed")
+        checks["qdrant"] = "unavailable"
 
     status_code = 200 if healthy else 503
     return JSONResponse(status_code=status_code, content={"status": "ready" if healthy else "not_ready", "checks": checks})
