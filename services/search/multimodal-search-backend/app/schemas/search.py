@@ -2,12 +2,15 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.schemas.filters import SearchFilters, FacetsResponse
+from app.core.config import get_settings
+
+settings = get_settings()
 
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Keyword or natural language query string")
     filters: Optional[SearchFilters] = None
     search_mode: str = Field(default="hybrid", description="hybrid, vector, text")
-    limit: int = Field(default=20, ge=1, le=100)
+    limit: int = Field(default=settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT)
     offset: int = Field(default=0, ge=0)
     rrf_k: Optional[int] = Field(default=60, description="RRF smoothing constant k")
     keyword_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
@@ -16,7 +19,7 @@ class SearchRequest(BaseModel):
 class VectorSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Natural language search query to convert to embedding")
     filters: Optional[SearchFilters] = None
-    limit: int = Field(default=20, ge=1, le=100)
+    limit: int = Field(default=settings.DEFAULT_SEARCH_LIMIT, ge=1, le=settings.MAX_SEARCH_LIMIT)
     offset: int = Field(default=0, ge=0)
 
 class SimilarSearchRequest(BaseModel):
@@ -68,6 +71,12 @@ class SearchResponse(BaseModel):
     execution_time_ms: float
     results: List[SearchResultItem]
     facets: Optional[FacetsResponse] = None
+    suggested_filters: Optional[SearchFilters] = Field(
+        default=None,
+        description="Type/category filters guessed from query wording (e.g. 'satellite' -> category=Vehicles). "
+                     "Never applied to this search's own results - offer it to the user as an optional filter "
+                     "to apply themselves, e.g. a dismissible chip in the UI."
+    )
 
 class SuggestionItem(BaseModel):
     text: str

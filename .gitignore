@@ -1,18 +1,33 @@
+# Environment / secrets
+.env
+.env.*
+.env.local
+.env.*.local
+*.env
+*.local
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyo
+*.pyd
 *.egg-info/
-*.db
-qdrant_storage/
-async_downloads_staging/
-sample_s3_data/
+.pytest_cache/
 .venv/
 venv/
 ENV/
-.pytest_cache/
 .coverage
 htmlcov/
+
+# Local databases / vector storage (generated data, not source)
+*.db
+*.sqlite
+*.sqlite3
+qdrant_storage/
+async_downloads_staging/
+sample_s3_data/
 
 # Node / Frontend
 node_modules/
@@ -25,12 +40,6 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Environment and Local Config
-.env
-.env.local
-.env.*.local
-*.local
-
 # IDEs & OS
 .vscode/
 .idea/
@@ -38,6 +47,3 @@ yarn-error.log*
 *.swo
 .DS_Store
 Thumbs.db
-.env
-.env.*
-!.env.example

@@ -1,4 +1,5 @@
 from typing import List, Optional, Tuple
+import asyncio
 import logging
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
@@ -38,9 +39,12 @@ class SimilarSearchService:
             raise ResourceNotFoundException("File", file_id)
 
         vector = None
-        # Try finding vector in Qdrant by payload match
+        # Try finding vector in Qdrant by payload match. QdrantClient is
+        # synchronous - run it off the event loop so a slow scroll doesn't
+        # stall every other concurrent request.
         try:
-            points = self.qdrant.scroll(
+            points = await asyncio.to_thread(
+                self.qdrant.scroll,
                 collection_name=self.collection_name,
                 scroll_filter=qmodels.Filter(
                     must=[qmodels.FieldCondition(key="file_id", match=qmodels.MatchValue(value=file_id))]

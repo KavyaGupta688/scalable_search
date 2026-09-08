@@ -51,8 +51,14 @@ class SearchService:
         start_time = time.perf_counter()
         
         # 1. Query Processing & Normalization
+        # active_filters is exactly what the caller asked for - never
+        # silently widened/narrowed by guessed intent. Any detected intent
+        # (e.g. "satellite" -> category=Vehicles) comes back separately as
+        # suggested_filters for the UI to offer, not something that changes
+        # this search's actual results.
         processed = self.query_processor.process_query(req.query, req.filters)
-        active_filters = req.filters or processed.get("filters")
+        active_filters = req.filters
+        suggested_filters = processed.get("suggested_filters")
         
         # 2. Mode Routing (Hybrid RRF / Vector / Text)
         mode = req.search_mode.lower()
@@ -140,5 +146,6 @@ class SearchService:
             offset=req.offset,
             execution_time_ms=round(elapsed_ms, 2),
             results=hydrated_results,
-            facets=facets
+            facets=facets,
+            suggested_filters=suggested_filters
         )

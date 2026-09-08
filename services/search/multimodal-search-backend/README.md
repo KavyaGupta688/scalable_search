@@ -51,3 +51,45 @@ Interactive OpenAPI docs will be available at: `http://localhost:8000/docs`
 ```bash
 python -m pytest app/tests/ -v
 ```
+
+## Production Readiness
+
+The default `.env` (SQLite + embedded Qdrant + in-memory cache fallback) is a
+**local development configuration only**. It does not scale to the platform's
+target of 500TB+ / millions of files and 3,000+ concurrent users with
+sub-second search. Setting `APP_ENV=production` turns on hard guards so the
+app fails fast at startup instead of silently running an unsupported
+topology in production:
+
+| Guard | Behavior |
+|---|---|
+| `DATABASE_URL` must be PostgreSQL | Refuses to start on SQLite (no real pooling, no GIN/full-text index, single-writer). |
+| `QDRANT_EMBEDDED` must be `False` | Refuses to start with the embedded/local-file Qdrant client, which cannot shard, replicate, or cluster. |
+| Qdrant connection failure | Raises `VectorBackendUnavailableException` (503, `VECTOR_BACKEND_UNAVAILABLE`) instead of silently falling back to an empty in-memory vector index that would look like "no results" to users. |
+| Redis connection failure | Degrades to a per-process in-memory cache and logs at `ERROR` (alertable) by default (`REDIS_FALLBACK_MEMORY=True`); set to `False` to hard-fail with 503 instead. |
+| `SEED_SAMPLE_DATA` | Demo/sample data never auto-loads just because a collection/table is empty - it must be explicitly enabled *and* non-production. |
+
+Required production infrastructure (see `.env.example` for all knobs):
+
+- **PostgreSQL 15+** with `pg_trgm`. On startup, the app creates a weighted
+  GIN full-text index (`title`/`category`/`caption`/`content_summary`/
+  `description`/`ocr_text`/`transcript`) and a trigram index on `title`.
+  Keyword search and facet counts run as SQL (`websearch_to_tsquery` +
+  `ts_rank_cd`, `GROUP BY ... COUNT(*)`) - nothing is loaded into Python and
+  scored/aggregated by hand, which is what let the old implementation blow up
+  past a few thousand rows.
+- **Qdrant server/cluster** (not embedded), sized per the capacity-planning
+  numbers for your expected file count. `shard_number`/`replication_factor`
+  are fixed at collection-creation time - decide them (`QDRANT_SHARD_NUMBER`,
+  `QDRANT_REPLICATION_FACTOR`) before the first production ingest. Payload
+  indexes for every filterable field (`file_type`, `category`, `dataset_id`,
+  `pii_detected`, `nsfw_detected`, `ai_generated`, `source_batch`, `file_id`)
+  are created automatically on startup.
+- **Redis 7+** as a real shared cache tier across app replicas.
+- Check `GET /readyz` for a liveness-vs-readiness split suitable for a load
+  balancer or Kubernetes probe - it actually pings Postgres and Qdrant,
+  unlike `/health`/`/livez` which only confirm the process is up.
+- `DB_POOL_SIZE`/`DB_MAX_OVERFLOW` size the app's Postgres connection pool;
+  put PgBouncer in front once replica count grows so
+  `(pool_size + max_overflow) * replicas` doesn't exceed Postgres's
+  `max_connections`.
