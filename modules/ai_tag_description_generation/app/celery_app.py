@@ -11,7 +11,7 @@ into a single worker just causes OOM or queue starvation.
 
 import logging
 from celery import Celery
-from app.config import settings
+from modules.ai_tag_description_generation.app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,23 @@ celery_app.conf.update(
     result_serializer="json",
     task_track_started=True,
     task_acks_late=True,
+    task_send_sent_event=True,
     worker_prefetch_multiplier=1,
+    worker_send_task_events=True,
+    broker_connection_retry_on_startup=True,
+    broker_transport_options={
+        # RAM++, Whisper, and video jobs can take much longer than Celery's
+        # Redis default. Redelivery is still safe because tasks are idempotent.
+        "visibility_timeout": settings.CELERY_VISIBILITY_TIMEOUT,
+        "socket_keepalive": True,
+        "health_check_interval": 30,
+    },
+    result_backend_transport_options={
+        "visibility_timeout": settings.CELERY_VISIBILITY_TIMEOUT,
+        "health_check_interval": 30,
+    },
+    visibility_timeout=settings.CELERY_VISIBILITY_TIMEOUT,
+    result_expires=settings.CELERY_RESULT_EXPIRES,
     # Don't let Celery auto-retry on its own — the orchestrator handles
     # retries internally with proper stage checkpointing.
     task_reject_on_worker_lost=True,
@@ -38,29 +54,35 @@ celery_app.conf.update(
 def process_validated_file(
     self,
     file_id: str,
-    storage_path: str,
-    file_type: str,
-    checksum: str,
-    source_metadata: dict | None = None,
 ):
     """
     Entry point for the AI enrichment pipeline, invoked via Celery.
 
-    The orchestrator handles all internal retries, checkpointing, and
-    status transitions. This task wrapper only catches truly unexpected
-    failures and uses Celery's retry for infrastructure-level issues
-    (e.g. DB unreachable at startup).
+    The orchestrator records stage status and partial results. This wrapper
+    uses Celery retry for infrastructure-level failures such as temporarily
+    unavailable PostgreSQL, MinIO, Redis, or model initialization.
     """
     try:
-        from worker.pipeline.orchestrator import run_enrichment_pipeline
+        from modules.ai_tag_description_generation.app.source_repository import get_source_document
+        from modules.ai_tag_description_generation.app.storage_client import materialize_storage_path
+        from modules.ai_tag_description_generation.worker.pipeline.orchestrator import run_enrichment_pipeline
 
-        final_status = run_enrichment_pipeline(
-            file_id=file_id,
-            storage_path=storage_path,
-            file_type=file_type,
-            checksum=checksum,
-            source_metadata=source_metadata,
-        )
+        source = get_source_document(file_id)
+        if source is None:
+            raise ValueError(f"Document {file_id} was not found in the ingestion table")
+
+        # Keep the downloaded MinIO object alive for the complete ML pipeline.
+        # Only its temporary local path is sent to processors; PostgreSQL keeps
+        # the durable object-storage path for retries and auditability.
+        with materialize_storage_path(source.storage_path) as local_path:
+            final_status = run_enrichment_pipeline(
+                file_id=source.file_id,
+                storage_path=source.storage_path,
+                processing_path=local_path,
+                file_type=source.file_type,
+                checksum=source.checksum,
+                source_metadata=source.source_metadata,
+            )
         logger.info(f"[{file_id}] Pipeline completed with status: {final_status}")
         return {"file_id": file_id, "status": final_status}
 

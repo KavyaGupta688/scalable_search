@@ -15,21 +15,21 @@ import traceback
 from datetime import datetime, timezone
 from typing import Any
 
-from worker.pipeline import task_dispatcher
-from worker.pipeline.retry_handler import TransientError, DataQualityError, with_retry
-from worker.pipeline.preprocessing_engine import preprocess, PreprocessingResult
-from worker.pipeline.media_router import Modality
-from worker.pipeline import ocr_stt
-from worker.pipeline import tagging as tagging_module
-from worker.pipeline import captioning as captioning_module
-from worker.pipeline import quality_safety
-from worker.pipeline import metadata_fusion
-from worker.pipeline import confidence_validator
-from worker.pipeline import metadata_persistence
-from worker.pipeline.model_manager import get_model_version_string, MODEL_VERSIONS
-from app.config import settings
-from app.event_publisher import publish_enrichment_event
-from app.event_schemas import (
+from modules.ai_tag_description_generation.worker.pipeline import task_dispatcher
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError, DataQualityError
+from modules.ai_tag_description_generation.worker.pipeline.preprocessing_engine import preprocess, PreprocessingResult
+from modules.ai_tag_description_generation.worker.pipeline.media_router import Modality
+from modules.ai_tag_description_generation.worker.pipeline import ocr_stt
+from modules.ai_tag_description_generation.worker.pipeline import tagging as tagging_module
+from modules.ai_tag_description_generation.worker.pipeline import captioning as captioning_module
+from modules.ai_tag_description_generation.worker.pipeline import quality_safety
+from modules.ai_tag_description_generation.worker.pipeline import metadata_fusion
+from modules.ai_tag_description_generation.worker.pipeline import confidence_validator
+from modules.ai_tag_description_generation.worker.pipeline import metadata_persistence
+from modules.ai_tag_description_generation.worker.pipeline.model_manager import get_model_version_string, MODEL_VERSIONS
+from modules.ai_tag_description_generation.app.config import settings
+from modules.ai_tag_description_generation.app.event_publisher import publish_enrichment_event
+from modules.ai_tag_description_generation.app.event_schemas import (
     EnrichmentCompletedEvent, EnrichmentPartialEvent,
     NeedsReviewEvent, EnrichmentFailedEvent, ProcessingSummary,
 )
@@ -45,6 +45,7 @@ def run_enrichment_pipeline(
     file_type: str,
     checksum: str,
     source_metadata: dict | None = None,
+    processing_path: str | None = None,
 ) -> str:
     """Execute the full enrichment pipeline for a single file. Returns final status."""
 
@@ -82,12 +83,13 @@ def run_enrichment_pipeline(
         stages_completed: list[str] = []
         stages_failed: list[str] = []
 
+        local_path = processing_path or storage_path
         for stage_name in PIPELINE_STAGES[start_idx:]:
             task_dispatcher.update_stage(file_id, stage_name, "started")
             stage_start = time.time()
 
             try:
-                _execute_stage(stage_name, file_id, storage_path, file_type, ctx)
+                _execute_stage(stage_name, file_id, local_path, file_type, ctx)
                 duration_ms = int((time.time() - stage_start) * 1000)
                 task_dispatcher.update_stage(file_id, stage_name, "completed", duration_ms=duration_ms)
                 stages_completed.append(stage_name)
@@ -303,7 +305,7 @@ def _run_metadata_fusion(file_id: str, storage_path: str, file_type: str, ctx: d
             "alt": caption.accessibility_description,
         }
 
-    from worker.pipeline.quality_safety import QualityLabels, PrivacySafetyLabels
+    from modules.ai_tag_description_generation.worker.pipeline.quality_safety import QualityLabels, PrivacySafetyLabels
     if q_labels is None:
         q_labels = QualityLabels(blur_score=1.0, is_blurry=False, low_light=False, noisy_audio=False, overall_quality="good")
     if s_labels is None:
@@ -339,18 +341,23 @@ def _run_persistence(file_id: str, storage_path: str, file_type: str, ctx: dict)
     model_version = get_model_version_string()
     enrichment_version = settings.ENRICHMENT_VERSION
 
-    # Build the flat dict matching GeneratedMetadata columns
+    # Flatten the fused payload into DocumentEnrichmentMetadata columns.
+    # Keep OCR, transcription, and native document text distinct so callers
+    # can retrieve the appropriate source without parsing a JSON envelope.
+    extracted_text = fused.get("extracted_text", {})
     persist_dict = {
         "generated_tags": fused.get("generated_tags"),
         "short_description": fused.get("descriptions", {}).get("short_description", ""),
         "long_description": fused.get("descriptions", {}).get("long_description", ""),
         "search_description": fused.get("descriptions", {}).get("search_optimized", ""),
         "accessibility_description": fused.get("descriptions", {}).get("accessibility_alt", ""),
-        "extracted_text": fused.get("extracted_text"),
+        "ocr_text": (extracted_text.get("ocr_text") or {}).get("text"),
+        "transcribed_text": (extracted_text.get("transcribed_text") or {}).get("text"),
+        "native_document_text": (extracted_text.get("native_document_text") or {}).get("text"),
         "privacy_safety_labels": fused.get("safety_labels"),
         "quality_labels": fused.get("quality_labels"),
         "confidence_scores": fused.get("confidence_scores"),
-        "raw_model_outputs": fused.get("raw_model_outputs"),
+        "model_versions": fused.get("models_used"),
         "status": ctx.get("final_status", "completed"),
     }
 
@@ -461,6 +468,7 @@ if __name__ == "__main__":
     status = run_enrichment_pipeline(
         file_id="test-001",
         storage_path="sample.jpg",
+        processing_path="sample.jpg",
         file_type="jpg",
         checksum="abc123",
     )

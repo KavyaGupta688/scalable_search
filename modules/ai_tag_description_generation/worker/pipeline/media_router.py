@@ -57,6 +57,14 @@ _EXTENSION_MAP = {
     "tsv": Modality.CSV,
 }
 
+_MIME_EXTENSION_MAP = {
+    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/bmp": "bmp",
+    "video/mp4": "mp4", "video/quicktime": "mov", "video/x-msvideo": "avi",
+    "audio/mpeg": "mp3", "audio/wav": "wav", "audio/flac": "flac", "audio/mp4": "m4a",
+    "application/pdf": "pdf", "text/plain": "txt", "text/csv": "csv",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+}
+
 
 def get_modality_policy(modality: Modality) -> ModalityPolicy:
     if modality == Modality.IMAGE:
@@ -81,7 +89,10 @@ def route_file(file_path: str, file_type: str | None = None) -> tuple[Modality, 
     Module 1 may pass the true type separately from a storage_path that
     doesn't have a clean extension, like an S3 key with no suffix).
     """
-    extension = (file_type or _extension_from_path(file_path)).lower().lstrip(".")
+    supplied_type = (file_type or "").lower().strip()
+    extension = _MIME_EXTENSION_MAP.get(supplied_type, supplied_type.lstrip("."))
+    if not extension or "/" in extension:
+        extension = _extension_from_path(file_path).lower()
     modality = _EXTENSION_MAP.get(extension, Modality.UNKNOWN)
     policy = get_modality_policy(modality)
     return modality, policy

@@ -6,3 +6,6 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!.env.docker.example
+modules/ai_tag_description_generation/checkpoints/
+samples/

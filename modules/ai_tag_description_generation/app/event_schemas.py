@@ -3,16 +3,13 @@ Layer 2 - Event Schemas
 Standardized data structures for cross-service communication via message brokers.
 Ensures consumers receive well-formed, strongly typed JSON payloads.
 """
-from typing import List, Optional
+from typing import List
 from datetime import datetime
 from pydantic import BaseModel, Field
 
-class ValidatedFileEvent(BaseModel):
+class EnrichmentRequest(BaseModel):
+    """Request enrichment for a file already registered by ingestion."""
     file_id: str
-    storage_path: str
-    file_type: str
-    checksum: str
-    source_metadata: Optional[dict] = None
 
 class ProcessingSummary(BaseModel):
     stages_completed: List[str]

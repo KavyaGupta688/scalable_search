@@ -1,12 +1,11 @@
-"""Initial schema — enrichment_tasks and generated_metadata tables.
+"""Initial AI-module schema: enrichment task tracking.
 
 Revision ID: 001_initial
 Revises: (none)
 Create Date: 2026-08-29
 
-This migration creates the two core tables used by the AI enrichment pipeline:
-  - enrichment_tasks: tracks file processing jobs through the pipeline
-  - generated_metadata: stores AI-generated tags, descriptions, and quality labels
+The ingestion-owned documents table must already exist in the target cloud
+database. AI output is added by revision 002 with a foreign key to that table.
 """
 from typing import Sequence, Union
 
@@ -49,43 +48,5 @@ def upgrade() -> None:
         sa.Column("source_metadata", sa.JSON(), nullable=True),
     )
 
-    # --- generated_metadata ---
-    op.create_table(
-        "generated_metadata",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("file_id", sa.String(255), nullable=False),
-        sa.Column("model_version", sa.String(100), nullable=False),
-        sa.Column("enrichment_version", sa.String(50), nullable=False),
-        sa.Column("generated_tags", sa.JSON()),
-        sa.Column("short_description", sa.Text()),
-        sa.Column("long_description", sa.Text()),
-        sa.Column("search_description", sa.Text()),
-        sa.Column("accessibility_description", sa.Text()),
-        sa.Column("extracted_text", sa.JSON()),
-        sa.Column("privacy_safety_labels", sa.JSON()),
-        sa.Column("quality_labels", sa.JSON()),
-        sa.Column("confidence_scores", sa.JSON()),
-        sa.Column("raw_model_outputs", sa.JSON()),
-        sa.Column("status", sa.String(20), default="pending"),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-        ),
-        sa.UniqueConstraint(
-            "file_id",
-            "model_version",
-            "enrichment_version",
-            name="uix_file_model_version",
-        ),
-    )
-
-
 def downgrade() -> None:
-    op.drop_table("generated_metadata")
     op.drop_table("enrichment_tasks")

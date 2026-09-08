@@ -11,6 +11,42 @@ uvicorn server:app --reload
 
 The API is available at `http://localhost:8000`. OpenAPI documentation is at `/docs`.
 
+## AI enrichment development stack
+
+Copy `.env.docker.example` to `.env.docker`, replace its cloud placeholders,
+then start Redis, the API, migrations, and a single-concurrency Celery worker:
+
+```bash
+cd modules/ai_tag_description_generation
+docker compose up --build
+```
+
+The Compose file starts a persistent local Redis broker and connects to
+externally managed PostgreSQL, Qdrant, and MinIO services. It starts migrations
+before the API and worker; the API is available on `localhost:8000`. Check the
+queue connection at `GET /ai/health/queue`.
+
+For production, set `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, and
+`EVENT_REDIS_URL` to authenticated TLS (`rediss://`) endpoints and use managed
+Redis instead of the local Compose service. `REDIS_URL` remains a compatibility
+fallback when the three role-specific URLs are not set.
+
+## AI enrichment cloud contract
+
+The enrichment API accepts only a PostgreSQL `file_id`. The ingestion-owned
+source table is the authority for the MinIO path, file type, checksum, and
+source metadata. Configure its table and column names with the
+`SOURCE_*` variables in `modules/ai_tag_description_generation/.env.example`.
+The source table must already exist and the AI database user needs `SELECT`
+permission on it.
+
+The worker downloads the referenced MinIO object, routes it by modality,
+generates metadata asynchronously, then writes to
+`document_enrichment_metadata` and upserts a 512-dimensional CLIP vector into
+the configured Qdrant collection. Replace all PostgreSQL, Redis, MinIO, and
+Qdrant placeholders in `.env.example` with the corresponding cloud endpoints
+and credentials before deployment.
+
 ## Initial endpoints
 
 - `GET /health`

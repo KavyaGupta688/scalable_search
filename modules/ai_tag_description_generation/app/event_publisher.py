@@ -3,16 +3,11 @@ Layer 3 - Event Publisher
 Broadcasts state changes to downstream services (e.g. search indexing, webhooks).
 Uses Redis Pub/Sub for lightweight decoupling.
 """
-import json
 import logging
-import redis
-from app.config import settings
-from app.event_schemas import EnrichmentEvent
+from modules.ai_tag_description_generation.app.event_schemas import EnrichmentEvent
+from modules.ai_tag_description_generation.app.redis_client import event_redis_client
 
 logger = logging.getLogger(__name__)
-
-# Reusing REDIS_URL for pub/sub. Redis allows distinct databases via URL, assuming it's configured nicely.
-redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
 def publish_enrichment_event(event: EnrichmentEvent) -> None:
     """
@@ -23,7 +18,7 @@ def publish_enrichment_event(event: EnrichmentEvent) -> None:
     payload = event.model_dump_json()
     
     try:
-        redis_client.publish(channel, payload)
+        event_redis_client.publish(channel, payload)
         logger.info(f"Published {event.event_type} for file {event.file_id} to {channel}")
         
         # In a full system, you could also send a signal back to celery or update a secondary tracker here.
@@ -34,7 +29,7 @@ def publish_enrichment_event(event: EnrichmentEvent) -> None:
 
 if __name__ == "__main__":
     from datetime import datetime
-    from app.event_schemas import EnrichmentCompletedEvent, ProcessingSummary
+    from modules.ai_tag_description_generation.app.event_schemas import EnrichmentCompletedEvent, ProcessingSummary
     # Simple self-test
     test_event = EnrichmentCompletedEvent(
         file_id="test_001",

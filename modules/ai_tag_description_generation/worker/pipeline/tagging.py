@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import torch
 from PIL import Image
 
-from worker.pipeline.model_manager import get_model, get_text_embeddings, DEVICE
+from modules.ai_tag_description_generation.worker.pipeline.model_manager import get_model, get_text_embeddings, DEVICE
 
 
 # Fine-grained sub-labels, checked only when the trigger label appears in
@@ -53,8 +53,10 @@ FINE_GRAINED_LABELS = {
     ],
 }
 
-FINE_GRAINED_CONFIDENCE_THRESHOLD = 0.15
-YOLO_CONFIDENCE_THRESHOLD = 0.4
+# Fine-grained predictions are particularly prone to over-specific labels.
+FINE_GRAINED_CONFIDENCE_THRESHOLD = 0.60
+YOLO_CONFIDENCE_THRESHOLD = 0.55
+GENERIC_TAGS = {"image", "photo", "photograph", "picture", "artwork"}
 
 SCENE_KEYWORDS = {'indoor', 'outdoor', 'beach', 'mountain', 'forest', 'city', 'street', 'park', 'office', 'kitchen', 'bedroom', 'bathroom', 'garden', 'stadium', 'restaurant', 'school', 'hospital', 'airport', 'farm', 'desert', 'lake', 'river', 'ocean', 'sky', 'sunset', 'sunrise', 'night', 'snow', 'rain'}
 ACTION_KEYWORDS = {'running', 'walking', 'sitting', 'standing', 'eating', 'drinking', 'playing', 'driving', 'reading', 'writing', 'dancing', 'singing', 'cooking', 'swimming', 'jumping', 'flying', 'climbing', 'surfing', 'skiing'}
@@ -133,7 +135,7 @@ def generate_all_tags(images: list[Image.Image] | None, text: str | None, modali
     all_tags = []
     
     if modality_str in ["image", "video"] and images:
-        all_tags.extend(generate_tags(images))
+        all_tags.extend(generate_tags(images, require_video_consensus=modality_str == "video"))
         if text:
             all_tags.extend(generate_text_tags(text))
             
@@ -144,17 +146,21 @@ def generate_all_tags(images: list[Image.Image] | None, text: str | None, modali
     return _merge_and_dedupe(all_tags)
 
 
-def generate_tags(images: list[Image.Image]) -> list[Tag]:
-    all_tags: list[Tag] = []
+def generate_tags(images: list[Image.Image], require_video_consensus: bool = False) -> list[Tag]:
+    tags_by_frame: list[list[Tag]] = []
     for image in images:
+        frame_tags: list[Tag] = []
         ram_tags = _ram_tags(image)
         yolo_detections = _yolo_tags(image)
 
-        all_tags.extend(ram_tags)
-        all_tags.extend(t for t, _ in yolo_detections)
-        all_tags.extend(_fine_grained_tags(image, ram_tags, yolo_detections))
+        frame_tags.extend(ram_tags)
+        frame_tags.extend(t for t, _ in yolo_detections)
+        frame_tags.extend(_fine_grained_tags(image, ram_tags, yolo_detections))
+        tags_by_frame.append(frame_tags)
 
-    return _merge_and_dedupe(all_tags)
+    if require_video_consensus and len(tags_by_frame) > 1:
+        return _aggregate_video_tags(tags_by_frame)
+    return _merge_and_dedupe([tag for frame_tags in tags_by_frame for tag in frame_tags])
 
 
 def _ram_tags(image: Image.Image) -> list[Tag]:
@@ -172,7 +178,11 @@ def _ram_tags(image: Image.Image) -> list[Tag]:
     # RAM doesn't return per-tag confidence scores in this output format -
     # all returned tags already passed its internal threshold, so they're
     # recorded as confirmed detections rather than scored guesses.
-    return [Tag(label=label, confidence=1.0, source="ram", category=_classify_ram_tag_category(label)) for label in labels]
+    return [
+        Tag(label=label, confidence=1.0, source="ram", category=_classify_ram_tag_category(label))
+        for label in labels
+        if label.lower() not in GENERIC_TAGS
+    ]
 
 
 def _yolo_tags(image: Image.Image) -> list[tuple[Tag, tuple]]:
@@ -252,6 +262,26 @@ def _merge_and_dedupe(tags: list[Tag]) -> list[Tag]:
     return sorted(best.values(), key=lambda t: t.confidence, reverse=True)
 
 
+def _aggregate_video_tags(tags_by_frame: list[list[Tag]]) -> list[Tag]:
+    """Keep video labels repeated across frames or confirmed by RAM++ and YOLO."""
+    frames_by_label: dict[str, set[int]] = {}
+    sources_by_label: dict[str, set[str]] = {}
+    all_tags: list[Tag] = []
+
+    for frame_index, frame_tags in enumerate(tags_by_frame):
+        for tag in frame_tags:
+            key = tag.label.lower()
+            frames_by_label.setdefault(key, set()).add(frame_index)
+            sources_by_label.setdefault(key, set()).add(tag.source)
+            all_tags.append(tag)
+
+    confirmed_labels = {
+        label for label, frame_indexes in frames_by_label.items()
+        if len(frame_indexes) >= 2 or {"ram", "yolo"}.issubset(sources_by_label[label])
+    }
+    return _merge_and_dedupe([tag for tag in all_tags if tag.label.lower() in confirmed_labels])
+
+
 if __name__ == "__main__":
     import sys
 
@@ -266,10 +296,4 @@ if __name__ == "__main__":
 
     print(f"Found {len(tags)} image tags:")
     for tag in tags:
-        print(f"  [{tag.source:18s}] {tag.label:25s} confidence={tag.confidence:.3f} category={tag.category}")
-        
-    print("\nTesting text tags:")
-    text_sample = "Samsung released a new electric car today. The CEO was walking in the park."
-    text_tags = generate_all_tags(images=None, text=text_sample, modality_str="document")
-    for tag in text_tags:
         print(f"  [{tag.source:18s}] {tag.label:25s} confidence={tag.confidence:.3f} category={tag.category}")

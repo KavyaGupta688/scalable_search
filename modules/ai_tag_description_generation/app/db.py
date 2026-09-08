@@ -7,7 +7,7 @@ from typing import AsyncGenerator, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, declarative_base
-from app.config import settings
+from modules.ai_tag_description_generation.app.config import settings
 
 # Async engine for non-blocking I/O in API or async worker contexts
 async_engine = create_async_engine(

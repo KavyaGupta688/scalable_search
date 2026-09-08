@@ -1,5 +1,6 @@
 # --- Core framework ---
 fastapi==0.115.0
+python-multipart>=0.0.9,<1.0
 uvicorn[standard]==0.30.6
 celery==5.4.0
 redis==5.0.8
@@ -25,19 +26,36 @@ pandas>=2.0.0
 # --- Vision models ---
 open_clip_torch>=2.24.0
 ultralytics>=8.0.0
-transformers>=4.36.0
+# Supports BLIP while retaining the Transformers API required by RAM++.
+transformers==4.28.1
+# Required by RAM++ for activation checkpointing.
+fairscale==0.4.13
+# KeyBERT 0.9's SentenceTransformers dependency still imports cached_download.
+# Lock the compatible pair so a later pip install cannot upgrade either package.
+huggingface_hub==0.25.2
+sentence-transformers==2.2.2
 
 # --- OCR / Speech ---
-# paddleocr>=2.7.0  # requires paddlepaddle - install separately
+# PaddleOCR v3 avoids the legacy LMDB import path that Windows App Control
+# can block. Install the platform-appropriate paddlepaddle package separately.
+paddleocr>=3.0,<4.0
+# Newer Chardet Windows wheels bundle native pipeline extensions that can be
+# blocked by Windows App Control before PaddleOCR/PaddleX can initialize.
+chardet==5.2.0
 openai-whisper>=20231117
 
 # --- NLP ---
-spacy>=3.7.0
+# Keep the previously stable 3.7 binary line. 3.8's native extensions can be
+# rejected by Windows Application Control policies that allow the 3.7 wheels.
+spacy==3.7.5
 keybert>=0.8.0
 
 # --- Safety / PII ---
 presidio-analyzer>=2.2.0
 presidio-anonymizer>=2.2.0
 nudenet>=3.0.0
-retinaface-py>=0.0.2
+# Exposes `from retinaface import RetinaFace`, used by quality_safety.py.
+retina-face>=0.0.17
+# Required by retina-face with TensorFlow 2.21+.
+tf-keras==2.21.0
 detoxify>=0.5.2

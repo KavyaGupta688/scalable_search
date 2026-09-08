@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from minio import Minio
 
-from app.config import settings
+from modules.ai_tag_description_generation.app.config import settings
 
 
 def _minio_client() -> Minio:

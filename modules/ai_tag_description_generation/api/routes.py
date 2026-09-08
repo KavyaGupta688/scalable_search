@@ -10,31 +10,56 @@ this module's internals directly.
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, desc
 
-from app.db import get_async_session
-from app.models import EnrichmentTask, DocumentEnrichmentMetadata
-from app.celery_app import process_validated_file
-from app.event_schemas import ValidatedFileEvent
+from modules.ai_tag_description_generation.app.db import get_async_session
+from modules.ai_tag_description_generation.app.models import EnrichmentTask, DocumentEnrichmentMetadata
+from modules.ai_tag_description_generation.app.celery_app import process_validated_file
+from modules.ai_tag_description_generation.app.event_schemas import EnrichmentRequest
+from modules.ai_tag_description_generation.app.source_repository import get_source_document_async
 
 
 router = APIRouter()
 
 
+@router.get("/health/queue")
+def queue_health() -> dict:
+    """Verify the Redis connections used by Celery and event publication."""
+    from modules.ai_tag_description_generation.app.redis_client import check_redis_connections
+
+    try:
+        status = check_redis_connections()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Redis unavailable: {type(exc).__name__}",
+        ) from exc
+
+    if not status.healthy:
+        raise HTTPException(status_code=503, detail="One or more Redis roles are unavailable")
+    return {
+        "status": "ok",
+        "broker": "connected",
+        "result_backend": "connected",
+        "events": "connected",
+    }
+
+
 @router.post("/enrich", status_code=202)
-async def start_enrichment(event: ValidatedFileEvent) -> dict:
+async def start_enrichment(request: EnrichmentRequest) -> dict:
     """
     Accept a validated-file event from Ingestion and kick off the
     enrichment pipeline asynchronously via Celery.
     """
-    task = process_validated_file.delay(
-        event.file_id,
-        event.storage_path,
-        event.file_type,
-        event.checksum,
-        event.source_metadata,
-    )
+    try:
+        source = await get_source_document_async(request.file_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if source is None:
+        raise HTTPException(status_code=404, detail="Document not found in ingestion table")
+
+    task = process_validated_file.delay(request.file_id)
     return {
         "task_id": task.id,
-        "file_id": event.file_id,
+        "file_id": request.file_id,
         "status": "queued",
     }
 
@@ -129,12 +154,7 @@ async def retry_task(file_id: str) -> dict:
         await session.commit()
 
     # Re-dispatch — the orchestrator will read storage_path/file_type from the DB
-    celery_task = process_validated_file.delay(
-        file_id,
-        task_record.storage_path or "",
-        task_record.file_type or "",
-        task_record.checksum or "",
-    )
+    celery_task = process_validated_file.delay(file_id)
 
     return {
         "file_id": file_id,

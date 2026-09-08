@@ -6,14 +6,22 @@ Loads and caches every model, plus precomputes CLIP text embeddings for
 the fine-grained label sets ONCE at load time - not per image.
 """
 
+import os
+
+# Transformers 4.28 predates modern Keras layouts. This pipeline uses the
+# PyTorch implementations exclusively, so prevent optional TensorFlow model
+# imports from breaking BART/BLIP initialization on Windows.
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+
 import torch
 import logging
 
-from app.config import settings
+from modules.ai_tag_description_generation.app.config import settings
 
 MODEL_VERSIONS = {
     'clip': 'ViT-B-32-openai',
-    'yolo': 'yolov8n',
+    'yolo': 'yolov8s',
     'blip': 'blip-image-captioning-base',
     'whisper': 'whisper-large-v3',
     'ram': 'ram-plus-swin-l-14m',
@@ -112,7 +120,7 @@ def _load_clip():
 def _load_yolo():
     from ultralytics import YOLO
 
-    return YOLO("yolov8n.pt")
+    return YOLO(settings.YOLO_MODEL_NAME)
 
 
 def _load_blip():
@@ -133,7 +141,10 @@ def _load_whisper():
 def _load_paddleocr():
     from paddleocr import PaddleOCR
 
-    return PaddleOCR(use_angle_cls=True, lang="en", show_log=False)
+    # PaddleOCR v3 removed the v2-only ``show_log`` option. Disable oneDNN:
+    # some Windows PaddlePaddle builds fail when converting OCR model attributes
+    # through the oneDNN/PIR runtime.
+    return PaddleOCR(use_angle_cls=True, lang="en", enable_mkldnn=False)
 
 
 def _load_ram():

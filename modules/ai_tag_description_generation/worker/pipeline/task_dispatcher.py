@@ -2,8 +2,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Tuple, Optional
 
-from app.db import get_sync_session
-from app.models import EnrichmentTask
+from modules.ai_tag_description_generation.app.db import get_sync_session
+from modules.ai_tag_description_generation.app.models import EnrichmentTask
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,10 @@ def dispatch_or_resume(
                 return task, None
             if task.status in ('in_progress', 'partial', 'needs_review'):
                 if task.retry_count < task.max_retries:
-                    resume_stage = get_resume_stage(task)
-                    return task, resume_stage
+                    # Stage outputs include in-memory images/tensors and cannot
+                    # safely be reconstructed from the JSON checkpoint. Restart
+                    # from preprocessing while keeping prior results as audit data.
+                    return task, PIPELINE_STAGES[0]
                 else:
                     return task, None
             if task.status == 'queued':
@@ -159,28 +161,3 @@ def transition_status(file_id: str, new_status: str, error_message: Optional[str
             session.commit()
         else:
             logger.warning(f"Invalid state transition attempted: {task.status} -> {new_status}")
-
-def increment_retry(file_id: str) -> int:
-    """
-    Increment the retry counter.
-    """
-    with get_sync_session() as session:
-        task = session.query(EnrichmentTask).filter(EnrichmentTask.file_id == file_id).first()
-        if not task:
-            return 0
-            
-        task.retry_count = (task.retry_count or 0) + 1
-        count = task.retry_count
-        session.commit()
-        return count
-
-def get_resume_stage(task: EnrichmentTask) -> Optional[str]:
-    """
-    Find the first stage that hasn't successfully completed.
-    """
-    results = task.stage_results or {}
-    for stage in PIPELINE_STAGES:
-        stage_info = results.get(stage, {})
-        if stage_info.get('status') != 'completed':
-            return stage
-    return None

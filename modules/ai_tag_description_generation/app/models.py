@@ -5,10 +5,10 @@ Using JSON (JSONB via Postgres) allows flexible schemas as model outputs evolve.
 """
 import uuid
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.sql import func
-from app.db import Base
+from modules.ai_tag_description_generation.app.db import Base
 
 STATUS_QUEUED = "queued"
 STATUS_IN_PROGRESS = "in_progress"
@@ -42,7 +42,10 @@ class DocumentEnrichmentMetadata(Base):
     __tablename__ = "document_enrichment_metadata"
 
     id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    file_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    # The database FK is created by Alembic revision 002. It is intentionally
+    # not declared in ORM metadata because the referenced ingestion table is
+    # externally owned and must never be created by Base.metadata.create_all().
+    file_id = Column(PG_UUID(as_uuid=True), nullable=False)
     model_version = Column(String(100), nullable=False)
     enrichment_version = Column(String(50), nullable=False)
     metadata_version = Column(String(50), nullable=False, default="1.0")

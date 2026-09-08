@@ -19,7 +19,7 @@ from PIL import Image
 # One frame every N seconds - tune based on typical video length in your
 # dataset. 5s is a reasonable default for short clips; longer videos may
 # want a larger interval to keep frame count (and GPU cost) manageable.
-DEFAULT_KEYFRAME_INTERVAL_SECONDS = 5
+DEFAULT_KEYFRAME_INTERVAL_SECONDS = 2
 MAX_KEYFRAMES = 20  # hard cap so a very long video doesn't explode processing cost
 
 
@@ -92,28 +92,40 @@ def _adjust_interval_for_cap(duration: float, interval_seconds: int) -> int:
 
 def _extract_keyframes(file_path: str, output_dir: str, interval_seconds: int) -> list[str]:
     output_pattern = str(Path(output_dir) / "frame_%03d.jpg")
-    subprocess.run(
-        [
-            "ffmpeg", "-i", file_path,
-            "-vf", f"fps=1/{interval_seconds}",
-            "-vsync", "vfr",
-            output_pattern,
-        ],
-        capture_output=True, check=True,
-    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", file_path,
+                "-vf", f"fps=1/{interval_seconds}",
+                "-fps_mode", "vfr", output_pattern,
+            ],
+            capture_output=True, text=True, check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"ffmpeg could not extract keyframes from '{file_path}':\n{exc.stderr.strip()}"
+        ) from exc
     return sorted(str(p) for p in Path(output_dir).glob("frame_*.jpg"))
 
 
 def _generate_thumbnail(file_path: str, at_seconds: float = 1.0) -> Image.Image:
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        thumbnail_path = tmp.name
+    try:
         subprocess.run(
             [
                 "ffmpeg", "-ss", str(at_seconds), "-i", file_path,
-                "-frames:v", "1", "-y", tmp.name,
+                "-frames:v", "1", "-y", thumbnail_path,
             ],
-            capture_output=True, check=True,
+            capture_output=True, text=True, check=True,
         )
-        return Image.open(tmp.name).convert("RGB")
+        return Image.open(thumbnail_path).convert("RGB")
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"ffmpeg could not create a thumbnail from '{file_path}':\n{exc.stderr.strip()}"
+        ) from exc
+    finally:
+        Path(thumbnail_path).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,8 @@ from typing import List, Dict, Tuple, Any
 import numpy as np
 from PIL import Image
 
-from worker.pipeline import model_manager
+from modules.ai_tag_description_generation.worker.pipeline import model_manager
+from modules.ai_tag_description_generation.worker.pipeline.ocr_stt import extract_ocr_lines
 
 logger = logging.getLogger(__name__)
 
@@ -189,11 +190,7 @@ def detect_pii_in_images(images: List[Image.Image]) -> PrivacySafetyLabels:
         for img in images:
             try:
                 img_np = np.array(img)
-                result = ocr_model.ocr(img_np, cls=True)
-                if result and result[0]:
-                    for line in result[0]:
-                        text, _conf = line[1]
-                        ocr_texts.append(text)
+                ocr_texts.extend(text for text, _conf in extract_ocr_lines(ocr_model, img_np))
             except Exception as e:
                 logger.warning(f"OCR failed for an image during PII scan: {e}")
                 continue

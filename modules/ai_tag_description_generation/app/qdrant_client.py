@@ -6,7 +6,7 @@ Wraps the qdrant-client logic to isolate vector DB specifics from domain code.
 import hashlib
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
-from app.config import settings
+from modules.ai_tag_description_generation.app.config import settings
 
 class QdrantManager:
     """Singleton wrapper around QdrantClient."""
@@ -17,19 +17,26 @@ class QdrantManager:
         self.collection_name = settings.QDRANT_COLLECTION_NAME
         self.vector_size = settings.QDRANT_VECTOR_SIZE
 
-    def ensure_collection(self) -> None:
-        """Create the collection if it does not already exist."""
-        try:
-            self.client.get_collection(self.collection_name)
-        except Exception:
-            # Assumes exception means it doesn't exist, which is standard for qdrant client 
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=qmodels.VectorParams(
-                    size=self.vector_size,
-                    distance=qmodels.Distance.COSINE
-                )
+    def ensure_collection(self, *, create_if_missing: bool = False) -> None:
+        """Verify the configured collection, optionally creating it.
+
+        Network, authentication, and TLS errors are intentionally propagated.
+        They must never be treated as a missing collection in a cloud setup.
+        """
+        if self.client.collection_exists(self.collection_name):
+            return
+        if not create_if_missing:
+            raise RuntimeError(
+                f"Qdrant collection '{self.collection_name}' does not exist. "
+                "Provision it explicitly or set QDRANT_CREATE_COLLECTION_IF_MISSING=true."
             )
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=qmodels.VectorParams(
+                size=self.vector_size,
+                distance=qmodels.Distance.COSINE,
+            ),
+        )
 
     def _generate_uuid(self, string_id: str) -> str:
         """Qdrant requires UUIDs or integers. We hash the file_id to a valid UUID format."""
@@ -40,6 +47,7 @@ class QdrantManager:
 
     def upsert_embedding(self, file_id: str, vector: list[float], metadata_payload: dict) -> None:
         """Insert or update a vector for a file."""
+        self.ensure_collection(create_if_missing=settings.QDRANT_CREATE_COLLECTION_IF_MISSING)
         point_id = self._generate_uuid(file_id)
         
         self.client.upsert(

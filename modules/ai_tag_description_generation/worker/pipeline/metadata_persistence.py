@@ -9,11 +9,11 @@ import logging
 from uuid import UUID
 from typing import Dict, Any
 
-from app.db import get_sync_session
-from app.models import DocumentEnrichmentMetadata
-from app.qdrant_client import qdrant_manager
-from app.config import settings
-from worker.pipeline.model_manager import get_model
+from modules.ai_tag_description_generation.app.db import get_sync_session
+from modules.ai_tag_description_generation.app.models import DocumentEnrichmentMetadata
+from modules.ai_tag_description_generation.app.qdrant_client import qdrant_manager
+from modules.ai_tag_description_generation.app.config import settings
+from modules.ai_tag_description_generation.worker.pipeline.model_manager import get_text_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +66,15 @@ def persist_metadata(file_id: str, metadata_record: Dict[str, Any], model_versio
 def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool:
     """Generate CLIP embedding and upsert to Qdrant."""
     try:
-        tags = metadata_record.get('tags', [])
+        tags = metadata_record.get('generated_tags', [])
         short_desc = metadata_record.get('short_description', '')
         search_desc = metadata_record.get('search_description', '')
         
         # Build text representation
         text_parts = []
         if tags:
-            text_parts.append(f"Tags: {', '.join(tags)}")
+            labels = [tag.get("tag", "") if isinstance(tag, dict) else str(tag) for tag in tags]
+            text_parts.append(f"Tags: {', '.join(label for label in labels if label)}")
         if short_desc:
             text_parts.append(f"Description: {short_desc}")
         if search_desc:
@@ -85,8 +86,8 @@ def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool
             return False
 
         # Generate embedding
-        clip_model = get_model('clip')
-        vector = clip_model.encode_text(text_representation)
+        text_features = get_text_embeddings("metadata_persistence", [text_representation])
+        vector = text_features[0].detach().cpu().tolist()
 
         # Build payload
         payload = {

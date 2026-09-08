@@ -96,7 +96,7 @@ def validate_and_score(metadata_record: Dict[str, Any]) -> Tuple[Dict[str, Any],
         final_status = 'needs_review'
     elif aggregate < CONFIDENCE_THRESHOLD_COMPLETED or warnings:
         if aggregate < 0.1 or (not tags and not short_desc):
-            final_status = 'failed'
+            final_status = 'failed_terminal'
         else:
             final_status = 'partial'
             

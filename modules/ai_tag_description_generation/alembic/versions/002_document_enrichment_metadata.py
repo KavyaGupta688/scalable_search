@@ -4,6 +4,7 @@ Revision ID: 002_document_enrichment_metadata
 Revises: 001_initial
 """
 from alembic import op
+import os
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
@@ -15,10 +16,21 @@ depends_on = None
 
 
 def upgrade() -> None:
+    source_schema = os.environ.get("SOURCE_DOCUMENT_SCHEMA", "public")
+    source_table = os.environ.get("SOURCE_DOCUMENT_TABLE", "documents")
+    source_id_column = os.environ.get("SOURCE_DOCUMENT_ID_COLUMN", "id")
     op.create_table(
         "document_enrichment_metadata",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("file_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("documents.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "file_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey(
+                f"{source_schema}.{source_table}.{source_id_column}",
+                ondelete="CASCADE",
+            ),
+            nullable=False,
+        ),
         sa.Column("model_version", sa.String(100), nullable=False),
         sa.Column("enrichment_version", sa.String(50), nullable=False),
         sa.Column("metadata_version", sa.String(50), nullable=False, server_default="1.0"),
