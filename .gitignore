@@ -9,16 +9,21 @@ async_downloads_staging/
 sample_s3_data/
 .venv/
 venv/
+env/
 ENV/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
 htmlcov/
+.cache
+build/
+dist/
 
 # Node / Frontend
 node_modules/
 frontend/node_modules/
 frontend/dist/
-dist/
 .vite/
 npm-debug.log*
 yarn-debug.log*
@@ -27,6 +32,8 @@ yarn-error.log*
 
 # Environment and Local Config
 .env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 *.local
@@ -34,10 +41,8 @@ yarn-error.log*
 # IDEs & OS
 .vscode/
 .idea/
+*.sw?
 *.swp
 *.swo
 .DS_Store
 Thumbs.db
-.env
-.env.*
-!.env.example
