@@ -1,0 +1,107 @@
+{
+  "title": "Ingestion Dashboard",
+  "uid": "ingestion-dashboard",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "title": "Files Processed / Sec",
+      "type": "timeseries",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(ingestion_files_processed_total[1m])",
+          "legendFormat": "{{source_type}} - {{outcome}}"
+        }
+      ]
+    },
+    {
+      "title": "Failed Uploads",
+      "type": "timeseries",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(ingestion_files_failed_total[1m])",
+          "legendFormat": "{{failure_type}}"
+        }
+      ]
+    },
+    {
+      "title": "Processing Duration",
+      "type": "timeseries",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(ingestion_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P99"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ingestion_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P95"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(ingestion_processing_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P50"
+        }
+      ]
+    },
+    {
+      "title": "Throughput (TB/hour)",
+      "type": "timeseries",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(ingestion_throughput_bytes_total[1h]) / 1099511627776 * 3600",
+          "legendFormat": "TB/h"
+        }
+      ]
+    },
+    {
+      "title": "Queue Depth",
+      "type": "gauge",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "ingestion_queue_depth",
+          "legendFormat": "Depth"
+        }
+      ]
+    },
+    {
+      "title": "Active Uploads",
+      "type": "gauge",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "ingestion_active_uploads",
+          "legendFormat": "Active"
+        }
+      ]
+    },
+    {
+      "title": "Circuit Breaker State",
+      "type": "stat",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "ingestion_circuit_breaker_state",
+          "legendFormat": "State"
+        }
+      ]
+    },
+    {
+      "title": "DB Query Latency",
+      "type": "timeseries",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(ingestion_db_query_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "P99"
+        }
+      ]
+    }
+  ]
+}

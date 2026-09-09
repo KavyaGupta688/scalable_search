@@ -1,0 +1,21 @@
+[Unit]
+Description=Data Ingestion Enumerator
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+User=ingestion
+Group=ingestion
+WorkingDirectory=/opt/ingestion
+EnvironmentFile=/etc/ingestion/ingestion.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ingestion/venv/bin/python scripts/run_enumerator.py
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ingestion-enumerator
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true

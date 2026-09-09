@@ -1,0 +1,27 @@
+[Unit]
+Description=Data Ingestion Worker
+After=network.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ingestion
+Group=ingestion
+WorkingDirectory=/opt/ingestion
+EnvironmentFile=/etc/ingestion/ingestion.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ingestion/venv/bin/python scripts/run_worker.py
+Restart=on-failure
+RestartSec=10s
+KillMode=mixed
+TimeoutStopSec=60
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ingestion-worker
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
