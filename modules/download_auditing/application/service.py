@@ -51,18 +51,22 @@ class DownloadAuditingService:
     def list_audit_events(
         self,
         *,
-        action: AuditAction | None = None,
+        action: str | None = None,
         actor: str | None = None,
+        entity_type: str | None = None,
         entity_id: str | None = None,
+        status: str | None = None,
         limit: int = 50,
     ) -> AuditEventsResponse:
-        events = [AuditEvent.model_validate(event) for event in list_persisted()]
-        if action is not None:
-            events = [event for event in events if event.action == action]
-        if actor is not None:
-            events = [event for event in events if event.actor == actor]
-        if entity_id is not None:
-            events = [event for event in events if event.entity_id == entity_id]
+        persisted = list_persisted(
+            action=action,
+            actor=actor,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            status=status,
+            limit=limit,
+        )
+        events = [AuditEvent.model_validate(event) for event in persisted]
 
         now = datetime.now(UTC)
         record(AuditAction.AUDIT_VIEWED, actor or "auditor-demo", "audit_log", "platform",
@@ -73,4 +77,5 @@ class DownloadAuditingService:
 
     def record_event(self, action: str, actor: str, entity_type: str, entity_id: str, **kwargs: object) -> AuditEvent:
         return AuditEvent.model_validate(record(action, actor, entity_type, entity_id, **kwargs))
+
 
