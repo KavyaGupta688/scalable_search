@@ -1,7 +1,7 @@
 """Cross-cutting audit event store used by every prototype module."""
 from __future__ import annotations
 from datetime import UTC, datetime
-import hashlib, os
+import hashlib, os, uuid
 import json
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
@@ -12,11 +12,12 @@ load_dotenv()
 EVENTS: list[dict[str, object]] = []
 
 def _engine():
-    url = os.getenv("DATABASE_URL_SYNC") or os.getenv("DATABASE_URL") or "sqlite://"
+    url = os.getenv("DATABASE_URL_SYNC") or os.getenv("DATABASE_URL") or "sqlite:///platform_audit.db"
     url = url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
-    if url == "sqlite://":
+    if "sqlite" in url:
         return create_engine(url, connect_args={"check_same_thread": False}, poolclass=StaticPool)
     return create_engine(url, pool_pre_ping=True)
+
 
 ENGINE = _engine()
 with ENGINE.begin() as conn:
@@ -62,7 +63,8 @@ def record(action: str, actor: str, entity_type: str, entity_id: str, *,
            correlation_id: str | None = None, execution_time_ms: int = 0,
            metadata: dict[str, object] | None = None) -> dict[str, object]:
     event = {
-        "event_id": f"audit-{len(EVENTS) + 1:06d}",
+        "event_id": f"audit-{uuid.uuid4().hex[:12]}",
+
         "action": action,
         "actor": actor,
         "user_role": user_role,
