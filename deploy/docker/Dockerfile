@@ -27,6 +27,8 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY src/ingestion /app/src/ingestion
 COPY scripts /app/scripts
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 ENV PYTHONPATH="/app/src"
 
 CMD python ${ENTRYPOINT_SCRIPT}

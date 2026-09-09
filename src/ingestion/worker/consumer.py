@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
+import time
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from uuid import UUID
 
@@ -29,9 +31,23 @@ from ingestion.schemas.job import JobDescriptor, ProcessResult
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
 
-from confluent_kafka import KafkaError
+from confluent_kafka import KafkaError, TopicPartition
 
 logger = get_logger(__name__)
+
+
+async def _safe_rollback(session) -> None:
+    """Rollback without crashing the consumer if the DB connection died."""
+    try:
+        await session.rollback()
+    except Exception as rollback_error:
+        logger.warning("Database rollback failed after connection loss: %s", rollback_error)
+
+
+async def _retry_current_message(consumer, msg, delay_seconds: float = 2.0) -> None:
+    """Seek back before retrying so a later commit cannot skip this record."""
+    consumer.seek(TopicPartition(msg.topic(), msg.partition(), msg.offset()))
+    await asyncio.sleep(delay_seconds)
 
 # Global shutdown flag
 _shutdown_requested = False
@@ -107,6 +123,15 @@ async def run_consumer():
                 consumer.commit(message=msg, asynchronous=False)
                 continue
 
+            if job.enumerated_at is not None:
+                queue_wait = max(
+                    0.0,
+                    (datetime.now(timezone.utc) - job.enumerated_at).total_seconds(),
+                )
+                METRICS.PROCESSING_DURATION_SECONDS.labels(
+                    source_type=job.source_type, stage="queue_wait"
+                ).observe(queue_wait)
+
             # Check circuit breaker — if open, pause consumption
             if circuit_breaker.is_open:
                 logger.warning(
@@ -114,7 +139,7 @@ async def run_consumer():
                     extra={"connector_id": str(job.connector_id)},
                 )
                 METRICS.CIRCUIT_BREAKER_STATE.set(1)
-                await asyncio.sleep(5.0)
+                await _retry_current_message(consumer, msg, 5.0)
                 continue
 
             # Get or create connector instance
@@ -145,7 +170,7 @@ async def run_consumer():
                         f"Failed to initialize connector: {e}",
                         extra={"connector_id": str(job.connector_id)},
                     )
-                    await asyncio.sleep(2.0)
+                    await _retry_current_message(consumer, msg)
                     continue
 
             # Process the job
@@ -160,7 +185,11 @@ async def run_consumer():
                 )
 
                 if result in (ProcessResult.SUCCESS, ProcessResult.DUPLICATE, ProcessResult.SKIPPED):
+                    commit_started = time.perf_counter()
                     await session.commit()
+                    METRICS.PROCESSING_DURATION_SECONDS.labels(
+                        source_type=job.source_type, stage="postgresql_commit"
+                    ).observe(time.perf_counter() - commit_started)
                     consumer.commit(message=msg, asynchronous=False)
                     METRICS.FILES_PROCESSED_TOTAL.labels(
                         source_type=job.source_type, outcome=result.value
@@ -172,10 +201,15 @@ async def run_consumer():
                             "source_type": job.source_type,
                             "source_ref": job.source_ref,
                             "outcome": result.value,
+                            "run_id": str(job.run_id) if job.run_id else None,
                         },
                     )
                 elif result == ProcessResult.REJECTED:
+                    commit_started = time.perf_counter()
                     await session.commit()
+                    METRICS.PROCESSING_DURATION_SECONDS.labels(
+                        source_type=job.source_type, stage="postgresql_commit"
+                    ).observe(time.perf_counter() - commit_started)
                     publish_to_dead_letter(
                         dlq_producer, settings.kafka.dead_letter_topic, msg,
                         PermanentProcessingError(f"MIME type rejected for {job.source_ref}")
@@ -186,13 +220,14 @@ async def run_consumer():
                     ).inc()
 
             except PermanentProcessingError as e:
-                await session.rollback()
+                await _safe_rollback(session)
                 logger.error(
                     f"Permanent error processing job: {e}",
                     extra={
                         "job_id": job.provisional_id,
                         "source_ref": job.source_ref,
                         "outcome": "permanent_error",
+                        "run_id": str(job.run_id) if job.run_id else None,
                     },
                 )
                 publish_to_dead_letter(
@@ -204,25 +239,26 @@ async def run_consumer():
                 ).inc()
 
             except TransientProcessingError as e:
-                await session.rollback()
+                await _safe_rollback(session)
                 logger.warning(
                     f"Transient error, will retry: {e}",
                     extra={
                         "job_id": job.provisional_id,
                         "source_ref": job.source_ref,
                         "outcome": "transient_error",
+                        "run_id": str(job.run_id) if job.run_id else None,
                     },
                 )
                 # Do NOT commit offset — message will be redelivered
-                await asyncio.sleep(2.0)
+                await _retry_current_message(consumer, msg)
 
             except Exception as e:
-                await session.rollback()
+                await _safe_rollback(session)
                 logger.error(
                     f"Unexpected error processing job: {e}",
                     extra={"job_id": job.provisional_id},
                 )
-                await asyncio.sleep(2.0)
+                await _retry_current_message(consumer, msg)
 
             finally:
                 await session.close()

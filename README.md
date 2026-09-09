@@ -272,3 +272,10 @@ No file is ever fully buffered in memory or on local disk.
 ## License
 
 Proprietary — see LICENSE file.
+
+## Licensed-content retention
+
+Successfully ingested MinIO content has a database-audited calendar-year
+expiry and optional automatic lifecycle/reconciliation enforcement. Read
+[`RETENTION_POLICY_GUIDE.md`](RETENTION_POLICY_GUIDE.md) before enabling any
+deletion capability.

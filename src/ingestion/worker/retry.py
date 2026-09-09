@@ -17,7 +17,13 @@ def classify_error(exc: Exception) -> Literal['transient', 'permanent']:
         if code in ['RequestTimeout', 'SlowDown', 'InternalError', 'ServiceUnavailable', '500', '503']:
             return 'transient'
             
-    if isinstance(exc, (botocore.exceptions.EndpointConnectionError, ConnectionError, TimeoutError)):
+    if isinstance(exc, (
+        botocore.exceptions.EndpointConnectionError,
+        botocore.exceptions.ResponseStreamingError,
+        botocore.exceptions.ReadTimeoutError,
+        ConnectionError,
+        TimeoutError,
+    )):
         return 'transient'
         
     if type(exc).__module__.startswith('smbprotocol.exceptions'):

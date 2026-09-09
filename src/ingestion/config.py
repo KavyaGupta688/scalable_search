@@ -9,16 +9,26 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Set
+from typing import Literal, Set
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Compose injects these variables into containers, but global Alembic runs on
+# the Windows host.  Allow both working directories used by this project:
+# repository root and deploy/docker.  Environment variables still take
+# precedence over values read from these files.
+PROJECT_ENV_FILES = (".env", "deploy/docker/.env")
 
 
 class DatabaseSettings(BaseSettings):
     """PostgreSQL connection settings."""
 
-    model_config = SettingsConfigDict(env_prefix="DB_")
+    model_config = SettingsConfigDict(
+        env_prefix="DB_",
+        env_file=PROJECT_ENV_FILES,
+        extra="ignore",
+    )
 
     host: str = "localhost"
     port: int = 5432
@@ -94,6 +104,52 @@ class TikaSettings(BaseSettings):
     server_endpoint: str = "http://localhost:9998"
     timeout_seconds: int = 30
     max_retries: int = 3
+    max_connections: int = 32
+    max_keepalive_connections: int = 16
+
+
+class RetentionSettings(BaseSettings):
+    """Licensed-content retention and MinIO lifecycle enforcement settings."""
+
+    model_config = SettingsConfigDict(env_prefix="RETENTION_")
+
+    # Enforcement is opt-in so the migration and dry-run audit can be rolled
+    # out before any object-deletion capability is enabled.
+    enabled: bool = False
+    dry_run: bool = True
+    # Option A fails closed if a bucket was ever versioned. Suspended buckets
+    # still contain historical versions and are therefore not unversioned.
+    expected_bucket_versioning: Literal["Unversioned", "Enabled", "Any"] = "Unversioned"
+    write_object_tags: bool = False
+    policy_years: int = Field(3, ge=1, le=100)
+    object_prefix: str = ""
+    lifecycle_rule_id: str = "ingestion-retention-v1"
+    # Calendar-year expiry is exact in PostgreSQL/reconciliation.  Lifecycle
+    # is a whole-day fail-safe and is deliberately later than any 3-year
+    # calendar interval so it cannot remove licensed content early.
+    lifecycle_expiration_days: int = Field(1097, ge=1)
+    noncurrent_expiration_days: int = Field(1097, ge=1)
+    incomplete_multipart_days: int = Field(7, ge=1)
+    reconciliation_interval_seconds: int = Field(900, ge=10)
+    reconciliation_batch_size: int = Field(500, ge=1, le=10000)
+    metrics_port: int = Field(9200, ge=0, le=65535)
+
+    @model_validator(mode="after")
+    def lifecycle_must_not_precede_calendar_expiry(self):
+        # Maximum leap days in an N-year span, plus one day because the
+        # object's Last-Modified timestamp can precede successful ingestion.
+        safe_minimum = self.policy_years * 365 + ((self.policy_years + 3) // 4) + 1
+        if self.lifecycle_expiration_days < safe_minimum:
+            raise ValueError(
+                "lifecycle_expiration_days could delete content before its calendar expiry; "
+                f"use at least {safe_minimum} days"
+            )
+        if self.noncurrent_expiration_days < safe_minimum:
+            raise ValueError(
+                "noncurrent_expiration_days could delete a retained version before its "
+                f"calendar expiry; use at least {safe_minimum} days"
+            )
+        return self
 
 
 class JWTSettings(BaseSettings):
@@ -126,6 +182,9 @@ class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="WORKER_")
 
     chunk_size_bytes: int = 8 * 1024 * 1024  # 8 MB
+    # Small objects avoid multipart setup/completion and a second MinIO read.
+    # Memory remains bounded by this threshold per worker process.
+    single_put_max_bytes: int = 16 * 1024 * 1024
     # Circuit breaker
     circuit_breaker_fail_max: int = 5
     circuit_breaker_reset_timeout_seconds: int = 60
@@ -137,6 +196,8 @@ class WorkerSettings(BaseSettings):
     checkpoint_interval_pages: int = 10
     # Reconciliation periodic interval (seconds); 0 = disabled
     reconciliation_interval_seconds: int = 3600
+    # Prometheus endpoint for the worker process. Set to 0 to disable.
+    metrics_port: int = 9100
 
 
 # ─── MIME Type Allowlist ─────────────────────────────────────────────
@@ -191,6 +252,7 @@ class AppSettings(BaseSettings):
     kafka: KafkaSettings = Field(default_factory=KafkaSettings)
     vault: VaultSettings = Field(default_factory=VaultSettings)
     tika: TikaSettings = Field(default_factory=TikaSettings)
+    retention: RetentionSettings = Field(default_factory=RetentionSettings)
     jwt: JWTSettings = Field(default_factory=JWTSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)

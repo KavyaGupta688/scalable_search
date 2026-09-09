@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -25,10 +26,15 @@ from ingestion.orchestration.checkpointing import load_checkpoint, save_checkpoi
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
 
+try:  # ``resource`` is available in the Linux worker container, not Windows.
+    import resource
+except ImportError:  # pragma: no cover - Windows development host
+    resource = None
+
 logger = get_logger(__name__)
 
 
-async def run_enumeration(connector_id: UUID) -> None:
+async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> None:
     """
     Main enumeration loop:
     1. Load connector + credentials
@@ -37,7 +43,7 @@ async def run_enumeration(connector_id: UUID) -> None:
     4. Persist checkpoints periodically
     5. Clear checkpoint on successful completion
     """
-    start_time = time.time()
+    start_time = time.perf_counter()
     files_enumerated = 0
     settings = get_settings()
 
@@ -70,7 +76,10 @@ async def run_enumeration(connector_id: UUID) -> None:
             f"Starting enumeration for connector {connector_id}",
             extra={
                 "connector_id": str(connector_id),
-                "has_checkpoint": checkpoint_token is not None,
+                "context": {
+                    "run_id": str(run_id) if run_id else None,
+                    "has_checkpoint": checkpoint_token is not None,
+                },
             },
         )
 
@@ -78,6 +87,8 @@ async def run_enumeration(connector_id: UUID) -> None:
         base_delay = 2
 
         async for job_descriptor, new_checkpoint_token in connector_instance.enumerate(checkpoint_token):
+            job_descriptor.run_id = run_id
+            job_descriptor.enumerated_at = datetime.now(timezone.utc)
             retry_count = 0
             while True:
                 try:
@@ -89,6 +100,16 @@ async def run_enumeration(connector_id: UUID) -> None:
                     ).inc()
 
                     if new_checkpoint_token is not None:
+                        # Do not advance the database checkpoint until every
+                        # jobs from this checkpoint interval have been
+                        # accepted by Kafka. This makes restarts at-least-once:
+                        # a failure replays at most one configured interval
+                        # instead of losing unflushed jobs.
+                        undelivered = await asyncio.to_thread(producer.flush, 30)
+                        if undelivered:
+                            raise TransientConnectorError(
+                                f"Kafka did not deliver {undelivered} jobs before checkpointing"
+                            )
                         await save_checkpoint(
                             session, connector_id, continuation_token=new_checkpoint_token
                         )
@@ -107,17 +128,44 @@ async def run_enumeration(connector_id: UUID) -> None:
                     retry_count += 1
 
         # Flush producer and clear checkpoint on completion
-        producer.flush()
+        undelivered = await asyncio.to_thread(producer.flush, 30)
+        if undelivered:
+            raise TransientConnectorError(
+                f"Kafka did not deliver {undelivered} jobs at enumeration completion"
+            )
         await clear_checkpoint(session, connector_id)
         await session.commit()
 
-        duration = time.time() - start_time
+        duration = time.perf_counter() - start_time
+        METRICS.PROCESSING_DURATION_SECONDS.labels(
+            source_type=connector_model.source_type.value, stage="enumeration_total"
+        ).observe(duration)
+        try:
+            # Docker runs on Linux, where ru_maxrss is KiB.  This is peak RSS
+            # for the process, useful when comparing bounded streaming to the
+            # previous all-pages-in-memory implementation.
+            peak_memory_bytes = (
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+                if resource
+                else None
+            )
+            if peak_memory_bytes is not None:
+                METRICS.PROCESS_MEMORY_PEAK_BYTES.set(peak_memory_bytes)
+        except (AttributeError, OSError):
+            peak_memory_bytes = None
+
+        enumeration_stats = getattr(connector_instance, "last_enumeration_stats", {})
         logger.info(
             f"Enumeration completed for connector {connector_id}",
             extra={
                 "connector_id": str(connector_id),
-                "files_enumerated": files_enumerated,
-                "duration_seconds": f"{duration:.2f}",
+                "context": {
+                    "files_enumerated": files_enumerated,
+                    "run_id": str(run_id) if run_id else None,
+                    "duration_seconds": round(duration, 3),
+                    "enumeration_stats": enumeration_stats,
+                    "peak_memory_bytes": peak_memory_bytes,
+                },
             },
         )
 

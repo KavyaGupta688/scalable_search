@@ -40,6 +40,7 @@ dependencies = [
 
     # --- File Validation ---
     "python-magic>=0.4.27,<1.0",
+    "python-magic-bin>=0.4.14,<1.0; sys_platform == 'win32'",
 
     # --- Metadata Extraction ---
     "tika>=2.6.0,<3.0",

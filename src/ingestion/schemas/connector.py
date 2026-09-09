@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class S3ConnectorFields(BaseModel):
@@ -29,6 +29,30 @@ class S3ConnectorFields(BaseModel):
         "s3v4",
         description="S3 signature version: 's3v4' (SigV4) or 's3' (SigV2)",
     )
+    prefix: str = Field(
+        "",
+        max_length=1024,
+        description="Only enumerate objects whose key begins with this prefix. Empty means the whole bucket.",
+    )
+    max_objects: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Hard safety cap for this run. Null means no object-count cap.",
+    )
+    page_size: int = Field(
+        1000,
+        ge=1,
+        le=1000,
+        description="S3 ListObjectsV2 keys per request. 1000 minimizes list requests.",
+    )
+
+
+class S3EnumerationScopeUpdate(BaseModel):
+    """Change S3 enumeration scope without re-entering credentials."""
+
+    prefix: str = Field("", max_length=1024)
+    max_objects: Optional[int] = Field(None, ge=1)
+    page_size: int = Field(1000, ge=1, le=1000)
 
 
 class NASConnectorFields(BaseModel):
@@ -43,6 +67,11 @@ class NASConnectorFields(BaseModel):
     username: Optional[str] = Field(None, description="NAS username")
     password: Optional[str] = Field(None, description="NAS password")
     domain: Optional[str] = Field(None, description="SMB domain (optional)")
+    max_files: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Hard safety cap for NAS enumeration. Null permits the full configured path.",
+    )
 
 
 class ConnectorCreate(BaseModel):
@@ -68,7 +97,8 @@ class ConnectorCreate(BaseModel):
         None, description="NAS-specific configuration"
     )
 
-    def model_post_init(self, __context) -> None:
+    @model_validator(mode="after")
+    def validate_source_configuration(self):
         """Validate that the correct sub-fields are present for the source type."""
         if self.source_type == "S3" and self.s3 is None:
             raise ValueError("S3 configuration is required when source_type is 'S3'")
@@ -76,6 +106,16 @@ class ConnectorCreate(BaseModel):
             raise ValueError(
                 "NAS configuration is required when source_type is 'NAS_SMB' or 'NAS_NFS'"
             )
+        if self.source_type == "S3" and self.nas is not None:
+            raise ValueError("NAS configuration cannot be supplied for an S3 connector")
+        if self.source_type != "S3" and self.s3 is not None:
+            raise ValueError("S3 configuration cannot be supplied for a NAS connector")
+        expected_protocol = {"NAS_SMB": "SMB", "NAS_NFS": "NFS"}.get(self.source_type)
+        if self.nas is not None and expected_protocol and self.nas.protocol != expected_protocol:
+            raise ValueError(
+                f"nas.protocol must be '{expected_protocol}' when source_type is '{self.source_type}'"
+            )
+        return self
 
 
 class ConnectorResponse(BaseModel):
@@ -91,11 +131,10 @@ class ConnectorResponse(BaseModel):
     mount_path: Optional[str] = None
     addressing_style: Optional[str] = None
     signature_version: Optional[str] = None
+    s3_prefix: Optional[str] = None
+    enumeration_max_objects: Optional[int] = None
+    enumeration_page_size: Optional[int] = None
     status: str
-    created_by: UUID
-    created_at: datetime
-    last_verified_at: Optional[datetime] = None
-
     # NOTE: secret_path is intentionally excluded from the response.
 
 

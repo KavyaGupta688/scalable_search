@@ -38,23 +38,47 @@ APP_ENVIRONMENT=production
 APP_DEBUG=false
 
 # Database
-DATABASE_URL=postgresql+asyncpg://ingestion:ingestion@localhost:5432/ingestion
+DB_HOST=database.internal
+DB_PORT=5432
+DB_NAME=ingestion
+DB_USER=ingestion
+DB_PASSWORD=replace-from-secret-manager
 
 # Kafka
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-KAFKA_TOPIC=ingestion.documents
+KAFKA_INGESTION_TOPIC=ingestion-jobs
+KAFKA_DEAD_LETTER_TOPIC=ingestion-dead-letter
+KAFKA_AI_PROCESSING_TOPIC=ai-processing-events
 
 # MinIO
-MINIO_URL=http://localhost:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ENDPOINT_URL=http://localhost:9000
+MINIO_ACCESS_KEY=replace-from-secret-manager
+MINIO_SECRET_KEY=replace-from-secret-manager
+MINIO_BUCKET=ingestion-data
+MINIO_REGION=us-east-1
 
 # Vault
 VAULT_URL=http://localhost:8200
-VAULT_TOKEN=your-vault-token
+VAULT_TOKEN=replace-from-secret-manager
 
 # Tika
-TIKA_URL=http://localhost:9998
+TIKA_SERVER_ENDPOINT=http://localhost:9998
+
+# Licensed-content retention. Start with DRY_RUN=true, inspect the audit,
+# then explicitly enable deletion after change approval.
+RETENTION_ENABLED=true
+RETENTION_DRY_RUN=true
+RETENTION_EXPECTED_BUCKET_VERSIONING=Unversioned
+RETENTION_WRITE_OBJECT_TAGS=false
+RETENTION_POLICY_YEARS=3
+RETENTION_OBJECT_PREFIX=
+RETENTION_LIFECYCLE_RULE_ID=ingestion-retention-v1
+RETENTION_LIFECYCLE_EXPIRATION_DAYS=1097
+RETENTION_NONCURRENT_EXPIRATION_DAYS=1097
+RETENTION_INCOMPLETE_MULTIPART_DAYS=7
+RETENTION_RECONCILIATION_INTERVAL_SECONDS=900
+RETENTION_RECONCILIATION_BATCH_SIZE=500
+RETENTION_METRICS_PORT=9200
 EOF
 
 chmod 600 /etc/ingestion/ingestion.env
@@ -68,6 +92,7 @@ systemctl daemon-reload
 systemctl enable ingestion-api.service
 systemctl enable ingestion-worker.service
 systemctl enable ingestion-reconciliation.timer
+systemctl enable ingestion-retention.service
 
 echo "========================================================="
 echo "Setup Complete!"

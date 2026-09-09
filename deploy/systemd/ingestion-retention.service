@@ -1,0 +1,27 @@
+[Unit]
+Description=Data Ingestion Licensed-Content Retention Reconciler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ingestion
+Group=ingestion
+WorkingDirectory=/opt/ingestion
+EnvironmentFile=/etc/ingestion/ingestion.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ingestion/venv/bin/python scripts/run_retention.py
+Restart=on-failure
+RestartSec=30s
+KillMode=mixed
+TimeoutStopSec=30s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ingestion-retention
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

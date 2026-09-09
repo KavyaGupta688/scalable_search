@@ -102,6 +102,39 @@
           "legendFormat": "P99"
         }
       ]
+    },
+    {
+      "title": "Expired Objects Pending Deletion",
+      "type": "stat",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "ingestion_retention_expired_pending",
+          "legendFormat": "Expired pending"
+        }
+      ]
+    },
+    {
+      "title": "Objects Missing Before Expiry",
+      "type": "stat",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "ingestion_retention_active_missing",
+          "legendFormat": "Missing early"
+        }
+      ]
+    },
+    {
+      "title": "Retention Reconciliation Outcomes",
+      "type": "timeseries",
+      "datasource": { "uid": "prometheus", "type": "prometheus" },
+      "targets": [
+        {
+          "expr": "increase(ingestion_retention_objects_total[1h])",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
     }
   ]
 }

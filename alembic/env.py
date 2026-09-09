@@ -7,17 +7,22 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-# In a real app we'd import Base here:
-# from ingestion.services.database import Base
-# from ingestion.models import *
+from ingestion.config import get_settings
+from ingestion.services.database import Base
+from ingestion.models.connector import Connector
+from ingestion.models.document import Document, DuplicateLink
+from ingestion.models.checkpoint import EnumerationCheckpoint
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# target_metadata = Base.metadata
-target_metadata = None
+# Dynamically set the database URL from settings
+settings = get_settings()
+config.set_main_option("sqlalchemy.url", settings.database.async_url)
+
+target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")

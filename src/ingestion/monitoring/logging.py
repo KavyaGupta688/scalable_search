@@ -1,12 +1,30 @@
 from __future__ import annotations
 import json
 import logging
+import queue
 import socket
 import traceback
+from logging.handlers import DatagramHandler, QueueHandler, QueueListener, SocketHandler
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 from ingestion.config import get_settings
+
+_logstash_listener: QueueListener | None = None
+
+
+class JsonSocketHandler(SocketHandler):
+    """Send newline-delimited formatted JSON instead of pickled LogRecords."""
+
+    def makePickle(self, record: logging.LogRecord) -> bytes:  # noqa: N802
+        return (self.format(record) + "\n").encode("utf-8")
+
+
+class JsonDatagramHandler(DatagramHandler):
+    """Send formatted JSON instead of the DatagramHandler pickle format."""
+
+    def makePickle(self, record: logging.LogRecord) -> bytes:  # noqa: N802
+        return (self.format(record) + "\n").encode("utf-8")
 
 class StructuredJsonFormatter(logging.Formatter):
     """Custom formatter to output logs as structured JSON."""
@@ -38,7 +56,7 @@ class StructuredJsonFormatter(logging.Formatter):
             log_data["context"] = record.context
             
         # Extra fields commonly used
-        for field in ["job_id", "source_type", "object_key", "connector_id", "outcome"]:
+        for field in ["job_id", "run_id", "source_type", "object_key", "connector_id", "outcome"]:
             if hasattr(record, field):
                 if "context" not in log_data:
                     log_data["context"] = {}
@@ -57,6 +75,7 @@ class StructuredJsonFormatter(logging.Formatter):
 
 def setup_logging(settings: Any = None) -> None:
     """Configures the root logger with the structured JSON formatter."""
+    global _logstash_listener
     if settings is None:
         try:
             settings = get_settings().logging
@@ -74,6 +93,9 @@ def setup_logging(settings: Any = None) -> None:
     root_logger.setLevel(getattr(logging, getattr(settings, 'level', 'INFO').upper(), logging.INFO))
     
     # Remove existing handlers
+    if _logstash_listener is not None:
+        _logstash_listener.stop()
+        _logstash_listener = None
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
         
@@ -90,11 +112,19 @@ def setup_logging(settings: Any = None) -> None:
     # Logstash handler (optional)
     if hasattr(settings, 'logstash_host') and settings.logstash_host:
         try:
-            import logging.handlers
             port = getattr(settings, 'logstash_port', 5000)
-            logstash_handler = logging.handlers.DatagramHandler(settings.logstash_host, port)
+            transport = getattr(settings, 'logstash_transport', 'tcp').lower()
+            handler_class = JsonDatagramHandler if transport == 'udp' else JsonSocketHandler
+            logstash_handler = handler_class(settings.logstash_host, port)
             logstash_handler.setFormatter(formatter)
-            root_logger.addHandler(logstash_handler)
+            # Network logging must never stall ingestion. A bounded queue
+            # isolates file processing from Logstash reconnect latency.
+            log_queue: queue.Queue = queue.Queue(maxsize=10_000)
+            root_logger.addHandler(QueueHandler(log_queue))
+            _logstash_listener = QueueListener(
+                log_queue, logstash_handler, respect_handler_level=True
+            )
+            _logstash_listener.start()
         except Exception as e:
             # Fall back to stdout only
             root_logger.warning(f"Could not setup Logstash handler: {e}")

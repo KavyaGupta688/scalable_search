@@ -33,7 +33,9 @@ def create_engine():
         pool_size=settings.database.pool_size,
         max_overflow=settings.database.max_overflow,
         pool_recycle=settings.database.pool_recycle,
+        pool_timeout=30,
         pool_pre_ping=True,
+        connect_args={"timeout": 10, "command_timeout": 120},
     )
 
 

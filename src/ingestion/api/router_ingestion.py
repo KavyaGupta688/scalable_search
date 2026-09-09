@@ -7,10 +7,10 @@ Trigger enumeration, check status, and initiate reconciliation sweeps.
 from __future__ import annotations
 
 import asyncio
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ingestion.api.auth import RequirePermission
@@ -48,16 +48,21 @@ async def trigger_ingestion(
                    "Run POST /admin/connectors/{id}/test first.",
         )
 
+    run_id = uuid4()
     # Run enumeration in background
-    background_tasks.add_task(asyncio.run, run_enumeration(connector_id))
+    background_tasks.add_task(asyncio.run, run_enumeration(connector_id, run_id))
 
     logger.info(
         f"Enumeration triggered for connector {connector_id}",
-        extra={"connector_id": str(connector_id)},
+        extra={
+            "connector_id": str(connector_id),
+            "context": {"run_id": str(run_id)},
+        },
     )
     return {
         "status": "enumeration_triggered",
         "connector_id": str(connector_id),
+        "run_id": str(run_id),
     }
 
 
@@ -84,6 +89,37 @@ async def ingestion_status(
             for cp in checkpoints
         ],
     }
+
+
+@router.post(
+    "/reset-checkpoint/{connector_id}",
+    dependencies=[Depends(RequirePermission("ingestion:trigger"))],
+)
+async def reset_enumeration_checkpoint(
+    connector_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Explicitly start a new test/backfill from the beginning of its scope.
+
+    This removes only the selected connector's continuation token.  It never
+    deletes source data, MinIO objects, or document records; existing output
+    remains idempotent on a replay.
+    """
+    result = await db.execute(select(Connector.id).where(Connector.id == connector_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Connector not found")
+
+    await db.execute(
+        delete(EnumerationCheckpoint).where(
+            EnumerationCheckpoint.connector_id == connector_id
+        )
+    )
+    await db.commit()
+    logger.warning(
+        "Enumeration checkpoint reset by API request",
+        extra={"connector_id": str(connector_id)},
+    )
+    return {"status": "checkpoint_reset", "connector_id": str(connector_id)}
 
 
 @router.post(

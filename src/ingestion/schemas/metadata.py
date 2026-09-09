@@ -64,12 +64,12 @@ class SystemMetadata(BaseModel):
     storage_path: str = Field(..., description="MinIO object key")
     source_connector_id: UUID = Field(..., description="Source connector ID")
     source_ref: str = Field(..., description="Source reference path")
-    created_at: datetime = Field(
-        ..., description="Ingestion timestamp (UTC)"
-    )
-    created_by: Optional[UUID] = Field(
-        None, description="User who triggered the ingestion"
-    )
+    entitlement_id: UUID
+    bucket_name: str
+    first_successful_ingested_at: datetime
+    effective_expiry_at: datetime
+    object_version_id: Optional[str] = None
+    retention_status: str = "active"
 
 
 class DocumentMetadata(BaseModel):
@@ -89,8 +89,12 @@ class DocumentMetadata(BaseModel):
     storage_path: str
     source_connector_id: UUID
     source_ref: str
-    created_at: datetime
-    created_by: Optional[UUID] = None
+    entitlement_id: UUID
+    bucket_name: str
+    first_successful_ingested_at: datetime
+    effective_expiry_at: datetime
+    object_version_id: Optional[str] = None
+    retention_status: str = "active"
 
     # Tika-extracted fields (optional, normalized)
     tika_metadata: Optional[dict[str, Any]] = None
@@ -114,4 +118,9 @@ class DocumentMetadata(BaseModel):
 
     def to_orm_dict(self) -> dict:
         """Convert to a dict suitable for SQLAlchemy model construction."""
-        return self.model_dump()
+        # These values remain in the in-memory/Kafka contract, but their
+        # authoritative database home is license_entitlements.
+        return self.model_dump(exclude={
+            "first_successful_ingested_at",
+            "effective_expiry_at",
+        })

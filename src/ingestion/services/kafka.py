@@ -34,7 +34,9 @@ def create_consumer(settings: Any, group_id: Optional[str] = None) -> Consumer:
         'bootstrap.servers': settings.bootstrap_servers,
         'group.id': group_id or settings.group_id,
         'enable.auto.commit': False,
-        'auto.offset.reset': 'earliest',
+        'auto.offset.reset': settings.consumer_auto_offset_reset,
+        'max.poll.interval.ms': settings.consumer_max_poll_interval_ms,
+        'session.timeout.ms': settings.consumer_session_timeout_ms,
         'partition.assignment.strategy': 'cooperative-sticky'
     }
     return Consumer(conf)

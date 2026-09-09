@@ -80,7 +80,7 @@ async def run_reconciliation_sweep(connector_id: Optional[UUID] = None) -> None:
 
             total_source = len(source_jobs)
 
-            # Query all ingested source_refs for this connector
+            # Query all ingested source references for this connector.
             doc_result = await session.execute(
                 select(Document.source_ref).where(
                     Document.source_connector_id == connector_model.id

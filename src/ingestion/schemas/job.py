@@ -29,6 +29,12 @@ class JobDescriptor(BaseModel):
     connector_id: UUID = Field(
         ..., description="ID of the source connector"
     )
+    run_id: Optional[UUID] = Field(
+        None, description="One trigger/backfill execution identifier"
+    )
+    enumerated_at: Optional[datetime] = Field(
+        None, description="UTC time when this job was published by enumeration"
+    )
     source_ref: str = Field(
         ...,
         description=(

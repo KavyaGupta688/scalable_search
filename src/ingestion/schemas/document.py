@@ -21,10 +21,16 @@ class DocumentResponse(BaseModel):
     size_bytes: int
     mime_type: str
     storage_path: str
-    source_connector_id: Optional[UUID] = None
+    source_connector_id: UUID
     source_ref: str
-    created_by: Optional[UUID] = None
-    created_at: datetime
+    entitlement_id: UUID
+    bucket_name: str
+    first_successful_ingested_at: datetime
+    effective_expiry_at: datetime
+    object_version_id: Optional[str] = None
+    retention_status: str
+    deleted_at: Optional[datetime] = None
+    last_reconciled_at: Optional[datetime] = None
     tika_metadata: Optional[dict] = None
 
 

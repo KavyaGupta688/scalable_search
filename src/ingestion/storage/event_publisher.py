@@ -35,6 +35,9 @@ async def publish_ai_processing_event(
         "size_bytes": metadata.size_bytes,
         "source_connector_id": str(metadata.source_connector_id),
         "source_ref": metadata.source_ref,
+        "entitlement_id": str(metadata.entitlement_id),
+        "first_successful_ingested_at": metadata.first_successful_ingested_at.isoformat(),
+        "effective_expiry_at": metadata.effective_expiry_at.isoformat(),
     }
 
     try:

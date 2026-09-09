@@ -20,9 +20,11 @@ from ingestion.api.deps import get_async_session, get_vault_service
 from ingestion.services.vault import VaultService
 from ingestion.connectors import create_connector
 from ingestion.models.connector import Connector, ConnectorStatus, SourceType
+from ingestion.models.document import Document
 from ingestion.schemas.connector import (
     ConnectorCreate,
     ConnectorResponse,
+    S3EnumerationScopeUpdate,
     ConnectorTestResponse,
 )
 from ingestion.services.vault import VaultService
@@ -74,12 +76,17 @@ async def create_connector_endpoint(
         bucket=connector_in.s3.bucket if connector_in.s3 else None,
         addressing_style=connector_in.s3.addressing_style if connector_in.s3 else None,
         signature_version=connector_in.s3.signature_version if connector_in.s3 else None,
+        s3_prefix=connector_in.s3.prefix if connector_in.s3 else None,
+        enumeration_max_objects=(
+            connector_in.s3.max_objects
+            if connector_in.s3
+            else connector_in.nas.max_files if connector_in.nas else None
+        ),
+        enumeration_page_size=connector_in.s3.page_size if connector_in.s3 else None,
         # NAS-specific fields
         mount_path=connector_in.nas.mount_path if connector_in.nas else None,
         # Vault reference
         secret_path=secret_path,
-        # Audit
-        created_by=UUID(payload.sub) if payload.sub else uuid4(),
         status=ConnectorStatus.UNVERIFIED,
     )
 
@@ -94,13 +101,47 @@ async def create_connector_endpoint(
     return ConnectorResponse.model_validate(db_connector)
 
 
+@router.patch("/{connector_id}/s3-scope", response_model=ConnectorResponse)
+async def update_s3_enumeration_scope(
+    connector_id: UUID,
+    scope: S3EnumerationScopeUpdate,
+    payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Set a bounded S3 scope without changing the connector's credentials."""
+    result = await db.execute(select(Connector).where(Connector.id == connector_id))
+    connector = result.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.source_type != SourceType.S3:
+        raise HTTPException(status_code=400, detail="Enumeration scope is only supported for S3 connectors")
+
+    connector.s3_prefix = scope.prefix
+    connector.enumeration_max_objects = scope.max_objects
+    connector.enumeration_page_size = scope.page_size
+    await db.flush()
+    await db.refresh(connector)
+    logger.info(
+        "S3 enumeration scope updated",
+        extra={
+            "connector_id": str(connector_id),
+            "context": {
+                "prefix": scope.prefix,
+                "max_objects": scope.max_objects,
+                "page_size": scope.page_size,
+            },
+        },
+    )
+    return ConnectorResponse.model_validate(connector)
+
+
 @router.get("/", response_model=List[ConnectorResponse])
 async def list_connectors(
     payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
     db: AsyncSession = Depends(get_async_session),
 ):
     """List all configured connectors."""
-    result = await db.execute(select(Connector).order_by(Connector.created_at.desc()))
+    result = await db.execute(select(Connector).order_by(Connector.name, Connector.id))
     connectors = result.scalars().all()
     return [ConnectorResponse.model_validate(c) for c in connectors]
 
@@ -146,11 +187,9 @@ async def test_connector(
         # Call test_connection
         await source_connector.test_connection()
         connector.status = ConnectorStatus.VERIFIED
-        connector.last_verified_at = now
         message = "Connection test successful"
     except Exception as e:
         connector.status = ConnectorStatus.FAILED
-        connector.last_verified_at = now
         message = f"Connection test failed: {str(e)}"
         logger.warning(
             f"Connector test failed: {connector_id}",
@@ -179,6 +218,20 @@ async def delete_connector(
     connector = result.scalar_one_or_none()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+
+    entitlement_exists = await db.scalar(
+        select(Document.id)
+        .where(Document.source_connector_id == connector_id)
+        .limit(1)
+    )
+    if entitlement_exists is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Connector has immutable licence/audit records and cannot be hard-deleted; "
+                "retain it for audit and revoke its source credentials instead"
+            ),
+        )
 
     # Delete Vault secret first
     try:

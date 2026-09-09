@@ -8,10 +8,9 @@ Credentials are NEVER stored here — only a Vault path reference.
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, String, Text
+from sqlalchemy import BigInteger, CheckConstraint, Enum, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,7 +52,12 @@ class Connector(Base):
         nullable=False,
     )
     source_type: Mapped[SourceType] = mapped_column(
-        Enum(SourceType, name="source_type_enum", create_constraint=False),
+        Enum(
+            SourceType,
+            name="source_type_enum",
+            create_constraint=False,
+            values_callable=lambda values: [value.value for value in values],
+        ),
         nullable=False,
     )
 
@@ -66,6 +70,17 @@ class Connector(Base):
     signature_version: Mapped[str | None] = mapped_column(
         String(10), nullable=True
     )  # 's3v4' or 's3' (SigV2)
+    # Enumeration scope.  A prefix and maximum object count make it possible
+    # to run a bounded test without accidentally walking an entire bucket.
+    # ``max_objects=None`` means the connector is allowed to scan the whole
+    # configured prefix (the production default).
+    s3_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enumeration_max_objects: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    enumeration_page_size: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
     # NAS-specific fields (nullable for S3 connectors)
     mount_path: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -79,24 +94,14 @@ class Connector(Base):
 
     # Status tracking
     status: Mapped[ConnectorStatus] = mapped_column(
-        Enum(ConnectorStatus, name="connector_status_enum", create_constraint=False),
+        Enum(
+            ConnectorStatus,
+            name="connector_status_enum",
+            create_constraint=False,
+            values_callable=lambda values: [value.value for value in values],
+        ),
         nullable=False,
         default=ConnectorStatus.UNVERIFIED,
-    )
-
-    # Audit fields
-    created_by: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True),
-        nullable=False,
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
-    last_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
     )
 
     __table_args__ = (
