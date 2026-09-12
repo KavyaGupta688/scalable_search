@@ -38,6 +38,10 @@ yarn-error.log*
 .env.*.local
 *.local
 
+# Generated artifacts
+server_operational.log
+audit_logs_*.csv
+
 # IDEs & OS
 .vscode/
 .idea/
