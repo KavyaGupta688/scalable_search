@@ -4,6 +4,7 @@ import logging
 from typing import Any, Optional
 import redis.asyncio as aioredis
 from app.core.config import get_settings
+from app.core.exceptions import CacheBackendUnavailableException
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -58,27 +59,45 @@ class InMemoryCache:
             self._zsets.pop(k, None)
             self._counters.pop(k, None)
 
-_redis_client = None
+_cache_client = None
 _in_memory_cache = InMemoryCache()
 
 async def get_cache_client():
-    global _redis_client
-    if settings.REDIS_FALLBACK_MEMORY:
-        return _in_memory_cache
+    """
+    Always attempts a real Redis connection first and reuses it once
+    established - REDIS_FALLBACK_MEMORY does NOT mean "skip Redis", it means
+    "what to do if Redis is unreachable". The in-memory cache is per-process
+    (not shared across app replicas), so it is only ever a degraded fallback,
+    never the default path. Every fallback is logged at ERROR so it shows up
+    in alerting, distinguishing "cache degraded" incidents from normal
+    operation.
+    """
+    global _cache_client
+    if _cache_client is not None:
+        return _cache_client
 
-    if _redis_client is None:
-        try:
-            client = aioredis.Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                db=settings.REDIS_DB,
-                password=settings.REDIS_PASSWORD,
-                decode_responses=True
-            )
-            await client.ping()
-            _redis_client = client
-            logger.info("Connected to Redis server successfully.")
-        except Exception as e:
-            logger.warning(f"Could not connect to Redis ({e}). Falling back to InMemoryCache.")
-            _redis_client = _in_memory_cache
-    return _redis_client
+    try:
+        client = aioredis.Redis(
+            host=settings.REDIS_HOST,
+            port=settings.REDIS_PORT,
+            db=settings.REDIS_DB,
+            password=settings.REDIS_PASSWORD,
+            decode_responses=True,
+            socket_connect_timeout=2.0,
+            socket_timeout=2.0,
+        )
+        await client.ping()
+        _cache_client = client
+        logger.info("Connected to Redis server successfully.")
+        return _cache_client
+    except Exception as e:
+        if not settings.REDIS_FALLBACK_MEMORY:
+            logger.critical(f"CACHE_BACKEND_UNAVAILABLE: Redis unreachable and REDIS_FALLBACK_MEMORY=False: {e}")
+            raise CacheBackendUnavailableException(str(e)) from e
+
+        logger.error(
+            f"CACHE_DEGRADED: Redis unreachable ({e}). Falling back to a per-process "
+            f"in-memory cache - hit rate will be lower and not shared across replicas."
+        )
+        _cache_client = _in_memory_cache
+        return _cache_client

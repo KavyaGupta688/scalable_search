@@ -17,4 +17,7 @@ class SearchEvent(Base):
     filters = Column(JSON, nullable=True)
     result_count = Column(Integer, default=0)
     meta_info = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    # timezone=True so PostgreSQL stores TIMESTAMPTZ and accepts the
+    # timezone-aware datetimes this app writes (SQLite tolerates naive
+    # columns; asyncpg strictly rejects aware-vs-naive mismatches).
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)

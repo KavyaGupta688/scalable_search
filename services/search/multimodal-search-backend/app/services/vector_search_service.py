@@ -1,4 +1,5 @@
 from typing import List, Optional, Tuple, Dict, Any
+import asyncio
 import logging
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
@@ -52,31 +53,18 @@ class VectorSearchService:
             else:
                 qdrant_filter = qmodels.Filter(must_not=must_not)
 
+        search_params = qmodels.SearchParams(hnsw_ef=settings.QDRANT_HNSW_EF_SEARCH)
+
         try:
-            # Check if query_points is supported (qdrant-client >= 1.10)
-            if hasattr(self.qdrant, "query_points"):
-                response = self.qdrant.query_points(
-                    collection_name=self.collection_name,
-                    query=vector,
-                    query_filter=qdrant_filter,
-                    limit=limit + offset,
-                    with_payload=True
-                )
-                search_result = response.points if hasattr(response, "points") else response
-            else:
-                search_result = self.qdrant.search(
-                    collection_name=self.collection_name,
-                    query_vector=vector,
-                    query_filter=qdrant_filter,
-                    limit=limit + offset,
-                    with_payload=True
-                )
-            
-            # Apply offset
-            sliced_results = search_result[offset : offset + limit]
+            # QdrantClient is a synchronous/blocking client. Run it in a
+            # worker thread so a slow Qdrant round-trip does not stall the
+            # asyncio event loop - with 3,000+ concurrent users, a blocking
+            # call here would serialize every other in-flight request.
+            search_result = await asyncio.to_thread(self._run_vector_query, vector, qdrant_filter, limit, offset, search_params)
+
             ranked_items: List[RankedItem] = []
-            
-            for rank_idx, hit in enumerate(sliced_results, start=1):
+
+            for rank_idx, hit in enumerate(search_result, start=1):
                 payload = getattr(hit, "payload", {}) or {}
                 file_id = payload.get("file_id") if payload else str(getattr(hit, "id", ""))
                 score = float(getattr(hit, "score", 0.0))
@@ -89,9 +77,59 @@ class VectorSearchService:
                     )
                 )
 
-            total_hits = len(search_result)
+            total_hits = await self._count_matches(qdrant_filter, fallback=len(ranked_items) + offset)
             return ranked_items, total_hits
 
         except Exception as e:
             logger.error(f"Error querying Qdrant: {e}", exc_info=True)
             return [], 0
+
+    def _run_vector_query(
+        self,
+        vector: List[float],
+        qdrant_filter: Optional[qmodels.Filter],
+        limit: int,
+        offset: int,
+        search_params: qmodels.SearchParams
+    ):
+        # Check if query_points is supported (qdrant-client >= 1.10)
+        if hasattr(self.qdrant, "query_points"):
+            response = self.qdrant.query_points(
+                collection_name=self.collection_name,
+                query=vector,
+                query_filter=qdrant_filter,
+                limit=limit,
+                offset=offset,
+                search_params=search_params,
+                with_payload=True
+            )
+            return response.points if hasattr(response, "points") else response
+
+        return self.qdrant.search(
+            collection_name=self.collection_name,
+            query_vector=vector,
+            query_filter=qdrant_filter,
+            limit=limit,
+            offset=offset,
+            search_params=search_params,
+            with_payload=True
+        )
+
+    async def _count_matches(self, qdrant_filter: Optional[qmodels.Filter], fallback: int) -> int:
+        """
+        Returns the number of points matching the filter (not vector
+        similarity, which has no well-defined "total"). Uses Qdrant's
+        approximate count so this stays cheap at 10M+ point scale rather
+        than forcing a full index scan for an exact number.
+        """
+        try:
+            result = await asyncio.to_thread(
+                self.qdrant.count,
+                collection_name=self.collection_name,
+                count_filter=qdrant_filter,
+                exact=False
+            )
+            return int(getattr(result, "count", fallback))
+        except Exception as e:
+            logger.warning(f"Qdrant count() failed, falling back to page-based estimate: {e}")
+            return fallback
