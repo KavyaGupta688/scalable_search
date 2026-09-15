@@ -35,32 +35,6 @@ class InvalidFilterException(MultimodalSearchException):
             details={"filter_name": filter_name}
         )
 
-class VectorBackendUnavailableException(MultimodalSearchException):
-    """
-    Raised when the Qdrant vector backend cannot be reached in production.
-    Must surface as a loud 503, never as a silent empty-result fallback -
-    an empty in-memory Qdrant client returning zero hits is indistinguishable
-    from "no matches" to the caller and corrupts search-quality metrics.
-    """
-    def __init__(self, message: str, details: dict = None):
-        super().__init__(
-            message=f"Vector search backend unavailable: {message}",
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            details={**(details or {}), "error_code": "VECTOR_BACKEND_UNAVAILABLE"}
-        )
-
-class CacheBackendUnavailableException(MultimodalSearchException):
-    """
-    Raised only when Redis is unreachable AND REDIS_FALLBACK_MEMORY=False,
-    i.e. the operator has explicitly opted out of degraded in-memory caching.
-    """
-    def __init__(self, message: str, details: dict = None):
-        super().__init__(
-            message=f"Cache backend unavailable: {message}",
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            details={**(details or {}), "error_code": "CACHE_BACKEND_UNAVAILABLE"}
-        )
-
 async def multimodal_exception_handler(request: Request, exc: MultimodalSearchException):
     logger.error(f"Handled MultimodalSearchException: {exc.message} - details: {exc.details}")
     return JSONResponse(

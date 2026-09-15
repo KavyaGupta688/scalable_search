@@ -12,9 +12,11 @@ Unified multimodal data platform combining production-grade ingestion (S3, NAS S
 2. **AI Tag & Description Generation (`modules/ai_tag_description_generation`):**
    - Multi-stage GPU pipeline: Object tagging, VLM captioning, OCR parsing, CLIP vector embedding.
    - PII and NSFW safety classification and quality scoring.
-3. **Multimodal Search & Discovery (`services/search` / `modules/searching`):**
-   - Hybrid semantic (Qdrant) + BM25 keyword search (PostgreSQL).
-   - Faceted filtering (type, resolution, date, category).
+3. **Multimodal Search & Discovery — Production Search #2 (`services/search`):**
+   - **Hybrid RRF search**: keyword (PostgreSQL full-text) + vector (Qdrant CLIP embeddings) fused via Reciprocal Rank Fusion.
+   - Faceted filtering, trending queries, autocomplete suggestions, similar-file discovery.
+   - Standalone FastAPI microservice on **port 8002**; proxied from the main server at `/search/*`.
+   - See [`services/search/README.md`](services/search/README.md) for full API reference.
 4. **Selective Download & Forensic Watermarking (`services/download` / `modules/download_auditing`):**
    - Server-side ZIP bundling of user-selected assets.
    - Steganographic and EXIF cryptographic watermarks with HMAC-SHA256 tokens for leak traceability.
@@ -28,20 +30,37 @@ Unified multimodal data platform combining production-grade ingestion (S3, NAS S
 ## Running Locally
 
 ```bash
-# Install dependencies
+# Install dependencies (platform)
 pip install -e .
 
-# Run the unified platform API server
+# Run the unified platform API server (port 8000)
 python server.py
 # or: uvicorn server:app --reload --port 8000
+
+# Run Production Search Service #2 (port 8002) — in a separate terminal
+cd services/search/backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
 ```
 
-The API is available at `http://localhost:8000`. OpenAPI documentation is at `/docs`.
+The platform API is at `http://localhost:8000` (docs: `/docs`).  
+The search service is at `http://localhost:8002` (docs: `/docs`).  
+All `/search/*` calls on port 8000 are transparently proxied to port 8002.
+
+## Running with Docker (Search Service)
+
+```bash
+docker compose -f services/search/docker-compose.yml up
+```
 
 ## Initial Endpoints
 
 - `GET /health`
-- `POST /search` and `GET /search/facets`
+- `POST /search` — Hybrid RRF search (proxied to port 8002)
+- `GET /search/facets`, `GET /search/trending`, `GET /search/suggestions`
+- `POST /search/text` — Keyword-only search
+- `POST /search/vector` — Vector-only search
+- `GET /search/similar/{file_id}` — Similar file search
 - `POST /ingestion`, `POST /ingestion/upload`, and `GET /ingestion/{ingestion_id}`
 - `POST /ai/enrich`
 - `POST /downloads/batch`, `GET /downloads/{download_id}`, and `GET /downloads/audit/events`

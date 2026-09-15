@@ -18,10 +18,7 @@ class FileMetadata(Base):
     duration = Column(Float, nullable=True)  # in seconds for audio/video
     thumbnail_url = Column(String(512), nullable=True)
     preview_url = Column(String(512), nullable=True)
-    # timezone=True so PostgreSQL stores TIMESTAMPTZ and accepts the
-    # timezone-aware datetimes this app writes (SQLite tolerates naive
-    # columns; asyncpg strictly rejects aware-vs-naive mismatches).
-    ingested_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+    ingested_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     source_batch = Column(String(100), nullable=True)
     checksum = Column(String(128), nullable=False)
 
@@ -44,4 +41,4 @@ class FileMetadata(Base):
     # Analytics / Auditing
     download_count = Column(Integer, default=0)
     file_preview_count = Column(Integer, default=0)
-    interaction_timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    interaction_timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))

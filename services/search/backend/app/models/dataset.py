@@ -19,8 +19,5 @@ class Dataset(Base):
     search_hit_count = Column(Integer, default=0)
     popularity_score = Column(Float, default=0.0)
 
-    # timezone=True so PostgreSQL stores TIMESTAMPTZ and accepts the
-    # timezone-aware datetimes this app writes everywhere (SQLite tolerates
-    # naive columns; asyncpg strictly rejects aware-vs-naive mismatches).
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

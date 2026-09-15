@@ -1,64 +1,69 @@
 version: '3.8'
 
+# Production Search Service #2 — standalone compose
+# Runs alongside the main platform (server.py on port 8000).
+# Ports: search-postgres=5433, qdrant=6333, redis=6379, search-backend=8002
+
 services:
-  postgres:
+  search-postgres:
     image: postgres:16-alpine
-    container_name: multimodal-postgres
+    container_name: search-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgrespassword
       POSTGRES_DB: multimodal_search
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - search_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  qdrant:
+  search-qdrant:
     image: qdrant/qdrant:v1.8.4
-    container_name: multimodal-qdrant
+    container_name: search-qdrant
     ports:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - qdrant_data:/qdrant/storage
+      - search_qdrant_data:/qdrant/storage
 
-  redis:
+  search-redis:
     image: redis:7-alpine
-    container_name: multimodal-redis
+    container_name: search-redis
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - search_redis_data:/data
 
-  backend:
+  search-backend:
     build:
-      context: ./multimodal-search-backend
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: multimodal-backend
+    container_name: search-backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgrespassword@postgres:5432/multimodal_search
-      QDRANT_HOST: qdrant
+      DATABASE_URL: postgresql+asyncpg://postgres:postgrespassword@search-postgres:5432/multimodal_search
+      QDRANT_HOST: search-qdrant
       QDRANT_PORT: 6333
       QDRANT_EMBEDDED: "False"
-      REDIS_HOST: redis
+      REDIS_HOST: search-redis
       REDIS_PORT: 6379
       REDIS_FALLBACK_MEMORY: "False"
+      APP_ENV: production
     ports:
-      - "8000:8000"
+      - "8002:8002"
     depends_on:
-      postgres:
+      search-postgres:
         condition: service_healthy
-      qdrant:
+      search-qdrant:
         condition: service_started
-      redis:
+      search-redis:
         condition: service_started
 
 volumes:
-  postgres_data:
-  qdrant_data:
-  redis_data:
+  search_postgres_data:
+  search_qdrant_data:
+  search_redis_data:
