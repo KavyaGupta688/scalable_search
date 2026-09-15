@@ -6,7 +6,6 @@ Trigger enumeration, check status, and initiate reconciliation sweeps.
 
 from __future__ import annotations
 
-import asyncio
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -49,8 +48,10 @@ async def trigger_ingestion(
         )
 
     run_id = uuid4()
-    # Run enumeration in background
-    background_tasks.add_task(asyncio.run, run_enumeration(connector_id, run_id))
+    # Starlette awaits async background callables on the application's current
+    # event loop.  Do not wrap this in asyncio.run(): SQLAlchemy's async engine
+    # and pooled connections belong to the API loop and cannot cross loops.
+    background_tasks.add_task(run_enumeration, connector_id, run_id)
 
     logger.info(
         f"Enumeration triggered for connector {connector_id}",
@@ -131,7 +132,7 @@ async def trigger_reconciliation(
     connector_id: UUID | None = None,
 ):
     """Trigger a reconciliation sweep for one or all connectors."""
-    background_tasks.add_task(asyncio.run, run_reconciliation_sweep(connector_id))
+    background_tasks.add_task(run_reconciliation_sweep, connector_id)
 
     logger.info(
         f"Reconciliation sweep triggered (connector={connector_id or 'all'})",

@@ -6,6 +6,9 @@ param(
     [ValidateRange(1, [long]::MaxValue)]
     [long]$ExpectedObjects,
 
+    [ValidateSet("S3", "NAS_SMB", "NAS_NFS")]
+    [string]$SourceType = "S3",
+
     [string]$ApiBaseUrl = "http://localhost:8000",
     [string]$PrometheusBaseUrl = "http://localhost:9090",
     [ValidateRange(2, 300)]
@@ -40,18 +43,23 @@ function Get-PrometheusValue([string]$Query) {
 
 function Get-Snapshot {
     return [ordered]@{
-        enumerated = Get-PrometheusValue 'sum(ingestion_enumeration_objects_total{source_type="S3"}) or vector(0)'
-        processed  = Get-PrometheusValue 'sum(ingestion_files_processed_total{source_type="S3",outcome!="enumerated"}) or vector(0)'
-        failed     = Get-PrometheusValue 'sum(ingestion_files_failed_total{source_type="S3"}) or vector(0)'
-        bytes      = Get-PrometheusValue 'sum(ingestion_throughput_bytes_total{source_type="S3"}) or vector(0)'
+        # The orchestration-level counter is emitted for S3 and both NAS
+        # implementations; the S3 page counter is intentionally S3-only.
+        enumerated = Get-PrometheusValue "sum(ingestion_files_processed_total{source_type=`"$SourceType`",outcome=`"enumerated`"}) or vector(0)"
+        processed  = Get-PrometheusValue "sum(ingestion_files_processed_total{source_type=`"$SourceType`",outcome!=`"enumerated`"}) or vector(0)"
+        failed     = Get-PrometheusValue "sum(ingestion_files_failed_total{source_type=`"$SourceType`"}) or vector(0)"
+        bytes      = Get-PrometheusValue "sum(ingestion_throughput_bytes_total{source_type=`"$SourceType`"}) or vector(0)"
+        success    = Get-PrometheusValue "sum(ingestion_files_processed_total{source_type=`"$SourceType`",outcome=`"success`"}) or vector(0)"
+        duplicate  = Get-PrometheusValue "sum(ingestion_files_processed_total{source_type=`"$SourceType`",outcome=`"duplicate`"}) or vector(0)"
+        skipped    = Get-PrometheusValue "sum(ingestion_files_processed_total{source_type=`"$SourceType`",outcome=`"skipped`"}) or vector(0)"
     }
 }
 
 function Get-StageSnapshot {
     $result = [ordered]@{}
     foreach ($stage in $stages) {
-        $sumQuery = "sum(ingestion_processing_duration_seconds_sum{source_type=`"S3`",stage=`"$stage`"}) or vector(0)"
-        $countQuery = "sum(ingestion_processing_duration_seconds_count{source_type=`"S3`",stage=`"$stage`"}) or vector(0)"
+        $sumQuery = "sum(ingestion_processing_duration_seconds_sum{source_type=`"$SourceType`",stage=`"$stage`"}) or vector(0)"
+        $countQuery = "sum(ingestion_processing_duration_seconds_count{source_type=`"$SourceType`",stage=`"$stage`"}) or vector(0)"
         $result[$stage] = [ordered]@{
             cumulative_seconds = Get-PrometheusValue $sumQuery
             sample_count = Get-PrometheusValue $countQuery
@@ -61,7 +69,7 @@ function Get-StageSnapshot {
 }
 
 $stages = @(
-    "queue_wait", "source_read", "hashing", "validation", "minio_exists",
+    "enumeration_total", "queue_wait", "source_read", "hashing", "validation", "minio_exists",
     "minio_write", "metadata", "postgresql_read", "postgresql_write",
     "postgresql_commit", "total"
 )
@@ -95,7 +103,7 @@ $trigger = Invoke-RestMethod `
 
 $runId = $trigger.run_id
 Write-Host "Run ID: $runId"
-Write-Host "Do not start another S3 run while this benchmark is active."
+Write-Host "Do not start another $SourceType run while this benchmark is active."
 
 do {
     Start-Sleep -Seconds $PollSeconds
@@ -132,12 +140,18 @@ foreach ($stage in $stages) {
 $report = [ordered]@{
     run_id = $runId
     connector_id = $ConnectorId.ToString()
+    source_type = $SourceType
     expected_objects = $ExpectedObjects
     started_at = $startedAt.ToUniversalTime().ToString("o")
     finished_at = $finishedAt.ToUniversalTime().ToString("o")
     elapsed_seconds = [math]::Round($elapsedSeconds, 3)
     terminal_outcomes = [long](($after.processed + $after.failed) - ($before.processed + $before.failed))
+    enumerated = [long]($after.enumerated - $before.enumerated)
+    succeeded = [long]($after.success - $before.success)
+    duplicates = [long]($after.duplicate - $before.duplicate)
+    skipped = [long]($after.skipped - $before.skipped)
     failed = [long]($after.failed - $before.failed)
+    peak_enumerator_memory_bytes = [long](Get-PrometheusValue 'max(ingestion_process_memory_peak_bytes) or vector(0)')
     bytes_processed = $bytesProcessed
     mib_per_second = if ($elapsedSeconds -gt 0) { [math]::Round((($bytesProcessed / 1MB) / $elapsedSeconds), 3) } else { 0 }
     objects_per_second = if ($elapsedSeconds -gt 0) { [math]::Round(($ExpectedObjects / $elapsedSeconds), 3) } else { 0 }
