@@ -115,10 +115,11 @@ export const UserSearchView = ({ showToast }) => {
   return (
     <>
       <div className="flex flex-col gap-6 max-w-5xl mx-auto pb-24">
+        <div className="catalog-intro"><h1>Search datasets</h1><p>Find files across the connected catalog.</p></div>
         {/* Search header panel */}
-        <div className="bg-nexus-surface border border-nexus-border p-5 rounded-sm flex flex-col gap-3.5">
+        <div className="catalog-search flex flex-col gap-3.5">
           <div className="flex items-center justify-between">
-            <h1 className="text-base font-bold text-nexus-textPrimary">Search Data Catalog</h1>
+            <h2 className="panel-title">Search Data Catalog</h2>
             {/* Search mode tabs */}
             <div className="flex items-center gap-1 bg-nexus-elevated border border-nexus-border rounded-sm p-0.5">
               {[
@@ -129,9 +130,9 @@ export const UserSearchView = ({ showToast }) => {
                   key={m.id}
                   type="button"
                   onClick={() => setMode(m.id)}
-                  className={`px-2.5 py-0.5 text-xs rounded-xs font-medium transition-colors ${
+                  className={`px-2.5 py-0.5 text-sm rounded-xs font-medium transition-colors ${
                     mode === m.id
-                      ? 'bg-nexus-brandSubtle text-nexus-brandText font-semibold border border-[#23426e]'
+                      ? 'bg-nexus-brandSubtle text-nexus-brandText font-semibold border border-nexus-border'
                       : 'text-nexus-textSecondary hover:text-nexus-textPrimary'
                   }`}
                 >
@@ -143,11 +144,12 @@ export const UserSearchView = ({ showToast }) => {
 
           {/* Search bar with Autocomplete */}
           <div className="relative">
-            <div className="relative flex items-center bg-nexus-elevated border border-nexus-borderStrong focus-within:border-nexus-brand rounded-sm px-3 h-11 transition-colors">
+            <div className="search-field relative flex items-center bg-nexus-elevated border border-nexus-borderStrong rounded-sm px-3 h-11 transition-colors">
               <SearchIcon className="w-4 h-4 text-nexus-textMuted shrink-0 mr-2.5" />
               <input
                 ref={searchInputRef}
                 id="user-search-input"
+                aria-label="Search data catalog"
                 type="search"
                 value={query}
                 onChange={(e) => {
@@ -164,14 +166,16 @@ export const UserSearchView = ({ showToast }) => {
                     ? 'Search by exact keyword, filename, or metadata tag...'
                     : 'Search across all datasets using natural language description...'
                 }
-                className="flex-1 bg-transparent text-xs text-nexus-textPrimary outline-none placeholder:text-nexus-textMuted"
+                className="flex-1 bg-transparent text-sm text-nexus-textPrimary outline-none placeholder:text-nexus-textMuted"
               />
               {query && (
                 <button
                   type="button"
+                  aria-label="Clear search"
                   onClick={() => {
                     setQuery('');
                     setResults([]);
+                    searchInputRef.current?.focus();
                   }}
                   className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary transition-colors"
                 >
@@ -188,7 +192,7 @@ export const UserSearchView = ({ showToast }) => {
                     key={idx}
                     type="button"
                     onMouseDown={() => handleSelectSuggestion(typeof s === 'string' ? s : s.text || s.query)}
-                    className="w-full text-left px-3.5 py-2 text-xs text-nexus-textSecondary hover:text-nexus-textPrimary hover:bg-nexus-hover flex items-center justify-between transition-colors"
+                    className="w-full text-left px-3.5 py-2 text-sm text-nexus-textSecondary hover:text-nexus-textPrimary hover:bg-nexus-hover flex items-center justify-between transition-colors"
                   >
                     <span>{typeof s === 'string' ? s : s.text || s.query}</span>
                     <ArrowUpLeftIcon className="w-3.5 h-3.5 text-nexus-textMuted" />
@@ -214,9 +218,9 @@ export const UserSearchView = ({ showToast }) => {
                   key={item.id || 'all'}
                   type="button"
                   onClick={() => setContentTypeFilter(item.id)}
-                  className={`text-[11px] px-2.5 py-1 rounded-sm border transition-colors ${
+                  className={`text-sm px-2.5 py-1 rounded-sm border transition-colors ${
                     active
-                      ? 'bg-nexus-brandSubtle text-nexus-brandText border-[#23426e] font-semibold'
+                      ? 'bg-nexus-brandSubtle text-nexus-brandText border-nexus-border font-semibold'
                       : 'bg-nexus-elevated text-nexus-textMuted border-nexus-border hover:border-nexus-borderStrong hover:text-nexus-textSecondary'
                   }`}
                 >
@@ -239,7 +243,7 @@ export const UserSearchView = ({ showToast }) => {
         {hasSearch && (
           <div className="flex flex-col gap-3.5">
             {/* Stats Bar */}
-            <div className="flex items-center justify-between text-xs text-nexus-textMuted">
+            <div className="flex items-center justify-between text-sm text-nexus-textMuted">
               <span>
                 {loading
                   ? 'Searching index...'
@@ -258,7 +262,7 @@ export const UserSearchView = ({ showToast }) => {
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
                     key={i}
-                    className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-3 animate-pulse h-40"
+                    className="nx-panel p-6 flex flex-col gap-3 animate-pulse h-40"
                   >
                     <div className="h-4 bg-nexus-elevated rounded-xs w-1/3" />
                     <div className="h-4 bg-nexus-elevated rounded-xs w-3/4" />
@@ -273,7 +277,7 @@ export const UserSearchView = ({ showToast }) => {
               <div className="bg-nexus-surface border border-nexus-border p-12 rounded-sm text-center flex flex-col items-center gap-2">
                 <SearchIcon className="w-8 h-8 text-nexus-textMuted" />
                 <div className="text-sm font-bold text-nexus-textPrimary">No matching files found</div>
-                <div className="text-xs text-nexus-textMuted max-w-sm">
+                <div className="text-sm text-nexus-textMuted max-w-sm">
                   Try different keywords, switch to exact keyword search, or reset modality filters.
                 </div>
               </div>

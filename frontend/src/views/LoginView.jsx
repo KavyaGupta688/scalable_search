@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { NexusIcon, ArrowUpRightIcon, EyeIcon, EyeOffIcon } from '../components/Icons';
 
 export const LoginView = ({ onLogin, onShowToast }) => {
-  const [email, setEmail] = useState('admin@platform.internal');
-  const [password, setPassword] = useState('••••••••••••');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -138,10 +138,6 @@ export const LoginView = ({ onLogin, onShowToast }) => {
             </button>
           </form>
 
-          {/* Bottom Caption */}
-          <div className="text-center text-[11px] text-nexus-textMuted border-t border-nexus-borderSubtle pt-4">
-            Demo access is ready. Use any valid corporate email.
-          </div>
         </div>
       </div>
     </div>

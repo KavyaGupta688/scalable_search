@@ -34,14 +34,14 @@ export const TrendingSearches = ({ onSelectTerm }) => {
   if (loading) {
     return (
       <div className="flex items-center gap-2 flex-wrap py-2">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-nexus-textMuted flex items-center gap-1">
+        <span className="text-sm font-mono font-bold uppercase tracking-wider text-nexus-textMuted flex items-center gap-1">
           <TrendingIcon className="w-3.5 h-3.5 text-nexus-brandText" />
           Trending:
         </span>
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className="h-6 w-20 bg-nexus-surface border border-nexus-border rounded-sm animate-pulse"
+            className="h-6 w-20 nx-panel animate-pulse"
           />
         ))}
       </div>
@@ -52,7 +52,7 @@ export const TrendingSearches = ({ onSelectTerm }) => {
 
   return (
     <div className="flex items-center gap-2 flex-wrap py-1.5">
-      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-nexus-textMuted flex items-center gap-1 shrink-0">
+      <span className="text-sm font-mono font-bold uppercase tracking-wider text-nexus-textMuted flex items-center gap-1 shrink-0">
         <TrendingIcon className="w-3.5 h-3.5 text-nexus-brandText" />
         Trending:
       </span>
@@ -63,11 +63,11 @@ export const TrendingSearches = ({ onSelectTerm }) => {
             key={idx}
             type="button"
             onClick={() => handleClick(queryText)}
-            className="text-[11px] px-2.5 py-1 rounded-sm bg-nexus-surface hover:bg-nexus-hover border border-nexus-border hover:border-nexus-brand text-nexus-textSecondary hover:text-nexus-brandText transition-colors flex items-center gap-1.5"
+            className="text-sm px-2.5 py-1 rounded-sm bg-nexus-surface hover:bg-nexus-hover border border-nexus-border hover:border-nexus-brand text-nexus-textSecondary hover:text-nexus-brandText transition-colors flex items-center gap-1.5"
           >
             <span>{queryText}</span>
             {item.count && (
-              <span className="text-[9px] font-mono text-nexus-textMuted">
+              <span className="text-sm font-mono text-nexus-textMuted">
                 {item.count}
               </span>
             )}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { PageHeading } from '../components/DesignSystem';
 import { search, getFacets, postSearchEvent } from '../services/searchApi';
 import { ModalDetail } from '../components/ModalDetail';
 import { ModalityBadge } from '../components/ModalityBadge';
@@ -115,13 +116,14 @@ export const SearchView = ({ showToast }) => {
   return (
     <>
       <div className="flex flex-col gap-5">
+        <PageHeading title="Multimodal Search" description="Find the right file across every connected source." />
         {/* Search Header Panel */}
-        <div className="bg-nexus-surface border border-nexus-border p-5 rounded-sm flex flex-col gap-3.5">
+        <div className="nx-panel p-6 flex flex-col gap-3.5">
           {/* Search Input Box */}
-          <div className="relative flex items-center bg-nexus-elevated border border-nexus-borderStrong focus-within:border-nexus-brand rounded-sm px-3 h-11 transition-colors">
+          <div className="search-field relative flex items-center bg-nexus-elevated border border-nexus-borderStrong rounded-sm pl-3 pr-[5px] h-11 transition-colors">
             <SearchIcon className="w-4 h-4 text-nexus-textMuted shrink-0 mr-2.5" />
             <input
-              id="admin-search-input"
+              id="admin-search-input" aria-label="Search data catalog"
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -133,12 +135,16 @@ export const SearchView = ({ showToast }) => {
                   ? 'Enter exact keywords, OCR tokens, or metadata tags...'
                   : 'Search multimodal objects with natural language or semantic description...'
               }
-              className="w-full bg-transparent text-xs text-nexus-textPrimary outline-none placeholder:text-nexus-textMuted"
+              className="w-full h-full !min-h-0 bg-transparent text-sm text-nexus-textPrimary outline-none placeholder:text-nexus-textMuted"
             />
             {query && (
               <button
                 type="button"
-                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                onClick={() => {
+                  setQuery('');
+                  document.getElementById('admin-search-input')?.focus();
+                }}
                 className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary"
               >
                 <CloseIcon className="w-3.5 h-3.5" />
@@ -147,7 +153,7 @@ export const SearchView = ({ showToast }) => {
             <button
               type="button"
               onClick={executeSearch}
-              className="ml-2 px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover text-white text-xs font-semibold rounded-sm transition-colors shrink-0"
+              className="ml-2 h-8 px-3 inline-flex items-center justify-center bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-lg transition-colors shrink-0"
             >
               Search
             </button>
@@ -165,9 +171,9 @@ export const SearchView = ({ showToast }) => {
                   key={m.id}
                   type="button"
                   onClick={() => setMode(m.id)}
-                  className={`px-3 py-1 text-xs rounded-xs font-medium transition-colors ${
+                  className={`px-3 py-1 text-sm rounded-xs font-medium transition-colors ${
                     mode === m.id
-                      ? 'bg-nexus-brandSubtle text-nexus-brandText font-semibold border border-[#23426e]'
+                      ? 'bg-nexus-brandSubtle text-nexus-brandText font-semibold border border-nexus-border'
                       : 'text-nexus-textSecondary hover:text-nexus-textPrimary hover:bg-nexus-hover border border-transparent'
                   }`}
                 >
@@ -202,13 +208,13 @@ export const SearchView = ({ showToast }) => {
 
           {/* Example Queries */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-bold text-nexus-textMuted uppercase font-mono">Try:</span>
+            <span className="text-sm font-bold text-nexus-textMuted uppercase font-mono">Try:</span>
             {exampleQueries.map((ex, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => setQuery(ex)}
-                className="text-[11px] px-2.5 py-1 rounded-sm bg-nexus-elevated hover:bg-nexus-hover hover:border-nexus-brand border border-nexus-border text-nexus-textSecondary hover:text-nexus-brandText transition-colors"
+                className="text-sm px-2.5 py-1 rounded-sm bg-nexus-elevated hover:bg-nexus-hover hover:border-nexus-brand border border-nexus-border text-nexus-textSecondary hover:text-nexus-brandText transition-colors"
               >
                 {ex}
               </button>
@@ -219,16 +225,16 @@ export const SearchView = ({ showToast }) => {
         {/* Search Workspace (Sidebar Filters + Results Area) */}
         <div className="grid grid-cols-1 lg:grid-cols-[230px_1fr] gap-5 items-start">
           {/* Filters Sidebar */}
-          <aside className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-4">
+          <aside className="nx-panel p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-nexus-textPrimary font-mono">
+              <div className="flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-nexus-textPrimary font-mono">
                 <FilterIcon className="w-3.5 h-3.5 text-nexus-brandText" />
                 <span>Filters</span>
               </div>
               <button
                 type="button"
                 onClick={resetFilters}
-                className="text-[11px] text-nexus-textMuted hover:text-nexus-brandText transition-colors"
+                className="text-sm text-nexus-textMuted hover:text-nexus-brandText transition-colors"
               >
                 Reset
               </button>
@@ -236,12 +242,12 @@ export const SearchView = ({ showToast }) => {
 
             {/* Modality Filter */}
             <div className="flex flex-col gap-2 border-b border-nexus-borderSubtle pb-3">
-              <span className="text-[11px] font-bold text-nexus-textSecondary">Content Modality</span>
+              <span className="text-sm font-bold text-nexus-textSecondary">Content Modality</span>
               <div className="flex flex-col gap-1.5">
                 {availableFacets.map((fac) => (
                   <label
                     key={fac}
-                    className="flex items-center gap-2 text-xs text-nexus-textSecondary hover:text-nexus-textPrimary cursor-pointer select-none"
+                    className="flex items-center gap-2 text-sm text-nexus-textSecondary hover:text-nexus-textPrimary cursor-pointer select-none"
                   >
                     <input
                       type="checkbox"
@@ -257,7 +263,7 @@ export const SearchView = ({ showToast }) => {
 
             {/* Minimum Confidence Slider */}
             <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-sm">
                 <span className="font-bold text-nexus-textSecondary">Min Confidence</span>
                 <span className="font-mono text-nexus-brandText font-semibold">{minConfidence}%</span>
               </div>
@@ -266,7 +272,7 @@ export const SearchView = ({ showToast }) => {
                 min="0"
                 max="95"
                 step="5"
-                value={minConfidence}
+                aria-label="Minimum confidence" value={minConfidence}
                 onChange={(e) => setMinConfidence(Number(e.target.value))}
                 className="accent-nexus-brand cursor-pointer w-full"
               />
@@ -274,9 +280,9 @@ export const SearchView = ({ showToast }) => {
           </aside>
 
           {/* Results Main Area */}
-          <main className="flex flex-col gap-3">
+          <section aria-label="Search results" className="flex flex-col gap-3 min-w-0">
             {/* Stats Bar */}
-            <div className="flex items-center justify-between text-xs text-nexus-textMuted flex-wrap gap-2">
+            <div className="flex items-center justify-between text-sm text-nexus-textMuted flex-wrap gap-2">
               <div>
                 {loading ? (
                   <span>Executing vector search query...</span>
@@ -294,9 +300,9 @@ export const SearchView = ({ showToast }) => {
               <div className="flex items-center gap-2">
                 <span>Sort by:</span>
                 <select
-                  value={sortBy}
+                  aria-label="Sort results" value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="bg-nexus-surface border border-nexus-border text-nexus-textPrimary text-xs px-2 py-1 rounded-sm outline-none font-medium"
+                  className="bg-nexus-surface border border-nexus-border text-nexus-textPrimary text-sm px-2 py-1 rounded-sm outline-none font-medium"
                 >
                   <option value="relevance">Relevance / Match Score</option>
                   <option value="confidence">AI Confidence</option>
@@ -306,7 +312,7 @@ export const SearchView = ({ showToast }) => {
             </div>
 
             {error && (
-              <div className="p-3 bg-red-950/30 border border-red-800 text-nexus-danger text-xs rounded-sm">
+              <div className="p-3 bg-red-950/30 border border-red-800 text-nexus-danger text-sm rounded-sm">
                 {error}
               </div>
             )}
@@ -317,7 +323,7 @@ export const SearchView = ({ showToast }) => {
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
                     key={i}
-                    className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-3 animate-pulse h-40"
+                    className="nx-panel p-6 flex flex-col gap-3 animate-pulse h-40"
                   >
                     <div className="h-4 bg-nexus-elevated rounded-xs w-1/3" />
                     <div className="h-4 bg-nexus-elevated rounded-xs w-3/4" />
@@ -332,7 +338,7 @@ export const SearchView = ({ showToast }) => {
               <div className="bg-nexus-surface border border-nexus-border p-12 rounded-sm text-center flex flex-col items-center gap-2">
                 <SearchIcon className="w-8 h-8 text-nexus-textMuted" />
                 <div className="text-sm font-bold text-nexus-textPrimary">No matching objects found</div>
-                <div className="text-xs text-nexus-textMuted max-w-sm">
+                <div className="text-sm text-nexus-textMuted max-w-sm">
                   Try adjusting keywords, switching search modes, or lowering the minimum confidence threshold.
                 </div>
               </div>
@@ -340,10 +346,10 @@ export const SearchView = ({ showToast }) => {
 
             {/* Results Table View */}
             {!loading && results.length > 0 && viewMode === 'table' && (
-              <div className="bg-nexus-surface border border-nexus-border rounded-sm overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
+              <div className="nx-panel overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
                   <thead>
-                    <tr className="border-b border-nexus-border bg-nexus-elevated text-nexus-textMuted font-mono text-[10px] uppercase">
+                    <tr className="border-b border-nexus-border bg-nexus-elevated text-nexus-textMuted font-mono text-sm uppercase">
                       <th className="p-3">Filename / ID</th>
                       <th className="p-3">Modality</th>
                       <th className="p-3">AI Finding / Description</th>
@@ -360,26 +366,26 @@ export const SearchView = ({ showToast }) => {
                       >
                         <td className="p-3">
                           <strong className="text-nexus-textPrimary block">{doc.name || doc.filename}</strong>
-                          <span className="font-mono text-[10px] text-nexus-textMuted">
+                          <span className="font-mono text-sm text-nexus-textMuted">
                             {(doc.file_id || doc.id).slice(0, 18)}...
                           </span>
                         </td>
                         <td className="p-3">
                           <ModalityBadge type={doc.content_type || doc.modality} />
                         </td>
-                        <td className="p-3 text-[11px] text-nexus-textSecondary max-w-xs truncate">
+                        <td className="p-3 text-sm text-nexus-textSecondary max-w-xs truncate">
                           {doc.description || 'Neural indexed data object'}
                         </td>
                         <td className="p-3">
                           {doc.score != null ? (
-                            <span className="font-mono font-bold text-nexus-brandText text-xs">
+                            <span className="font-mono font-bold text-nexus-brandText text-sm">
                               {Math.round(doc.score * 100)}%
                             </span>
                           ) : (
                             '—'
                           )}
                         </td>
-                        <td className="p-3 font-mono text-nexus-textMuted text-[11px]">
+                        <td className="p-3 font-mono text-nexus-textMuted text-sm">
                           {doc.created_at ? doc.created_at.slice(0, 10) : '2026-08-24'}
                         </td>
                       </tr>
@@ -401,7 +407,7 @@ export const SearchView = ({ showToast }) => {
                 ))}
               </div>
             )}
-          </main>
+          </section>
         </div>
       </div>
 

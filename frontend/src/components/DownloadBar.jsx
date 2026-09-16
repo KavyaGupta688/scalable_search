@@ -14,6 +14,9 @@ export const DownloadBar = ({
   const [downloadStatus, setDownloadStatus] = useState(null); // null | 'building' | 'ready' | 'failed'
   const [activeDownloadId, setActiveDownloadId] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [statusError, setStatusError] = useState('');
+  const [fileCount, setFileCount] = useState(0);
 
   // Poll for download readiness if building
   useEffect(() => {
@@ -24,9 +27,11 @@ export const DownloadBar = ({
         const res = await getDownloadStatus(activeDownloadId);
         if (res.status === 'ready') {
           setDownloadStatus('ready');
+          setDownloadUrl(res.download_url || null);
+          setStatusError('');
           clearInterval(interval);
           if (onShowToast) {
-            onShowToast('Batch download archive is ready!', 'success');
+            onShowToast(res.download_url ? 'Batch download archive is ready!' : res.simulated ? 'Prototype complete — no archive was generated.' : 'Request ready; a download link is not available yet.', 'info');
           }
           if (res.download_url) {
             window.open(res.download_url, '_blank', 'noopener');
@@ -39,7 +44,7 @@ export const DownloadBar = ({
           }
         }
       } catch (err) {
-        console.error('Polling error:', err);
+        setStatusError(err.message);
       }
     }, 2000);
 
@@ -49,11 +54,16 @@ export const DownloadBar = ({
   const handleStartDownload = async () => {
     if (selectedFileIds.length === 0) return;
     setLoading(true);
+    setFileCount(selectedFileIds.length);
+    setStatusError('');
+    setDownloadUrl(null);
     setDownloadStatus('building');
 
     try {
       const data = await createBatchDownload(selectedFileIds);
       setActiveDownloadId(data.download_id);
+      setFileCount(data.file_count ?? selectedFileIds.length);
+      if (data.status === 'ready') { setDownloadStatus('ready'); setDownloadUrl(data.download_url || null); }
       if (onShowToast) {
         onShowToast(`Preparing batch download archive for ${selectedFileIds.length} files...`, 'info');
       }
@@ -77,10 +87,10 @@ export const DownloadBar = ({
   if (selectedFileIds.length === 0 && !downloadStatus) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-nexus-surface border-t border-nexus-borderStrong shadow-2xl p-4 toast-enter">
+    <div className="download-float" role="status" aria-live="polite">
       <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-sm bg-nexus-brandSubtle border border-[#23426e] flex items-center justify-center text-nexus-brandText shrink-0">
+          <div className="w-8 h-8 rounded-sm bg-nexus-brandSubtle border border-nexus-border flex items-center justify-center text-nexus-brandText shrink-0">
             {downloadStatus === 'building' ? (
               <SpinnerIcon className="w-4 h-4 animate-spin" />
             ) : downloadStatus === 'ready' ? (
@@ -91,21 +101,21 @@ export const DownloadBar = ({
           </div>
 
           <div className="flex flex-col">
-            <span className="text-xs font-bold text-nexus-textPrimary">
+            <span className="text-sm font-bold text-nexus-textPrimary">
               {downloadStatus === 'building'
-                ? `Building archive for ${selectedFileIds.length} files...`
+                ? `Preparing ${fileCount} files...`
                 : downloadStatus === 'ready'
-                ? `Archive ready (${selectedFileIds.length} files)`
+                ? (downloadUrl ? `Archive ready (${fileCount} files)` : `Request complete (${fileCount} files)`)
                 : downloadStatus === 'failed'
                 ? 'Download failed'
                 : `${selectedFileIds.length} file${selectedFileIds.length !== 1 ? 's' : ''} selected`}
             </span>
-            <span className="text-[10px] text-nexus-textMuted font-mono">
+            <span className="text-sm text-nexus-textMuted font-mono">
               {downloadStatus === 'building'
-                ? 'Packaging compressed tar.gz stream on server'
+                ? (statusError || 'You can follow this request in Downloads')
                 : downloadStatus === 'ready'
-                ? 'Click below if download did not start automatically'
-                : 'Batch export via S3 Presigned URLs'}
+                ? (downloadUrl ? 'Your files are ready to download' : 'No downloadable archive is available in this prototype')
+                : 'Bring these files into your next project'}
             </span>
           </div>
         </div>
@@ -115,7 +125,7 @@ export const DownloadBar = ({
             <button
               type="button"
               onClick={handleReset}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border text-xs text-nexus-textSecondary hover:text-nexus-textPrimary transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border text-sm text-nexus-textSecondary hover:text-nexus-textPrimary transition-colors"
             >
               <CloseIcon className="w-3.5 h-3.5" />
               <span>Clear</span>
@@ -127,18 +137,19 @@ export const DownloadBar = ({
               type="button"
               onClick={handleStartDownload}
               disabled={loading || selectedFileIds.length === 0}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover active:bg-blue-900 text-white text-xs font-semibold rounded-sm border border-nexus-brand transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover active:bg-blue-900 text-white text-sm font-semibold rounded-sm border border-nexus-brand transition-colors disabled:opacity-50"
             >
               <DownloadIcon className="w-3.5 h-3.5" />
               <span>Download Selected</span>
             </button>
           )}
 
+          {downloadStatus === 'ready' && downloadUrl && <a className="nx-button nx-button--primary" href={downloadUrl} target="_blank" rel="noopener noreferrer">Download archive</a>}
           {downloadStatus === 'ready' && (
             <button
               type="button"
               onClick={handleReset}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#122a1e] hover:bg-[#183929] border border-[#1f5739] text-[#4ade80] text-xs font-semibold rounded-sm transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#122a1e] hover:bg-[#183929] border border-[#1f5739] text-[#4ade80] text-sm font-semibold rounded-sm transition-colors"
             >
               <CheckCircleIcon className="w-3.5 h-3.5" />
               <span>Done</span>

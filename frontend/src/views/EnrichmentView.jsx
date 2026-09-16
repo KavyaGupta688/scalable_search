@@ -107,10 +107,10 @@ export const EnrichmentView = ({ showToast }) => {
   return (
     <div className="flex flex-col gap-6">
       {/* Notice Banner: Stub notification per Milestone 12 */}
-      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-[#1a1c29] border border-[#2d324d] text-nexus-textSecondary text-xs">
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-[#1a1c29] border border-[#2d324d] text-nexus-textSecondary text-sm">
         <AlertCircleIcon className="w-4 h-4 text-nexus-brandText shrink-0" />
         <div>
-          <span className="font-mono text-[10px] font-bold text-nexus-brandText uppercase mr-2">
+          <span className="font-mono text-sm font-bold text-nexus-brandText uppercase mr-2">
             [Stub — AI module integration pending]
           </span>
           <span>
@@ -122,11 +122,8 @@ export const EnrichmentView = ({ showToast }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-bold font-mono tracking-widest text-nexus-brandText uppercase">
-            Neural Processing Fabric
-          </span>
-          <h1 className="text-xl font-bold text-nexus-textPrimary tracking-tight">AI Enrichment</h1>
-          <p className="text-xs text-nexus-textMuted mt-0.5">
+          <h1 className="page-title">AI Enrichment</h1>
+          <p className="text-sm text-nexus-textMuted mt-0.5">
             Automated neural tagging, OCR layout analysis, audio transcription, and 1536-d vector embeddings.
           </p>
         </div>
@@ -137,7 +134,7 @@ export const EnrichmentView = ({ showToast }) => {
             await new Promise((r) => setTimeout(r, 800));
             if (showToast) showToast('Benchmark Completed: Vision-LLM (142ms P95), Whisper (480ms P95), ViT-H/14 (24ms P95)', 'success');
           }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-nexus-brand hover:bg-nexus-brandHover text-white text-xs font-semibold rounded-sm transition-colors self-start border border-nexus-brand"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors self-start border border-nexus-brand"
         >
           <CpuIcon className="w-4 h-4" />
           <span>Run Model Benchmark</span>
@@ -145,14 +142,14 @@ export const EnrichmentView = ({ showToast }) => {
       </div>
 
       {/* Sequential 4-Stage Pipeline Flow */}
-      <div className="bg-nexus-surface border border-nexus-border p-5 rounded-sm flex flex-col gap-4">
+      <div className="nx-panel p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-xs font-bold text-nexus-textPrimary">Sequential AI Pipeline Flow</h3>
-            <p className="text-[11px] text-nexus-textMuted">Strict linear progression: Ingestion → Extraction → Tagging → 1536-d Vector Index</p>
+            <h3 className="panel-title">Sequential AI Pipeline Flow</h3>
+            <p className="text-sm text-nexus-textMuted">Strict linear progression: Ingestion → Extraction → Tagging → 1536-d Vector Index</p>
           </div>
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-2 py-0.5 rounded-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80]" /> Pipeline Synchronized
+          <span className="inline-flex items-center gap-1 text-sm font-semibold text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-2 py-0.5 rounded-xs">
+            Pipeline Synchronized
           </span>
         </div>
 
@@ -164,27 +161,27 @@ export const EnrichmentView = ({ showToast }) => {
                 stg.status === 'completed'
                   ? 'bg-nexus-elevated border-[#1f5739]'
                   : stg.status === 'active'
-                  ? 'bg-nexus-brandSubtle border-[#23426e]'
+                  ? 'bg-nexus-brandSubtle border-nexus-border'
                   : 'bg-nexus-surface border-nexus-borderSubtle opacity-60'
               }`}
             >
-              <div className="flex items-center justify-between text-[10px] font-mono">
+              <div className="flex items-center justify-between text-sm font-mono">
                 <span className="font-bold text-nexus-textMuted">{stg.num}</span>
                 <span
-                  className={`px-1.5 py-0.5 rounded-xs font-semibold uppercase ${
+                  className={`px-1.5 py-0.5 rounded-xs font-sans font-semibold uppercase ${
                     stg.status === 'completed'
                       ? 'text-[#4ade80] bg-[#122a1e] border border-[#1f5739]'
                       : stg.status === 'active'
-                      ? 'text-[#60a5fa] bg-nexus-brandSubtle border border-[#23426e] animate-pulse'
+                      ? 'text-[#60a5fa] bg-nexus-brandSubtle border border-nexus-border animate-pulse'
                       : 'text-nexus-textMuted bg-nexus-elevated'
                   }`}
                 >
                   {stg.status}
                 </span>
               </div>
-              <span className="text-xs font-bold text-nexus-textPrimary">{stg.name}</span>
-              <span className="text-[10px] text-nexus-textSecondary">{stg.desc}</span>
-              <div className="flex items-center justify-between text-[10px] font-mono text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
+              <span className="text-sm font-bold text-nexus-textPrimary">{stg.name}</span>
+              <span className="text-sm text-nexus-textSecondary">{stg.desc}</span>
+              <div className="flex items-center justify-between text-sm font-mono text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
                 <span>Queued</span>
                 <span className="text-nexus-textPrimary">{stg.count}</span>
               </div>
@@ -196,31 +193,31 @@ export const EnrichmentView = ({ showToast }) => {
       {/* Active Multimodal Models Grid */}
       <div className="flex flex-col gap-3">
         <div>
-          <h3 className="text-xs font-bold text-nexus-textPrimary">Active Multimodal Models</h3>
-          <p className="text-[11px] text-nexus-textMuted">Dedicated neural cluster engines processing object streams</p>
+          <h3 className="panel-title">Active Multimodal Models</h3>
+          <p className="text-sm text-nexus-textMuted">Dedicated neural cluster engines processing object streams</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {aiEnrichment.activePipelines.map((pipe) => (
-            <div key={pipe.id} className="bg-nexus-surface border border-nexus-border p-4 rounded-sm flex flex-col gap-3">
+            <div key={pipe.id} className="nx-panel p-6 flex flex-col gap-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-xs font-bold text-nexus-textPrimary block">{pipe.name}</span>
-                  <span className="text-[10px] text-nexus-textMuted font-mono">Latency: {pipe.latencyAvg}</span>
+                  <span className="text-sm font-bold text-nexus-textPrimary block">{pipe.name}</span>
+                  <span className="text-sm text-nexus-textMuted font-mono">Latency: {pipe.latencyAvg}</span>
                 </div>
-                <span className="text-[10px] text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-1.5 py-0.5 rounded-xs font-semibold">
+                <span className="text-sm text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-1.5 py-0.5 rounded-xs font-semibold">
                   {pipe.status}
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 bg-nexus-elevated p-2 rounded-xs border border-nexus-borderSubtle">
                 <div className="flex flex-col">
-                  <span className="text-[9px] uppercase text-nexus-textMuted font-semibold">Throughput</span>
-                  <span className="text-xs font-bold text-nexus-brandText font-mono">{pipe.throughput}</span>
+                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Throughput</span>
+                  <span className="text-sm font-bold text-nexus-brandText font-mono">{pipe.throughput}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[9px] uppercase text-nexus-textMuted font-semibold">Queue</span>
-                  <span className="text-xs font-bold text-nexus-textPrimary font-mono">{pipe.queueSize.toLocaleString()}</span>
+                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Queue</span>
+                  <span className="text-sm font-bold text-nexus-textPrimary font-mono">{pipe.queueSize.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -229,14 +226,14 @@ export const EnrichmentView = ({ showToast }) => {
       </div>
 
       {/* Interactive S3 Object AI Enrichment Inspector */}
-      <div className="bg-nexus-surface border border-nexus-border p-5 rounded-sm flex flex-col gap-4">
+      <div className="nx-panel p-6 flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-nexus-border pb-3">
           <div>
-            <h3 className="text-xs font-bold text-nexus-textPrimary">Interactive Object AI Inspector</h3>
-            <p className="text-[11px] text-nexus-textMuted">Select an object to inspect its extracted neural metadata and vector representation</p>
+            <h3 className="panel-title">Interactive Object AI Inspector</h3>
+            <p className="text-sm text-nexus-textMuted">Select an object to inspect its extracted neural metadata and vector representation</p>
           </div>
           <div className="flex items-center gap-2">
-            <label htmlFor="inspect-doc-select" className="text-xs text-nexus-textMuted">Inspect Object:</label>
+            <label htmlFor="inspect-doc-select" className="text-sm text-nexus-textMuted">Inspect Object:</label>
             <select
               id="inspect-doc-select"
               value={selectedDocId}
@@ -244,7 +241,7 @@ export const EnrichmentView = ({ showToast }) => {
                 setSelectedDocId(e.target.value);
                 setActiveStepIndex(2); // Reset to standard pipeline state
               }}
-              className="bg-nexus-elevated border border-nexus-border rounded-sm text-xs text-nexus-textPrimary px-2.5 py-1 outline-none"
+              className="bg-nexus-elevated border border-nexus-border rounded-sm text-sm text-nexus-textPrimary px-2.5 py-1 outline-none"
             >
               {documents.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -262,13 +259,13 @@ export const EnrichmentView = ({ showToast }) => {
             <div className="h-52 bg-black rounded-sm relative flex items-center justify-center overflow-hidden border border-nexus-borderSubtle">
               <div className="text-center text-nexus-textMuted flex flex-col items-center gap-1.5">
                 {renderModalityIcon(selectedDoc.modality)}
-                <span className="text-[10px] font-mono uppercase tracking-wider">{selectedDoc.filename}</span>
-                <span className="text-[9px] text-nexus-textMuted">{selectedDoc.sourceUri}</span>
+                <span className="text-sm font-mono uppercase tracking-wider">{selectedDoc.filename}</span>
+                <span className="text-sm text-nexus-textMuted">{selectedDoc.sourceUri}</span>
               </div>
 
               {selectedDoc.detectedObjects && selectedDoc.detectedObjects.length > 0 && (
                 <div className="absolute top-[22%] left-[48%] w-[38%] h-[40%] border-2 border-red-500 bg-red-500/20 rounded-xs">
-                  <span className="absolute -top-4 left-0 bg-red-500 text-white text-[9px] font-bold px-1 py-0.5">
+                  <span className="absolute -top-4 left-0 bg-red-500 text-white text-sm font-bold px-1 py-0.5">
                     {selectedDoc.detectedObjects[0].label} ({Math.round(selectedDoc.detectedObjects[0].confidence * 100)}%)
                   </span>
                 </div>
@@ -277,18 +274,18 @@ export const EnrichmentView = ({ showToast }) => {
 
             {/* Neural Canonical Caption */}
             <div className="flex flex-col gap-1 bg-nexus-elevated p-3 rounded-xs border border-nexus-borderSubtle">
-              <span className="text-[10px] font-mono uppercase font-bold text-nexus-brandText">Canonical AI Caption</span>
-              <p className="text-xs text-nexus-textPrimary leading-relaxed italic">
+              <span className="text-sm font-mono uppercase font-bold text-nexus-brandText">Canonical AI Caption</span>
+              <p className="text-sm text-nexus-textPrimary leading-relaxed italic">
                 &ldquo;{selectedDoc.canonicalCaption || selectedDoc.description}&rdquo;
               </p>
             </div>
 
             {/* AI Tags */}
             <div className="flex flex-col gap-1.5">
-              <span className="text-[10px] font-mono uppercase font-bold text-nexus-textMuted">Extracted Semantic Tags</span>
+              <span className="text-sm font-mono uppercase font-bold text-nexus-textMuted">Extracted Semantic Tags</span>
               <div className="flex flex-wrap gap-1.5">
                 {selectedDoc.tags.map((t) => (
-                  <span key={t} className="text-[10px] font-mono px-2 py-0.5 bg-nexus-elevated border border-nexus-border text-nexus-brandText rounded-xs">
+                  <span key={t} className="text-sm font-mono px-2 py-0.5 bg-nexus-elevated border border-nexus-border text-nexus-brandText rounded-xs">
                     #{t}
                   </span>
                 ))}
@@ -300,13 +297,13 @@ export const EnrichmentView = ({ showToast }) => {
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-nexus-textPrimary">1536-d Vector Embedding</span>
-                <span className="text-[10px] font-mono text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-1.5 py-0.2 rounded-xs">Qdrant Indexed</span>
+                <span className="text-sm font-bold text-nexus-textPrimary">1536-d Vector Embedding</span>
+                <span className="text-sm font-sans text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-1.5 py-0.2 rounded-xs">Qdrant Indexed</span>
               </div>
               <button
                 type="button"
                 onClick={handleCopyJson}
-                className="flex items-center gap-1 text-[11px] text-nexus-textMuted hover:text-nexus-brandText transition-colors"
+                className="flex items-center gap-1 text-sm text-nexus-textMuted hover:text-nexus-brandText transition-colors"
               >
                 <CopyIcon className="w-3 h-3" />
                 <span>Copy JSON</span>
@@ -314,12 +311,12 @@ export const EnrichmentView = ({ showToast }) => {
             </div>
 
             {/* Embedding Vector Visualizer Matrix */}
-            <div className="bg-nexus-input p-3 rounded-sm border border-nexus-border font-mono text-[10px] text-nexus-textMuted flex flex-col gap-2">
+            <div className="bg-nexus-input p-3 rounded-sm border border-nexus-border font-mono text-sm text-nexus-textMuted flex flex-col gap-2">
               <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-1.5">
                 <span>Dense Float32 Embedding Array</span>
                 <span className="text-nexus-brandText font-semibold">1536 Float32 Numbers</span>
               </div>
-              <div className="text-[10px] text-blue-300 break-all leading-tight font-mono">
+              <div className="text-sm text-blue-300 break-all leading-tight font-mono">
                 [ 0.0418, -0.0892, 0.1245, 0.0091, -0.2104, 0.0812, 0.3189, -0.0541, 0.1872, -0.0128, 0.0984, -0.1432, 0.0571, -0.0389, ... +1,522 dims ]
               </div>
               <div className="h-6 flex items-center gap-0.5 mt-1">
@@ -340,14 +337,14 @@ export const EnrichmentView = ({ showToast }) => {
             {/* Re-Enrichment Trigger Action */}
             <div className="mt-auto flex items-center justify-between bg-nexus-elevated p-3 rounded-sm border border-nexus-borderSubtle">
               <div className="flex flex-col">
-                <span className="text-xs font-bold text-nexus-textPrimary">Sequential Re-Enrichment</span>
-                <span className="text-[10px] text-nexus-textMuted">Run 4 stages sequentially for this object</span>
+                <span className="text-sm font-bold text-nexus-textPrimary">Sequential Re-Enrichment</span>
+                <span className="text-sm text-nexus-textMuted">Run 4 stages sequentially for this object</span>
               </div>
               <button
                 type="button"
                 onClick={handleSimulateReEnrichment}
                 disabled={isReEnriching}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover disabled:opacity-50 text-white rounded-sm text-xs font-semibold transition-colors border border-nexus-brand"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover disabled:opacity-50 text-white rounded-sm text-sm font-semibold transition-colors border border-nexus-brand"
               >
                 <RefreshIcon className={`w-3.5 h-3.5 ${isReEnriching ? 'animate-spin' : ''}`} />
                 <span>{isReEnriching ? 'Processing 4 Stages...' : 'Re-Run 4-Stage AI'}</span>

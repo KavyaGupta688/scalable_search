@@ -37,7 +37,7 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
       <button
         type="button"
         onClick={handleFetchSimilar}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-nexus-elevated border border-nexus-border hover:border-nexus-borderStrong hover:text-nexus-textPrimary text-xs text-nexus-textSecondary transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-nexus-elevated border border-nexus-border hover:border-nexus-borderStrong hover:text-nexus-textPrimary text-sm text-nexus-textSecondary transition-colors"
       >
         {loading ? (
           <SpinnerIcon className="w-3.5 h-3.5 animate-spin text-nexus-brandText" />
@@ -50,11 +50,11 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
       {isOpen && (
         <div className="bg-nexus-input border border-nexus-borderStrong rounded-sm p-3 flex flex-col gap-2 mt-1 page-transition">
           <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-1.5">
-            <span className="text-[11px] font-mono uppercase tracking-wider text-nexus-textMuted font-semibold">
+            <span className="text-sm font-mono uppercase tracking-wider text-nexus-textMuted font-semibold">
               Similar Vector Matches
             </span>
             <button
-              onClick={() => setIsOpen(false)}
+              onClick={() => setIsOpen(false)} aria-label="Close similar files"
               className="text-nexus-textMuted hover:text-nexus-textPrimary p-0.5"
             >
               <CloseIcon className="w-3.5 h-3.5" />
@@ -62,20 +62,20 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
           </div>
 
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-nexus-textMuted py-4 justify-center">
+            <div className="flex items-center gap-2 text-sm text-nexus-textMuted py-4 justify-center">
               <SpinnerIcon className="w-4 h-4 animate-spin text-nexus-brandText" />
               <span>Querying vector index for nearest neighbors...</span>
             </div>
           )}
 
           {error && (
-            <div className="text-xs text-nexus-danger bg-red-900/20 border border-red-800/40 p-2 rounded-xs">
+            <div className="text-sm text-nexus-danger bg-red-900/20 border border-red-800/40 p-2 rounded-xs">
               {error}
             </div>
           )}
 
           {!loading && !error && results && results.length === 0 && (
-            <div className="text-xs text-nexus-textMuted py-3 text-center">
+            <div className="text-sm text-nexus-textMuted py-3 text-center">
               No similar files found in current index.
             </div>
           )}
@@ -90,12 +90,12 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <ModalityBadge type={item.content_type || item.modality} />
-                    <span className="text-xs font-semibold text-nexus-textPrimary truncate">
+                    <span className="text-sm font-semibold text-nexus-textPrimary truncate">
                       {item.name || item.filename}
                     </span>
                   </div>
                   {item.score != null && (
-                    <span className="text-[10px] font-mono text-nexus-brandText shrink-0 ml-2">
+                    <span className="text-sm font-mono text-nexus-brandText shrink-0 ml-2">
                       {Math.round(item.score * 100)}% match
                     </span>
                   )}

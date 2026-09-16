@@ -16,7 +16,7 @@ export const Pagination = ({
   const endItem = totalItems ? Math.min(page * pageSize, totalItems) : page * pageSize;
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-nexus-textMuted pt-3 border-t border-nexus-borderSubtle">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm text-nexus-textMuted pt-3 border-t border-nexus-borderSubtle">
       <div>
         {totalItems != null ? (
           <span>
@@ -42,7 +42,7 @@ export const Pagination = ({
           Previous
         </button>
 
-        <span className="px-2 py-1 font-mono text-[11px] text-nexus-brandText bg-nexus-brandSubtle border border-[#23426e] rounded-sm">
+        <span className="px-2 py-1 font-mono text-sm text-nexus-brandText bg-nexus-brandSubtle border border-nexus-border rounded-sm">
           {page} / {Math.max(1, totalPages)}
         </span>
 

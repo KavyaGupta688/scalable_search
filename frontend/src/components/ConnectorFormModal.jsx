@@ -1,3 +1,5 @@
+import { useDialog } from './useDialog';
+import { DialogBackdrop } from './DialogBackdrop';
 import React, { useState } from 'react';
 import { createConnector, testConnector } from '../services/adminApi';
 import { CloseIcon, DatabaseIcon, NASIcon, ShieldIcon, SpinnerIcon, CheckCircleIcon, XCircleIcon } from './Icons';
@@ -41,6 +43,7 @@ export const ConnectorFormModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const dialogRef = useDialog(onClose, isOpen);
   if (!isOpen) return null;
 
   const handleTestConnection = async () => {
@@ -116,19 +119,19 @@ export const ConnectorFormModal = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-enter">
-      <div className="bg-nexus-surface border border-nexus-borderStrong rounded-sm w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl modal-enter overflow-hidden">
+    <DialogBackdrop>
+      <div className="detail-dialog max-w-2xl flex flex-col modal-enter dialog-surface connector-dialog" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Connect a Data Source" tabIndex={-1}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-nexus-border flex items-center justify-between bg-nexus-elevated">
           <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-sm bg-nexus-brandSubtle border border-[#23426e] flex items-center justify-center text-nexus-brandText">
+            <div className="w-6 h-6 rounded-sm bg-nexus-brandSubtle border border-nexus-border flex items-center justify-center text-nexus-brandText">
               <DatabaseIcon className="w-3.5 h-3.5" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-nexus-textPrimary">
                 Connect a Data Source
               </h2>
-              <p className="text-[11px] text-nexus-textMuted">
+              <p className="text-sm text-nexus-textMuted">
                 Configure S3 bucket or NAS storage with automated ingestion
               </p>
             </div>
@@ -136,16 +139,16 @@ export const ConnectorFormModal = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary rounded-sm transition-colors"
+            aria-label="Close dialog" className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary rounded-sm transition-colors"
           >
             <CloseIcon className="w-4 h-4" />
           </button>
         </div>
 
         {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 flex flex-col gap-5 text-xs">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto p-6 flex flex-col gap-5 text-sm">
           {error && (
-            <div className="p-2.5 rounded-xs bg-red-950/30 border border-red-800 text-nexus-danger text-xs">
+            <div className="p-2.5 rounded-xs bg-red-950/30 border border-red-800 text-nexus-danger text-sm">
               {error}
             </div>
           )}
@@ -171,12 +174,12 @@ export const ConnectorFormModal = ({
                     }}
                     className={`flex items-center gap-2 p-3 rounded-sm border text-left transition-colors ${
                       active
-                        ? 'bg-nexus-brandSubtle text-nexus-brandText border-[#23426e] font-semibold'
+                        ? 'bg-nexus-brandSubtle text-nexus-brandText border-nexus-border font-semibold'
                         : 'bg-nexus-input text-nexus-textSecondary border-nexus-border hover:border-nexus-borderStrong'
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
-                    <span className="text-[11px]">{item.label}</span>
+                    <span className="text-sm">{item.label}</span>
                   </button>
                 );
               })}
@@ -195,7 +198,7 @@ export const ConnectorFormModal = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., prod-fab-inspection-archive"
-              className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs text-nexus-textPrimary outline-none"
+              className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm text-nexus-textPrimary outline-none"
             />
           </div>
 
@@ -214,7 +217,7 @@ export const ConnectorFormModal = ({
                     value={bucketName}
                     onChange={(e) => setBucketName(e.target.value)}
                     placeholder="my-multimodal-bucket"
-                    className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                    className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                   />
                 </div>
 
@@ -228,7 +231,7 @@ export const ConnectorFormModal = ({
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
                     placeholder="ap-east-1"
-                    className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                    className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                   />
                 </div>
               </div>
@@ -243,7 +246,7 @@ export const ConnectorFormModal = ({
                   value={endpointUrl}
                   onChange={(e) => setEndpointUrl(e.target.value)}
                   placeholder="https://s3.amazonaws.com (leave blank for standard AWS S3)"
-                  className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                  className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                 />
               </div>
 
@@ -251,7 +254,7 @@ export const ConnectorFormModal = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-nexus-textSecondary">Addressing Style</label>
-                  <div className="flex items-center gap-3 text-[11px] pt-1">
+                  <div className="flex items-center gap-3 text-sm pt-1">
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
                         type="radio"
@@ -277,7 +280,7 @@ export const ConnectorFormModal = ({
 
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-nexus-textSecondary">Signature Version</label>
-                  <div className="flex items-center gap-3 text-[11px] pt-1">
+                  <div className="flex items-center gap-3 text-sm pt-1">
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
                         type="radio"
@@ -305,7 +308,7 @@ export const ConnectorFormModal = ({
               {/* S3 Auth: IAM Role vs Access Keys */}
               <div className="flex flex-col gap-2 pt-2 border-t border-nexus-borderSubtle">
                 <label className="font-semibold text-nexus-textSecondary">Authentication & Authorization</label>
-                <div className="flex items-center gap-4 text-[11px]">
+                <div className="flex items-center gap-4 text-sm">
                   <label className="flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="radio"
@@ -330,7 +333,7 @@ export const ConnectorFormModal = ({
 
                 {authMethod === 'iam_role' ? (
                   <div className="flex flex-col gap-1.5 pt-1">
-                    <label className="text-[11px] text-nexus-textMuted" htmlFor="iam-role-arn">
+                    <label className="text-sm text-nexus-textMuted" htmlFor="iam-role-arn">
                       Target IAM Role ARN (Cross-account or Task Role)
                     </label>
                     <input
@@ -339,13 +342,13 @@ export const ConnectorFormModal = ({
                       value={iamRoleArn}
                       onChange={(e) => setIamRoleArn(e.target.value)}
                       placeholder="arn:aws:iam::123456789012:role/NexusS3IngestRole"
-                      className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                      className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                     />
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] text-nexus-textMuted" htmlFor="s3-key">
+                      <label className="text-sm text-nexus-textMuted" htmlFor="s3-key">
                         Access Key ID
                       </label>
                       <input
@@ -354,11 +357,11 @@ export const ConnectorFormModal = ({
                         value={accessKeyId}
                         onChange={(e) => setAccessKeyId(e.target.value)}
                         placeholder="AKIAIOSFODNN7EXAMPLE"
-                        className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                        className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] text-nexus-textMuted" htmlFor="s3-secret">
+                      <label className="text-sm text-nexus-textMuted" htmlFor="s3-secret">
                         Secret Access Key
                       </label>
                       <input
@@ -367,7 +370,7 @@ export const ConnectorFormModal = ({
                         value={secretAccessKey}
                         onChange={(e) => setSecretAccessKey(e.target.value)}
                         placeholder="••••••••••••••••••••••••"
-                        className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                        className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                       />
                     </div>
                   </div>
@@ -390,14 +393,14 @@ export const ConnectorFormModal = ({
                   value={sharePath}
                   onChange={(e) => setSharePath(e.target.value)}
                   placeholder={sourceType === 'nas_smb' ? '//nas-server.internal/shared-fab' : 'nas-node.internal:/export/data'}
-                  className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                  className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                 />
               </div>
 
               {sourceType === 'nas_smb' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] text-nexus-textMuted" htmlFor="smb-user">
+                    <label className="text-sm text-nexus-textMuted" htmlFor="smb-user">
                       SMB Username / Domain
                     </label>
                     <input
@@ -406,11 +409,11 @@ export const ConnectorFormModal = ({
                       value={nasUsername}
                       onChange={(e) => setNasUsername(e.target.value)}
                       placeholder="DOMAIN\svc-ingest"
-                      className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                      className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    <label className="text-[11px] text-nexus-textMuted" htmlFor="smb-pass">
+                    <label className="text-sm text-nexus-textMuted" htmlFor="smb-pass">
                       SMB Password
                     </label>
                     <input
@@ -419,13 +422,13 @@ export const ConnectorFormModal = ({
                       value={nasPassword}
                       onChange={(e) => setNasPassword(e.target.value)}
                       placeholder="••••••••••••"
-                      className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                      className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                     />
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-[11px] text-nexus-textMuted" htmlFor="nfs-krb">
+                  <label className="text-sm text-nexus-textMuted" htmlFor="nfs-krb">
                     Kerberos Principal / Auth FLAVOR
                   </label>
                   <input
@@ -434,7 +437,7 @@ export const ConnectorFormModal = ({
                     value={kerberosPrincipal}
                     onChange={(e) => setKerberosPrincipal(e.target.value)}
                     placeholder="nfs/ingest@REALM.INTERNAL (or leave blank for sys auth)"
-                    className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-xs font-mono text-nexus-textPrimary outline-none"
+                    className="h-9 px-3 bg-nexus-input border border-nexus-border focus:border-nexus-brandText rounded-sm text-sm font-mono text-nexus-textPrimary outline-none"
                   />
                 </div>
               )}
@@ -461,12 +464,12 @@ export const ConnectorFormModal = ({
                     onClick={() => setSyncMode(opt.id)}
                     className={`flex flex-col p-2.5 rounded-sm border text-left transition-colors ${
                       active
-                        ? 'bg-nexus-brandSubtle text-nexus-brandText border-[#23426e]'
+                        ? 'bg-nexus-brandSubtle text-nexus-brandText border-nexus-border'
                         : 'bg-nexus-input text-nexus-textSecondary border-nexus-border hover:border-nexus-borderStrong'
                     }`}
                   >
-                    <span className="text-[11px] font-bold">{opt.title}</span>
-                    <span className="text-[9px] text-nexus-textMuted mt-0.5">{opt.sub}</span>
+                    <span className="text-sm font-bold">{opt.title}</span>
+                    <span className="text-sm text-nexus-textMuted mt-0.5">{opt.sub}</span>
                   </button>
                 );
               })}
@@ -476,7 +479,7 @@ export const ConnectorFormModal = ({
           {/* Security Banner */}
           <div className="flex items-start gap-2.5 p-3 rounded-sm bg-[#0c1424] border border-[#192a47] text-nexus-textMuted">
             <ShieldIcon className="w-4 h-4 text-nexus-brandText shrink-0 mt-0.5" />
-            <div className="text-[11px] leading-relaxed">
+            <div className="text-sm leading-relaxed">
               <strong className="text-nexus-textPrimary block">Secure Vault Storage</strong>
               Secret keys and passwords are write-only to HashiCorp Vault. They will never be echoed back in API responses.
             </div>
@@ -489,7 +492,7 @@ export const ConnectorFormModal = ({
           <div className="flex items-center gap-2">
             {testResult && (
               <span
-                className={`inline-flex items-center gap-1.5 text-xs font-mono px-2 py-1 rounded-xs border ${
+                className={`inline-flex items-center gap-1.5 text-sm font-mono px-2 py-1 rounded-xs border ${
                   testResult.status === 'Verified'
                     ? 'bg-[#122a1e] border-[#1f5739] text-[#4ade80]'
                     : 'bg-[#2b1414] border-[#592323] text-[#f87171]'
@@ -510,7 +513,7 @@ export const ConnectorFormModal = ({
               type="button"
               onClick={handleTestConnection}
               disabled={isTesting || isSubmitting}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-sm bg-nexus-surface hover:bg-nexus-hover border border-nexus-border text-xs text-nexus-textSecondary hover:text-nexus-textPrimary transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-sm bg-nexus-surface hover:bg-nexus-hover border border-nexus-border text-sm text-nexus-textSecondary hover:text-nexus-textPrimary transition-colors disabled:opacity-50"
             >
               {isTesting ? <SpinnerIcon className="w-3.5 h-3.5 animate-spin" /> : null}
               <span>Test Connection</span>
@@ -520,7 +523,7 @@ export const ConnectorFormModal = ({
               type="button"
               onClick={handleSubmit}
               disabled={isSubmitting || isTesting}
-              className="flex items-center gap-1.5 px-4 py-2 bg-nexus-brand hover:bg-nexus-brandHover active:bg-blue-900 text-white text-xs font-semibold rounded-sm border border-nexus-brand transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 bg-nexus-brand hover:bg-nexus-brandHover active:bg-blue-900 text-white text-sm font-semibold rounded-sm border border-nexus-brand transition-colors disabled:opacity-50"
             >
               {isSubmitting ? <SpinnerIcon className="w-3.5 h-3.5 animate-spin" /> : null}
               <span>Save Connector</span>
@@ -528,6 +531,6 @@ export const ConnectorFormModal = ({
           </div>
         </div>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

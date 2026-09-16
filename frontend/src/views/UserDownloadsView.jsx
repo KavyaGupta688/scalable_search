@@ -1,3 +1,4 @@
+import { getDownloadHistory, HISTORY_EVENT } from '../services/downloadHistory';
 import React, { useState, useEffect, useCallback } from 'react';
 import { getDownloadStatus } from '../services/downloadApi';
 import { DownloadIcon, ClockIcon, CheckCircleIcon, XCircleIcon, SpinnerIcon } from '../components/Icons';
@@ -7,15 +8,13 @@ import { DownloadIcon, ClockIcon, CheckCircleIcon, XCircleIcon, SpinnerIcon } fr
  * Polls the backend for status of in-progress downloads.
  */
 export const UserDownloadsView = ({ showToast }) => {
-  const [downloads, setDownloads] = useState(() => {
-    const stored = localStorage.getItem('nexus_downloads');
-    return stored ? JSON.parse(stored) : [];
-  });
-
-  // Persist downloads to local storage
+  const [downloads, setDownloads] = useState(getDownloadHistory);
   useEffect(() => {
-    localStorage.setItem('nexus_downloads', JSON.stringify(downloads));
-  }, [downloads]);
+    const refresh = () => setDownloads(getDownloadHistory());
+    window.addEventListener(HISTORY_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => { window.removeEventListener(HISTORY_EVENT, refresh); window.removeEventListener('storage', refresh); };
+  }, []);
 
   // Poll for status of building downloads every 4s
   useEffect(() => {
@@ -23,7 +22,7 @@ export const UserDownloadsView = ({ showToast }) => {
     if (building.length === 0) return;
 
     const intervalId = setInterval(async () => {
-      const updated = await Promise.all(
+      await Promise.all(
         downloads.map(async dl => {
           if (dl.status !== 'building') return dl;
           try {
@@ -34,7 +33,7 @@ export const UserDownloadsView = ({ showToast }) => {
           }
         })
       );
-      setDownloads(updated);
+      setDownloads(getDownloadHistory());
     }, 4000);
 
     return () => clearInterval(intervalId);
@@ -63,15 +62,15 @@ export const UserDownloadsView = ({ showToast }) => {
   return (
     <div className="flex flex-col gap-5 max-w-3xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-nexus-textPrimary">Downloads</h1>
-        <span className="text-xs text-nexus-textMuted">{downloads.length} request{downloads.length !== 1 ? 's' : ''}</span>
+        <h1 className="page-title">Downloads</h1>
+        <span className="text-sm text-nexus-textMuted">{downloads.length} request{downloads.length !== 1 ? 's' : ''}</span>
       </div>
 
       {downloads.length === 0 && (
-        <div className="bg-nexus-surface border border-nexus-border rounded-sm p-12 flex flex-col items-center gap-2 text-center">
+        <div className="nx-panel p-12 flex flex-col items-center gap-2 text-center">
           <DownloadIcon className="w-8 h-8 text-nexus-textMuted" />
           <div className="text-sm font-bold text-nexus-textPrimary">No downloads yet</div>
-          <p className="text-xs text-nexus-textMuted max-w-xs">
+          <p className="text-sm text-nexus-textMuted max-w-xs">
             Select files from the Search view and use the Download button to create a batch.
           </p>
         </div>
@@ -80,28 +79,28 @@ export const UserDownloadsView = ({ showToast }) => {
       {downloads.map(dl => (
         <div
           key={dl.download_id}
-          className="bg-nexus-surface border border-nexus-border rounded-sm p-4 flex items-center gap-3"
+          className="nx-panel p-4 flex items-center gap-3"
         >
           {/* Status icon */}
           <div className="shrink-0">{statusIcon(dl.status)}</div>
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-nexus-textPrimary truncate">
+            <div className="text-sm font-semibold text-nexus-textPrimary truncate">
               {dl.file_count} file{dl.file_count !== 1 ? 's' : ''}
             </div>
-            <div className="flex items-center gap-2 text-[10px] text-nexus-textMuted font-mono mt-0.5">
+            <div className="flex items-center gap-2 text-sm text-nexus-textMuted font-mono mt-0.5">
               <ClockIcon className="w-3 h-3" />
-              <span>{formatTime(dl.updated_at)}</span>
-              <span className="capitalize">{dl.status}</span>
+              <span>{formatTime(dl.updated_at || dl.created_at)}</span>
+              <span className="font-sans capitalize">{dl.status === 'ready' && !dl.download_url ? (dl.simulated ? 'Prototype complete · No archive' : 'Ready · Link unavailable') : dl.status}</span>
             </div>
           </div>
 
           {/* Action */}
-          {dl.status === 'ready' && (
+          {dl.status === 'ready' && dl.download_url && (
             <button
               onClick={() => handleOpenDownload(dl)}
-              className="flex items-center gap-1.5 px-3 h-8 bg-nexus-brand hover:bg-nexus-brandHover text-white text-xs font-semibold rounded-sm transition-colors shrink-0"
+              className="flex items-center gap-1.5 px-3 h-8 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors shrink-0"
             >
               <DownloadIcon className="w-3.5 h-3.5" />
               <span>Download</span>

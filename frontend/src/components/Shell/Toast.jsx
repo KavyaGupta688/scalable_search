@@ -3,11 +3,11 @@ import { CheckIcon, AlertIcon } from '../Icons';
 
 export const ToastContainer = ({ toasts }) => {
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
+    <div role="status" aria-live="polite" className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-nexus-elevated border text-xs text-nexus-textPrimary max-w-sm toast-enter ${
+          className={`pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-nexus-elevated border text-sm text-nexus-textPrimary max-w-sm toast-enter ${
             toast.type === 'success'
               ? 'border-emerald-500/40 text-emerald-300'
               : toast.type === 'warning'

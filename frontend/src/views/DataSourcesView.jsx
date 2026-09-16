@@ -1,3 +1,5 @@
+import { useDialog } from '../components/useDialog';
+import { DialogBackdrop } from '../components/DialogBackdrop';
 import React, { useState, useEffect, useCallback } from 'react';
 import { getConnectors, testConnector } from '../services/adminApi';
 import { ConnectorFormModal } from '../components/ConnectorFormModal';
@@ -21,6 +23,7 @@ export const DataSourcesView = ({ showToast }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedConnector, setSelectedConnector] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const dialogRef = useDialog(() => setSelectedConnector(null), Boolean(selectedConnector));
   const [testingId, setTestingId] = useState(null);
 
   const fetchConnectors = useCallback(async () => {
@@ -78,13 +81,10 @@ export const DataSourcesView = ({ showToast }) => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-bold font-mono tracking-widest text-nexus-brandText uppercase">
-            Data Fabric Connectors
-          </span>
-          <h1 className="text-xl font-bold text-nexus-textPrimary tracking-tight">
+          <h1 className="page-title">
             Storage Data Sources
           </h1>
-          <p className="text-xs text-nexus-textMuted mt-0.5">
+          <p className="text-sm text-nexus-textMuted mt-0.5">
             Connected S3-compatible and NAS shares feeding raw multimodal files into automated ingestion.
           </p>
         </div>
@@ -92,7 +92,7 @@ export const DataSourcesView = ({ showToast }) => {
         <button
           type="button"
           onClick={() => setIsAddModalOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-nexus-brand hover:bg-nexus-brandHover text-white text-xs font-semibold rounded-sm transition-colors self-start border border-nexus-brand"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors self-start border border-nexus-brand"
         >
           <PlusIcon className="w-3.5 h-3.5" />
           <span>Connect a Source</span>
@@ -108,11 +108,11 @@ export const DataSourcesView = ({ showToast }) => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search sources by name, path, or type..."
-            className="bg-transparent text-xs text-nexus-textPrimary outline-none w-full placeholder:text-nexus-textMuted"
+            className="bg-transparent text-sm text-nexus-textPrimary outline-none w-full placeholder:text-nexus-textMuted"
           />
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-nexus-textMuted font-mono">
+        <div className="flex items-center gap-3 text-sm text-nexus-textMuted font-mono">
           <span>
             Connected Sources: <strong className="text-nexus-textPrimary">{connectors.length}</strong>
           </span>
@@ -133,7 +133,7 @@ export const DataSourcesView = ({ showToast }) => {
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="bg-nexus-surface border border-nexus-border p-5 rounded-sm flex flex-col gap-3 animate-pulse"
+              className="nx-panel p-6 flex flex-col gap-3 animate-pulse"
             >
               <div className="h-4 bg-nexus-elevated rounded-xs w-1/2" />
               <div className="h-6 bg-nexus-elevated rounded-xs" />
@@ -148,14 +148,14 @@ export const DataSourcesView = ({ showToast }) => {
         <div className="bg-nexus-surface border border-nexus-border p-12 rounded-sm text-center flex flex-col items-center gap-2">
           <DatabaseIcon className="w-8 h-8 text-nexus-textMuted" />
           <div className="text-sm font-bold text-nexus-textPrimary">No connectors found</div>
-          <p className="text-xs text-nexus-textMuted max-w-sm">
+          <p className="text-sm text-nexus-textMuted max-w-sm">
             {searchTerm ? 'No sources match your search filters.' : 'Get started by connecting an S3 bucket or NAS storage.'}
           </p>
           {!searchTerm && (
             <button
               type="button"
               onClick={() => setIsAddModalOpen(true)}
-              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-nexus-brand text-white text-xs font-semibold rounded-sm"
+              className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-nexus-brand text-white text-sm font-semibold rounded-sm"
             >
               <PlusIcon className="w-3.5 h-3.5" />
               <span>Connect First Source</span>
@@ -174,15 +174,15 @@ export const DataSourcesView = ({ showToast }) => {
             return (
               <div
                 key={conn.id}
-                onClick={() => setSelectedConnector(conn)}
+                role="button" tabIndex={0} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setSelectedConnector(conn); } }} onClick={() => setSelectedConnector(conn)}
                 className="bg-nexus-surface border border-nexus-border hover:border-nexus-borderStrong p-4 rounded-sm flex flex-col gap-3 cursor-pointer transition-colors"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-col min-w-0 pr-2">
-                    <span className="text-xs font-bold text-nexus-textPrimary truncate">
+                    <span className="text-sm font-bold text-nexus-textPrimary truncate">
                       {conn.name}
                     </span>
-                    <span className="inline-flex items-center gap-1 text-[11px] text-nexus-textMuted mt-0.5">
+                    <span className="inline-flex items-center gap-1 text-sm text-nexus-textMuted mt-0.5">
                       <Icon className="w-3.5 h-3.5 text-nexus-brandText shrink-0" />
                       <span>{conn.source_type || 'S3-compatible'}</span>
                       {conn.region && <span>· {conn.region}</span>}
@@ -193,15 +193,15 @@ export const DataSourcesView = ({ showToast }) => {
                 </div>
 
                 <div
-                  className="font-mono text-[11px] text-nexus-brandText bg-nexus-elevated px-2.5 py-1.5 rounded-xs truncate border border-nexus-borderSubtle"
+                  className="font-mono text-sm text-nexus-brandText bg-nexus-elevated px-2.5 py-1.5 rounded-xs truncate border border-nexus-borderSubtle"
                   title={conn.endpoint_or_path}
                 >
                   {conn.endpoint_or_path || 's3://default-bucket/'}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 bg-nexus-elevated p-2.5 rounded-xs border border-nexus-borderSubtle text-xs">
+                <div className="grid grid-cols-2 gap-2 bg-nexus-elevated p-2.5 rounded-xs border border-nexus-borderSubtle text-sm">
                   <div className="flex flex-col">
-                    <span className="text-[10px] uppercase text-nexus-textMuted font-medium">
+                    <span className="text-sm uppercase text-nexus-textMuted font-medium">
                       Discovered Files
                     </span>
                     <span className="font-bold text-nexus-textPrimary font-mono">
@@ -211,7 +211,7 @@ export const DataSourcesView = ({ showToast }) => {
                     </span>
                   </div>
                   <div className="flex flex-col">
-                    <span className="text-[10px] uppercase text-nexus-textMuted font-medium">
+                    <span className="text-sm uppercase text-nexus-textMuted font-medium">
                       Sync Stream
                     </span>
                     <span className="font-semibold text-nexus-textSecondary truncate">
@@ -220,8 +220,8 @@ export const DataSourcesView = ({ showToast }) => {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
-                  <span className="font-mono text-[10px] text-nexus-textSecondary truncate max-w-[170px]">
+                <div className="flex items-center justify-between text-sm text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
+                  <span className="font-mono text-sm text-nexus-textSecondary truncate max-w-[170px]">
                     {conn.authType || 'Vault Delegated'}
                   </span>
 
@@ -229,7 +229,7 @@ export const DataSourcesView = ({ showToast }) => {
                     type="button"
                     onClick={(e) => handleTestConnector(e, conn)}
                     disabled={testingId === conn.id}
-                    className="flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-xs bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border hover:border-nexus-borderStrong text-nexus-textSecondary hover:text-nexus-textPrimary transition-colors"
+                    className="flex items-center gap-1 text-sm font-medium px-2 py-0.5 rounded-xs bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border hover:border-nexus-borderStrong text-nexus-textSecondary hover:text-nexus-textPrimary transition-colors"
                   >
                     {testingId === conn.id ? (
                       <SpinnerIcon className="w-3 h-3 animate-spin text-nexus-brandText" />
@@ -245,39 +245,38 @@ export const DataSourcesView = ({ showToast }) => {
         </div>
       )}
 
-      {/* Detail Drawer */}
+      {/* Data source details */}
       {selectedConnector && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 flex justify-end backdrop-enter"
+        <DialogBackdrop
           onClick={() => setSelectedConnector(null)}
         >
           <div
-            className="w-full max-w-lg bg-nexus-surface border-l border-nexus-borderStrong h-full p-6 flex flex-col gap-5 overflow-y-auto drawer-enter"
+            className="detail-dialog max-w-xl p-6 flex flex-col gap-5 modal-enter dialog-surface" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Data source details" tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between border-b border-nexus-border pb-3">
               <div>
-                <h3 className="text-sm font-bold text-nexus-textPrimary">
+                <h3 className="panel-title">
                   {selectedConnector.name}
                 </h3>
-                <span className="text-xs text-nexus-textMuted font-mono">
+                <span className="text-sm text-nexus-textMuted font-mono">
                   {selectedConnector.source_type}
                 </span>
               </div>
               <button
                 type="button"
                 onClick={() => setSelectedConnector(null)}
-                className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary"
+                aria-label="Close details" className="p-1 text-nexus-textMuted hover:text-nexus-textPrimary"
               >
                 <CloseIcon className="w-4 h-4" />
               </button>
             </div>
 
             <div className="flex flex-col gap-3">
-              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+              <span className="text-sm font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
                 Storage Parameters
               </span>
-              <div className="grid grid-cols-[130px_1fr] gap-2.5 text-xs bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
+              <div className="grid grid-cols-[130px_1fr] gap-2.5 text-sm bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
                 <span className="text-nexus-textMuted">Status:</span>
                 <StatusBadge status={selectedConnector.status || 'Verified'} size="sm" />
 
@@ -295,17 +294,17 @@ export const DataSourcesView = ({ showToast }) => {
                 </span>
 
                 <span className="text-nexus-textMuted">Auth Delegation:</span>
-                <span className="font-mono text-[11px] text-nexus-textSecondary break-all">
+                <span className="font-mono text-sm text-nexus-textSecondary break-all">
                   {selectedConnector.authType || 'HashiCorp Vault Managed'}
                 </span>
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
-              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+              <span className="text-sm font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
                 Ingestion Streaming
               </span>
-              <p className="text-xs text-nexus-textSecondary leading-relaxed bg-nexus-elevated p-3 rounded-sm border border-nexus-borderSubtle">
+              <p className="text-sm text-nexus-textSecondary leading-relaxed bg-nexus-elevated p-3 rounded-sm border border-nexus-borderSubtle">
                 Delta events and new binaries are streamed into Apache Kafka topics for sequential OCR, transcription, and vector enrichment pipelines.
               </p>
             </div>
@@ -315,7 +314,7 @@ export const DataSourcesView = ({ showToast }) => {
                 type="button"
                 onClick={(e) => handleTestConnector(e, selectedConnector)}
                 disabled={testingId === selectedConnector.id}
-                className="px-3 py-1.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border rounded-sm text-xs font-semibold text-nexus-textPrimary transition-colors"
+                className="px-3 py-1.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border rounded-sm text-sm font-semibold text-nexus-textPrimary transition-colors"
               >
                 {testingId === selectedConnector.id ? 'Testing...' : 'Test Connection'}
               </button>
@@ -325,13 +324,13 @@ export const DataSourcesView = ({ showToast }) => {
                   if (showToast) showToast(`Triggered crawl for ${selectedConnector.name}`, 'info');
                   setSelectedConnector(null);
                 }}
-                className="px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover rounded-sm text-xs font-semibold text-white transition-colors"
+                className="px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover rounded-sm text-sm font-semibold text-white transition-colors"
               >
                 Trigger Manual Crawl
               </button>
             </div>
           </div>
-        </div>
+        </DialogBackdrop>
       )}
 
       {/* Modal for connecting source */}

@@ -1,3 +1,5 @@
+import { useDialog } from './useDialog';
+import { DialogBackdrop } from './DialogBackdrop';
 import React, { useState, useEffect } from 'react';
 import { getFile, postSearchEvent } from '../services/searchApi';
 import { createBatchDownload } from '../services/downloadApi';
@@ -21,6 +23,7 @@ import {
  * vector similarity search, and dispatching download presigned URLs.
  */
 export const ModalDetail = ({ docId, onClose, showToast }) => {
+  const dialogRef = useDialog(onClose, Boolean(docId));
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
@@ -76,7 +79,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
       if (data.download_url) {
         window.open(data.download_url, '_blank', 'noopener');
       }
-      if (showToast) showToast(`Download ready for ${doc.filename || doc.name}`, 'success');
+      if (showToast) showToast(data.download_url ? `Download ready for ${doc.filename || doc.name}` : 'Download request added. Follow its progress in Downloads.', 'info');
     } catch (err) {
       if (showToast) showToast(err.message || 'Download request failed', 'error');
     }
@@ -98,14 +101,14 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
           ) : (
             <div className="text-center text-nexus-textMuted flex flex-col items-center gap-1.5">
               <ImageIcon className="w-8 h-8 text-nexus-brandText" />
-              <span className="text-[10px] font-mono uppercase tracking-wider">
+              <span className="text-sm font-mono uppercase tracking-wider">
                 Optical Micrograph Sample
               </span>
             </div>
           )}
           {doc.detectedObjects && doc.detectedObjects.length > 0 && (
             <div className="absolute top-[20%] left-[55%] w-[30%] h-[35%] border-2 border-red-500 bg-red-500/15 rounded-xs">
-              <span className="absolute -top-4 left-0 bg-red-500 text-white text-[9px] font-bold px-1 py-0.5">
+              <span className="absolute -top-4 left-0 bg-red-500 text-white text-sm font-bold px-1 py-0.5">
                 Glass Fissure (96.8%)
               </span>
             </div>
@@ -120,7 +123,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
           <div className="w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white cursor-pointer transition-colors">
             <PlayIcon className="w-5 h-5 ml-0.5" />
           </div>
-          <span className="text-[11px] text-nexus-textMuted font-mono">
+          <span className="text-sm text-nexus-textMuted font-mono">
             Inspection Feed (1080p 60fps)
           </span>
         </div>
@@ -135,10 +138,10 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
               <PlayIcon className="w-4 h-4 ml-0.5" />
             </div>
             <div>
-              <div className="text-xs font-bold text-nexus-textPrimary">
+              <div className="text-sm font-bold text-nexus-textPrimary">
                 Acoustic Sensor Audio Stream
               </div>
-              <div className="font-mono text-[10px] text-nexus-textMuted">
+              <div className="font-mono text-sm text-nexus-textMuted">
                 48 kHz · 24-bit PCM WAV
               </div>
             </div>
@@ -161,11 +164,11 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
 
     return (
       <div className="bg-nexus-elevated border border-nexus-borderSubtle rounded-sm p-4 flex flex-col gap-2">
-        <div className="flex items-center gap-2 text-xs font-bold text-nexus-textPrimary">
+        <div className="flex items-center gap-2 text-sm font-bold text-nexus-textPrimary">
           <DocumentIcon className="w-4 h-4 text-nexus-brandText" />
           <span>{doc.filename || doc.name}</span>
         </div>
-        <div className="font-mono text-[11px] text-nexus-textSecondary bg-nexus-surface p-2.5 rounded-xs border border-nexus-borderSubtle leading-relaxed">
+        <div className="font-mono text-sm text-nexus-textSecondary bg-nexus-surface p-2.5 rounded-xs border border-nexus-borderSubtle leading-relaxed">
           {doc.ocrText || doc.ocr_text || doc.description || 'Extracted document content indexed in multimodal database.'}
         </div>
       </div>
@@ -173,25 +176,24 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/75 flex justify-end backdrop-enter"
+    <DialogBackdrop
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl bg-nexus-surface border-l border-nexus-borderStrong h-full p-6 flex flex-col gap-5 overflow-y-auto drawer-enter"
+        className="detail-dialog max-w-2xl p-6 flex flex-col gap-5 modal-enter dialog-surface" ref={dialogRef} role="dialog" aria-modal="true" aria-label="File details" tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-nexus-textMuted py-16">
             <SpinnerIcon className="w-6 h-6 animate-spin text-nexus-brandText" />
-            <span className="text-xs">Loading file inspector...</span>
+            <span className="text-sm">Loading file inspector...</span>
           </div>
         ) : !doc ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-nexus-textMuted py-16">
-            <span className="text-xs">File details could not be retrieved.</span>
+            <span className="text-sm">File details could not be retrieved.</span>
             <button
               onClick={onClose}
-              className="mt-2 text-xs px-3 py-1.5 bg-nexus-elevated border border-nexus-border rounded-sm text-nexus-textPrimary"
+              aria-label="Close dialog" className="mt-2 text-sm px-3 py-1.5 bg-nexus-elevated border border-nexus-border rounded-sm text-nexus-textPrimary"
             >
               Close
             </button>
@@ -214,9 +216,9 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
                 <button
                   type="button"
                   onClick={handleToggleSave}
-                  className={`p-1.5 rounded-xs border text-xs flex items-center gap-1 transition-colors ${
+                  className={`p-1.5 rounded-xs border text-sm flex items-center gap-1 transition-colors ${
                     isSaved
-                      ? 'bg-nexus-brandSubtle border-[#23426e] text-nexus-brandText'
+                      ? 'bg-nexus-brandSubtle border-nexus-border text-nexus-brandText'
                       : 'bg-nexus-elevated border-nexus-border text-nexus-textMuted hover:text-nexus-textPrimary'
                   }`}
                 >
@@ -226,7 +228,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="p-1.5 text-nexus-textMuted hover:text-nexus-textPrimary"
+                  aria-label="Close dialog" className="p-1.5 text-nexus-textMuted hover:text-nexus-textPrimary"
                 >
                   <CloseIcon className="w-4 h-4" />
                 </button>
@@ -238,10 +240,10 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
 
             {/* AI Summary */}
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+              <span className="text-sm font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
                 AI Summary & Findings
               </span>
-              <p className="text-xs text-nexus-textPrimary bg-nexus-elevated p-3 rounded-xs border border-nexus-borderSubtle leading-relaxed">
+              <p className="text-sm text-nexus-textPrimary bg-nexus-elevated p-3 rounded-xs border border-nexus-borderSubtle leading-relaxed">
                 {doc.aiDescription || doc.description || 'Neural classification completed. Modality vector extracted and indexed in Qdrant cluster.'}
               </p>
             </div>
@@ -249,14 +251,14 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
             {/* AI Tags */}
             {doc.tags && doc.tags.length > 0 && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+                <span className="text-sm font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
                   AI Tags
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {doc.tags.map((t) => (
                     <span
                       key={t}
-                      className="text-[11px] px-2 py-0.5 bg-nexus-elevated border border-nexus-border rounded-xs text-nexus-brandText font-medium"
+                      className="text-sm px-2 py-0.5 bg-nexus-elevated border border-nexus-border rounded-xs text-nexus-brandText font-medium"
                     >
                       #{t}
                     </span>
@@ -267,10 +269,10 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
 
             {/* Technical Metadata */}
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
+              <span className="text-sm font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
                 Storage & Technical Details
               </span>
-              <div className="grid grid-cols-[130px_1fr] gap-2 text-xs bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
+              <div className="grid grid-cols-[130px_1fr] gap-2 text-sm bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
                 <span className="text-nexus-textMuted">File ID:</span>
                 <span className="font-mono text-nexus-brandText truncate">{doc.id || docId}</span>
 
@@ -285,7 +287,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
                 {doc.checksum && (
                   <>
                     <span className="text-nexus-textMuted">SHA-256:</span>
-                    <span className="font-mono text-nexus-textMuted text-[10px] truncate">{doc.checksum}</span>
+                    <span className="font-mono text-nexus-textMuted text-sm truncate">{doc.checksum}</span>
                   </>
                 )}
 
@@ -313,7 +315,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
               <button
                 type="button"
                 onClick={handleCopyUri}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border rounded-sm text-xs font-semibold text-nexus-textPrimary transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-border rounded-sm text-sm font-semibold text-nexus-textPrimary transition-colors"
               >
                 <CopyIcon className="w-3.5 h-3.5" />
                 <span>Copy S3 URI</span>
@@ -321,7 +323,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
               <button
                 type="button"
                 onClick={handleDownload}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover text-white rounded-sm text-xs font-semibold transition-colors"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover text-white rounded-sm text-sm font-semibold transition-colors"
               >
                 <DownloadIcon className="w-3.5 h-3.5" />
                 <span>Download Object</span>
@@ -330,6 +332,6 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
           </>
         )}
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

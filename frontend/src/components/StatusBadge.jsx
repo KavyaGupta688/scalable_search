@@ -22,18 +22,18 @@ export const StatusBadge = ({ status = 'Unverified', size = 'sm' }) => {
     colorClasses = 'text-[#f87171] bg-[#2b1414] border-[#592323]';
     Icon = XCircleIcon;
   } else if (norm === 'processing' || norm === 'building' || norm === 'active' || norm === 'in_progress' || norm === 'running') {
-    colorClasses = 'text-[#60a5fa] bg-nexus-brandSubtle border-[#23426e]';
+    colorClasses = 'text-[#60a5fa] bg-nexus-brandSubtle border-nexus-border';
     Icon = SpinnerIcon;
     animate = true;
   }
 
   const isMd = size === 'md';
-  const sizeClasses = isMd ? 'text-xs px-2.5 py-1 gap-1.5' : 'text-[10px] px-1.5 py-0.5 gap-1';
+  const sizeClasses = isMd ? 'text-sm px-2.5 py-1 gap-1.5' : 'text-sm px-1.5 py-0.5 gap-1';
   const iconSize = isMd ? 'w-3.5 h-3.5' : 'w-3 h-3';
 
   return (
     <span
-      className={`inline-flex items-center font-mono font-medium rounded-xs border select-none shrink-0 ${sizeClasses} ${colorClasses}`}
+      className={`inline-flex items-center font-sans font-medium rounded-xs border select-none shrink-0 ${sizeClasses} ${colorClasses}`}
     >
       <Icon className={`${iconSize} ${animate ? 'animate-spin' : ''}`} />
       <span className="capitalize">{status}</span>

@@ -6,15 +6,24 @@ import { Header } from '../components/Shell/Header';
 
 /**
  * AdminShell — layout wrapper for all /admin/* routes.
- * Handles Cmd+K shortcut, logout, navigation.
+ * Handles logout and responsive navigation.
  */
 export const AdminShell = ({ showToast }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const { currentUser, logout } = useAuth();
 
   // Derive current route ID from path for Sidebar active state
   const currentRoute = location.pathname.replace('/admin/', '') || 'overview';
+
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 768px)');
+    const closeMobile = () => { if (desktop.matches) setMobileOpen(false); };
+    desktop.addEventListener('change', closeMobile);
+    return () => desktop.removeEventListener('change', closeMobile);
+  }, []);
 
   const handleNavigate = useCallback((route) => {
     navigate(`/admin/${route}`);
@@ -26,32 +35,19 @@ export const AdminShell = ({ showToast }) => {
     navigate('/', { replace: true });
   }, [logout, showToast, navigate]);
 
-  // Cmd+K / Ctrl+K shortcut
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        navigate('/admin/search');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate]);
-
   return (
-    <div className="flex min-h-screen bg-nexus-bg text-nexus-textPrimary font-sans">
+    <div className="admin-workspace"><a className="skip-link" href="#main-content">Skip to content</a>
       <Sidebar
         currentRoute={currentRoute}
         onNavigate={handleNavigate}
         onLogout={handleLogout}
         currentUser={currentUser}
+        collapsed={collapsed} onCollapse={() => setCollapsed((value) => !value)}
+        mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)}
       />
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
-        <Header
-          onOpenSearch={() => navigate('/admin/search')}
-          onLogout={handleLogout}
-        />
-        <main key={location.pathname} className="flex-1 p-6 lg:p-8 max-w-7xl w-full mx-auto page-transition">
+      <div className="admin-main">
+        <Header onMenu={() => setMobileOpen(true)} />
+        <main id="main-content" key={location.pathname} className="workspace-content page-transition">
           <Outlet />
         </main>
       </div>
