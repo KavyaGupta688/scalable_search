@@ -5,12 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from modules.shared.auth.dependencies import (
     get_auth_service,
     get_current_user,
+    oauth2_scheme,
     require_admin,
 )
 from modules.shared.auth.models import (
     LoginRequest,
     LoginResponse,
     RegisterRequest,
+    TokenStatusResponse,
     UserInDB,
     UserResponse,
     UsersListResponse,
@@ -34,6 +36,31 @@ def login(
             detail=str(exc),
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+@router.get("/token-status", response_model=TokenStatusResponse)
+def token_status(
+    token: str = Depends(oauth2_scheme),
+    auth: AuthService = Depends(get_auth_service),
+) -> TokenStatusResponse:
+    """Confirm that the bearer token has an active database session."""
+    try:
+        return TokenStatusResponse(**auth.token_status(token))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid, expired, revoked, or unstored token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(
+    token: str = Depends(oauth2_scheme),
+    auth: AuthService = Depends(get_auth_service),
+) -> None:
+    """Revoke the current database-backed token session."""
+    auth.revoke_token(token)
 
 
 @router.post("/register", response_model=UserResponse)

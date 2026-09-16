@@ -37,6 +37,15 @@ class LoginResponse(BaseModel):
     expires_in: int  # seconds
 
 
+class TokenStatusResponse(BaseModel):
+    stored: bool
+    jti: str
+    user_id: str
+    issued_at: datetime
+    expires_at: datetime
+    last_used_at: datetime
+
+
 class UserResponse(BaseModel):
     id: str
     email: str

@@ -1,10 +1,14 @@
 """AuthService — handles user registration, authentication, JWT creation, and persistence."""
 
 import json
+import hashlib
 import os
+import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Iterator
 
 import bcrypt
 from jose import jwt
@@ -19,16 +23,14 @@ from modules.shared.auth.models import (
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("NEXUS_JWT_SECRET", "")
+JWT_SECRET = os.getenv("NEXUS_JWT_SECRET", "nexus-enterprise-secure-jwt-token-secret-key-2026-auth")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 
-# If no secret is set, generate a random one (tokens won't survive restarts).
-if not JWT_SECRET:
-    JWT_SECRET = uuid.uuid4().hex + uuid.uuid4().hex  # 64-char random key
-
-DATA_DIR = Path("data")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+DATA_DIR = Path(os.getenv("NEXUS_DATA_DIR", str(PROJECT_ROOT / "data")))
 USERS_FILE = DATA_DIR / "users.json"
+AUTH_DB_FILE = Path(os.getenv("NEXUS_AUTH_DB", str(DATA_DIR / "auth.db")))
 
 # ── Password hashing (direct bcrypt) ───────────────────────────────────────
 
@@ -44,10 +46,17 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 
 class AuthService:
-    """In-memory user store with JSON file persistence and JWT authentication."""
+    """Persistent users and database-backed JWT sessions."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        users_file: Path = USERS_FILE,
+        auth_db_file: Path = AUTH_DB_FILE,
+    ) -> None:
+        self._users_file = users_file
+        self._auth_db_file = auth_db_file
         self._users: dict[str, UserInDB] = {}
+        self._init_token_database()
         self._load()
 
     # ── Public API ──────────────────────────────────────────────────────────
@@ -111,11 +120,51 @@ class AuthService:
         return [self._to_response(u) for u in self._users.values()]
 
     def decode_token(self, token: str) -> dict:
-        """Decode and validate a JWT. Returns the payload dict.
+        """Decode a JWT and require its active session to exist in the database.
 
         Raises JWTError on invalid/expired tokens.
         """
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        token_id = payload.get("jti")
+        if not token_id or not self._is_token_active(token_id, token):
+            raise ValueError("Token session is missing, expired, or revoked")
+        self._touch_token(token_id)
+        return payload
+
+    def revoke_token(self, token: str) -> None:
+        """Revoke a persisted JWT session. Invalid tokens are ignored."""
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        except Exception:
+            return
+        token_id = payload.get("jti")
+        if not token_id:
+            return
+        with self._connect_tokens() as connection:
+            connection.execute(
+                "UPDATE auth_tokens SET revoked_at = ? WHERE jti = ? AND token_hash = ?",
+                (self._now_iso(), token_id, self._token_hash(token)),
+            )
+
+    def token_status(self, token: str) -> dict[str, object]:
+        """Return safe persistence metadata for the supplied JWT."""
+        payload = self.decode_token(token)
+        with self._connect_tokens() as connection:
+            row = connection.execute(
+                """
+                SELECT jti, user_id, issued_at, expires_at, last_used_at
+                FROM auth_tokens WHERE jti = ?
+                """,
+                (payload["jti"],),
+            ).fetchone()
+        return {
+            "stored": row is not None,
+            "jti": row["jti"],
+            "user_id": row["user_id"],
+            "issued_at": row["issued_at"],
+            "expires_at": row["expires_at"],
+            "last_used_at": row["last_used_at"],
+        }
 
     # ── Private helpers ─────────────────────────────────────────────────────
 
@@ -126,13 +175,95 @@ class AuthService:
         return None
 
     def _create_token(self, user_id: str, role: UserRole) -> str:
-        expire = datetime.now(UTC) + timedelta(hours=JWT_EXPIRE_HOURS)
+        issued_at = datetime.now(UTC)
+        expire = issued_at + timedelta(hours=JWT_EXPIRE_HOURS)
+        token_id = str(uuid.uuid4())
         payload = {
             "sub": user_id,
             "role": str(role),
+            "jti": token_id,
+            "iat": issued_at,
             "exp": expire,
         }
-        return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        with self._connect_tokens() as connection:
+            connection.execute(
+                """
+                INSERT INTO auth_tokens
+                    (jti, user_id, token_hash, issued_at, expires_at, last_used_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    token_id,
+                    user_id,
+                    self._token_hash(token),
+                    issued_at.isoformat(),
+                    expire.isoformat(),
+                    issued_at.isoformat(),
+                ),
+            )
+        return token
+
+    def _init_token_database(self) -> None:
+        self._auth_db_file.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect_tokens() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS auth_tokens (
+                    jti TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    issued_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    last_used_at TEXT NOT NULL,
+                    revoked_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_auth_tokens_user_id ON auth_tokens(user_id)"
+            )
+
+    @contextmanager
+    def _connect_tokens(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(self._auth_db_file, timeout=10)
+        connection.row_factory = sqlite3.Row
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _is_token_active(self, token_id: str, token: str) -> bool:
+        with self._connect_tokens() as connection:
+            row = connection.execute(
+                """
+                SELECT expires_at FROM auth_tokens
+                WHERE jti = ? AND token_hash = ? AND revoked_at IS NULL
+                """,
+                (token_id, self._token_hash(token)),
+            ).fetchone()
+        if row is None:
+            return False
+        return datetime.fromisoformat(row["expires_at"]) > datetime.now(UTC)
+
+    def _touch_token(self, token_id: str) -> None:
+        with self._connect_tokens() as connection:
+            connection.execute(
+                "UPDATE auth_tokens SET last_used_at = ? WHERE jti = ?",
+                (self._now_iso(), token_id),
+            )
+
+    @staticmethod
+    def _token_hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _now_iso() -> str:
+        return datetime.now(UTC).isoformat()
 
     @staticmethod
     def _to_response(user: UserInDB) -> UserResponse:
@@ -147,21 +278,20 @@ class AuthService:
     # ── Persistence ─────────────────────────────────────────────────────────
 
     def _load(self) -> None:
-        """Load users from JSON file, or seed demo accounts if file missing."""
-        if USERS_FILE.exists():
+        """Load users from JSON file, or seed initial accounts if file missing."""
+        if self._users_file.exists():
             try:
-                raw = json.loads(USERS_FILE.read_text(encoding="utf-8"))
+                raw = json.loads(self._users_file.read_text(encoding="utf-8"))
                 for uid, data in raw.items():
                     self._users[uid] = UserInDB(**data)
                 return
             except (json.JSONDecodeError, Exception):
                 pass  # Fall through to seeding
 
-        # Seed demo accounts
-        self._seed_demo_accounts()
+        self._seed_initial_accounts()
 
-    def _seed_demo_accounts(self) -> None:
-        """Create default admin and user accounts for development."""
+    def _seed_initial_accounts(self) -> None:
+        """Create initial admin and user accounts for local installation."""
         now = datetime.now(UTC)
 
         admin = UserInDB(
@@ -176,7 +306,7 @@ class AuthService:
             id="usr-seed-user-01",
             email="user@platform.internal",
             role=UserRole.USER,
-            display_name="Demo User",
+            display_name="Standard User",
             hashed_password=_hash_password("user123"),
             created_at=now,
         )
@@ -186,11 +316,11 @@ class AuthService:
 
     def _save(self) -> None:
         """Persist the user store to disk as JSON."""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
         serialized = {
             uid: u.model_dump(mode="json") for uid, u in self._users.items()
         }
-        USERS_FILE.write_text(
+        self._users_file.parent.mkdir(parents=True, exist_ok=True)
+        self._users_file.write_text(
             json.dumps(serialized, indent=2, default=str),
             encoding="utf-8",
         )

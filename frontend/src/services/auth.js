@@ -93,6 +93,15 @@ export const getMe = async () => {
 };
 
 /**
+ * Return metadata proving that the current JWT session exists server-side.
+ */
+export const getTokenStatus = async () => {
+  const res = await fetch('/auth/token-status', { headers: authHeaders() });
+  if (!res.ok) return null;
+  return res.json();
+};
+
+/**
  * List all users — GET /auth/users (admin only)
  */
 export const listUsers = async () => {
@@ -109,9 +118,15 @@ export const listUsers = async () => {
 };
 
 /**
- * Logout — clear all stored auth data.
+ * Logout — revoke the backend session and clear browser auth data.
  */
 export const logout = () => {
+  if (getToken()) {
+    fetch('/auth/logout', {
+      method: 'POST',
+      headers: authHeaders(),
+    }).catch(() => {});
+  }
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(ROLE_KEY);
   localStorage.removeItem(USER_KEY);
