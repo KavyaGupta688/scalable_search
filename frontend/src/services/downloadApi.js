@@ -3,6 +3,8 @@
  * Endpoint prefix: /downloads
  */
 
+import { recordDownload } from './downloadHistory.js';
+
 const getToken = () => localStorage.getItem('nexus_token');
 
 const headers = () => ({
@@ -30,10 +32,14 @@ export async function createBatchDownload(fileIds) {
       headers: headers(),
       body: JSON.stringify({ file_ids: fileIds }),
     });
-    return await handleResponse(res);
+    const data = await handleResponse(res);
+    recordDownload({ ...data, file_count: data.file_count ?? fileIds.length });
+    return data;
   } catch {
     // Mock
-    return { download_id: `dl-mock-${Date.now()}`, status: 'building', file_count: fileIds.length };
+    const data = { download_id: `dl-mock-${globalThis.crypto.randomUUID()}`, status: 'building', file_count: fileIds.length, simulated: true };
+    recordDownload(data);
+    return data;
   }
 }
 
@@ -42,12 +48,19 @@ export async function createBatchDownload(fileIds) {
  * Returns { download_id, status: "building"|"ready"|"failed", updated_at, download_url? }
  */
 export async function getDownloadStatus(downloadId) {
+  if (downloadId.startsWith('dl-mock-')) {
+    const data = { download_id: downloadId, status: 'ready', updated_at: new Date().toISOString(), download_url: null, simulated: true };
+    recordDownload(data);
+    return data;
+  }
   try {
     const res = await fetch(`/downloads/${downloadId}`, { headers: headers() });
-    return await handleResponse(res);
+    const data = await handleResponse(res);
+    recordDownload({ ...data, download_id: downloadId });
+    return data;
   } catch {
-    // Mock: simulate ready after a short delay
-    return { download_id: downloadId, status: 'ready', updated_at: new Date().toISOString(), download_url: null };
+    // A real job with an unavailable API is not a completed prototype download.
+    throw new Error('Unable to refresh download status. Please try again.');
   }
 }
 

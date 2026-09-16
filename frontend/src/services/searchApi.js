@@ -3,7 +3,7 @@
  * Endpoint prefix: /search
  * Falls back to mock data when backend is unavailable.
  */
-import { api } from './api';
+import { api } from './api.js';
 
 const getToken = () => localStorage.getItem('nexus_token');
 
@@ -35,19 +35,19 @@ export async function search(query, mode = 'text', contentType = null, limit = 2
     return await handleResponse(res);
   } catch {
     // Fallback to mock
-    const results = api.search(query, contentType ? [contentType] : []);
+    const result = await api.search({ query, mode, modalities: contentType ? [contentType] : [] });
     return {
       query,
       mode,
-      total: results.length,
-      results: results.map(d => ({
+      total: result.total,
+      results: result.results.slice(0, limit).map(d => ({
         file_id: d.id,
         name: d.filename,
         content_type: d.modality,
-        description: d.description,
+        description: d.aiDescription,
         tags: d.tags,
-        score: d.confidenceScore,
-        created_at: d.indexedAt,
+        score: d.searchScore ?? d.relevanceScore ?? d.confidence,
+        created_at: d.createdAt,
       })),
     };
   }

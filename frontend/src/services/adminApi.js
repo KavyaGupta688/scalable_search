@@ -2,7 +2,10 @@
  * adminApi.js — Admin-only API client.
  * Covers: Connectors, Ingestion jobs, Audit logs.
  */
-import { api } from './api';
+import { api } from './api.js';
+
+// Session-only prototype additions, kept separately from the original fixtures.
+const prototypeConnectors = [];
 
 const getToken = () => localStorage.getItem('nexus_token');
 
@@ -38,7 +41,7 @@ export async function getConnectors() {
   } catch {
     // Fallback to mock
     return {
-      connectors: api.getDataSources().map(s => ({
+      connectors: [...prototypeConnectors, ...api.getDataSources().map(s => ({
         id: s.id,
         name: s.name,
         source_type: 'S3-compatible',
@@ -51,7 +54,7 @@ export async function getConnectors() {
         authType: s.authType,
         discoveredFiles: s.discoveredFiles,
         totalBytes: s.totalBytes,
-      })),
+      }))],
     };
   }
 }
@@ -70,7 +73,7 @@ export async function createConnector(payload) {
     return await handleResponse(res);
   } catch (e) {
     // Mock: simulate creation
-    return {
+    const connector = {
       id: `connector-${Date.now()}`,
       name: payload.name,
       source_type: payload.source_type,
@@ -78,6 +81,8 @@ export async function createConnector(payload) {
       status: 'Unverified',
       created_at: new Date().toISOString(),
     };
+    prototypeConnectors.unshift(connector);
+    return connector;
   }
 }
 
@@ -94,7 +99,10 @@ export async function testConnector(connectorId) {
   } catch {
     // Mock: randomly simulate success/fail for demo
     const ok = Math.random() > 0.3;
-    return { status: ok ? 'Verified' : 'Failed', message: ok ? 'Connection successful' : 'Connection timed out' };
+    const status = ok ? 'Verified' : 'Failed';
+    const connector = prototypeConnectors.find(item => item.id === connectorId);
+    if (connector) connector.status = status;
+    return { status, message: ok ? 'Connection successful' : 'Connection timed out' };
   }
 }
 
