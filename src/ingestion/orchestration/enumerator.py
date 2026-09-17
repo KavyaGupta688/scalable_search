@@ -25,6 +25,7 @@ from ingestion.connectors.base import TransientConnectorError, PermanentConnecto
 from ingestion.orchestration.checkpointing import load_checkpoint, save_checkpoint, clear_checkpoint
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
+from ingestion.storage.source_metadata import is_metadata_control_file
 
 try:  # ``resource`` is available in the Linux worker container, not Windows.
     import resource
@@ -45,6 +46,7 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
     """
     start_time = time.perf_counter()
     files_enumerated = 0
+    metadata_files_skipped = 0
     settings = get_settings()
 
     session = await get_raw_session()
@@ -89,6 +91,19 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
         async for job_descriptor, new_checkpoint_token in connector_instance.enumerate(checkpoint_token):
             job_descriptor.run_id = run_id
             job_descriptor.enumerated_at = datetime.now(timezone.utc)
+            if is_metadata_control_file(job_descriptor):
+                metadata_files_skipped += 1
+                if new_checkpoint_token is not None:
+                    undelivered = await asyncio.to_thread(producer.flush, 30)
+                    if undelivered:
+                        raise TransientConnectorError(
+                            f"Kafka did not deliver {undelivered} jobs before checkpointing"
+                        )
+                    await save_checkpoint(
+                        session, connector_id, continuation_token=new_checkpoint_token
+                    )
+                    await session.commit()
+                continue
             retry_count = 0
             while True:
                 try:
@@ -161,6 +176,7 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
                 "connector_id": str(connector_id),
                 "context": {
                     "files_enumerated": files_enumerated,
+                    "metadata_files_skipped": metadata_files_skipped,
                     "run_id": str(run_id) if run_id else None,
                     "duration_seconds": round(duration, 3),
                     "enumeration_stats": enumeration_stats,

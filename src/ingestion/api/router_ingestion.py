@@ -8,17 +8,17 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ingestion.api.auth import RequirePermission
 from ingestion.api.deps import get_async_session
-from ingestion.models.connector import Connector, ConnectorStatus
 from ingestion.models.checkpoint import EnumerationCheckpoint
+from ingestion.models.connector import Connector, ConnectorStatus
+from ingestion.monitoring.logging import get_logger
 from ingestion.orchestration.enumerator import run_enumeration
 from ingestion.reconciliation.sweep import run_reconciliation_sweep
-from ingestion.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -44,7 +44,7 @@ async def trigger_ingestion(
         raise HTTPException(
             status_code=400,
             detail=f"Connector is not verified (current status: {connector.status.value}). "
-                   "Run POST /admin/connectors/{id}/test first.",
+            "Run POST /admin/connectors/{id}/test first.",
         )
 
     run_id = uuid4()
@@ -103,18 +103,14 @@ async def reset_enumeration_checkpoint(
     """Explicitly start a new test/backfill from the beginning of its scope.
 
     This removes only the selected connector's continuation token.  It never
-    deletes source data, MinIO objects, or document records; existing output
+    deletes source data or document records; existing output
     remains idempotent on a replay.
     """
     result = await db.execute(select(Connector.id).where(Connector.id == connector_id))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Connector not found")
 
-    await db.execute(
-        delete(EnumerationCheckpoint).where(
-            EnumerationCheckpoint.connector_id == connector_id
-        )
-    )
+    await db.execute(delete(EnumerationCheckpoint).where(EnumerationCheckpoint.connector_id == connector_id))
     await db.commit()
     logger.warning(
         "Enumeration checkpoint reset by API request",

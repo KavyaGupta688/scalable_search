@@ -69,8 +69,8 @@ function Get-StageSnapshot {
 }
 
 $stages = @(
-    "enumeration_total", "queue_wait", "source_read", "hashing", "validation", "minio_exists",
-    "minio_write", "metadata", "postgresql_read", "postgresql_write",
+    "enumeration_total", "queue_wait", "source_metadata", "source_read", "hashing",
+    "validation", "postgresql_read", "postgresql_write",
     "postgresql_commit", "total"
 )
 

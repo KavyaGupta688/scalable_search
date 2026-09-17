@@ -7,8 +7,7 @@ Credentials are stored in Vault — never in Postgres.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,18 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ingestion.api.auth import RequirePermission, TokenPayload
 from ingestion.api.deps import get_async_session, get_vault_service
-from ingestion.services.vault import VaultService
 from ingestion.connectors import create_connector
 from ingestion.models.connector import Connector, ConnectorStatus, SourceType
-from ingestion.models.document import Document
+from ingestion.models.document import SourceAsset
+from ingestion.monitoring.logging import get_logger
 from ingestion.schemas.connector import (
     ConnectorCreate,
     ConnectorResponse,
-    S3EnumerationScopeUpdate,
     ConnectorTestResponse,
+    S3EnumerationScopeUpdate,
 )
 from ingestion.services.vault import VaultService
-from ingestion.monitoring.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -78,9 +76,7 @@ async def create_connector_endpoint(
         signature_version=connector_in.s3.signature_version if connector_in.s3 else None,
         s3_prefix=connector_in.s3.prefix if connector_in.s3 else None,
         enumeration_max_objects=(
-            connector_in.s3.max_objects
-            if connector_in.s3
-            else connector_in.nas.max_files if connector_in.nas else None
+            connector_in.s3.max_objects if connector_in.s3 else connector_in.nas.max_files if connector_in.nas else None
         ),
         enumeration_page_size=connector_in.s3.page_size if connector_in.s3 else None,
         # NAS-specific fields
@@ -135,7 +131,7 @@ async def update_s3_enumeration_scope(
     return ConnectorResponse.model_validate(connector)
 
 
-@router.get("/", response_model=List[ConnectorResponse])
+@router.get("/", response_model=list[ConnectorResponse])
 async def list_connectors(
     payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
     db: AsyncSession = Depends(get_async_session),
@@ -178,7 +174,7 @@ async def test_connector(
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     try:
         # Load credentials from Vault
         creds = vault.get_connector_secret(connector.secret_path)
@@ -220,9 +216,7 @@ async def delete_connector(
         raise HTTPException(status_code=404, detail="Connector not found")
 
     entitlement_exists = await db.scalar(
-        select(Document.id)
-        .where(Document.source_connector_id == connector_id)
-        .limit(1)
+        select(SourceAsset.id).where(SourceAsset.source_connector_id == connector_id).limit(1)
     )
     if entitlement_exists is not None:
         raise HTTPException(

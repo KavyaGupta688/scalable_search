@@ -11,25 +11,24 @@ Can be triggered via:
 from __future__ import annotations
 
 import time
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select
 
 from ingestion.config import get_settings
-from ingestion.services.database import get_raw_session
-from ingestion.services.vault import VaultService
-from ingestion.services.kafka import create_producer, publish_job
-from ingestion.models.connector import Connector
-from ingestion.models.document import Document
 from ingestion.connectors import create_connector
+from ingestion.models.connector import Connector
+from ingestion.models.document import SourceAsset
 from ingestion.monitoring.logging import get_logger
-from ingestion.monitoring.metrics import METRICS
+from ingestion.services.database import get_raw_session
+from ingestion.services.kafka import create_producer, publish_job
+from ingestion.services.vault import VaultService
+from ingestion.storage.source_metadata import is_metadata_control_file
 
 logger = get_logger(__name__)
 
 
-async def run_reconciliation_sweep(connector_id: Optional[UUID] = None) -> None:
+async def run_reconciliation_sweep(connector_id: UUID | None = None) -> None:
     """
     Re-enumerate all files from source(s) and compare against the documents table.
     Any file present in the source but not ingested is re-published to Kafka.
@@ -70,6 +69,8 @@ async def run_reconciliation_sweep(connector_id: Optional[UUID] = None) -> None:
             source_jobs: dict[str, object] = {}
             try:
                 async for job_descriptor, _ in connector_instance.enumerate(None):
+                    if is_metadata_control_file(job_descriptor):
+                        continue
                     source_jobs[job_descriptor.source_ref] = job_descriptor
             except Exception as e:
                 logger.error(
@@ -80,25 +81,34 @@ async def run_reconciliation_sweep(connector_id: Optional[UUID] = None) -> None:
 
             total_source = len(source_jobs)
 
-            # Query all ingested source references for this connector.
-            doc_result = await session.execute(
-                select(Document.source_ref).where(
-                    Document.source_connector_id == connector_model.id
+            # Query all catalogued physical source references for this connector.
+            asset_result = await session.execute(
+                select(SourceAsset).where(
+                    SourceAsset.source_connector_id == connector_model.id,
+                    SourceAsset.availability_status == "available",
                 )
             )
-            ingested_refs = set(doc_result.scalars().all())
-            total_ingested = len(ingested_refs)
+            catalogued_assets = {asset.source_ref: asset for asset in asset_result.scalars().all()}
+            total_ingested = len(catalogued_assets)
 
-            # Find gaps: files in source but not in DB
-            gaps = set(source_jobs.keys()) - ingested_refs
+            # A missing location or changed listing fingerprint must be
+            # re-hashed. This catches in-place S3/NAS replacements without a
+            # redundant metadata request per unchanged object.
+            gaps = set()
+            for source_ref, job in source_jobs.items():
+                asset = catalogued_assets.get(source_ref)
+                if asset is None or asset.size_bytes != job.size_bytes or job.source_type == "S3" and job.etag and asset.etag != job.etag or (
+                    job.source_type in {"NAS_SMB", "NAS_NFS"}
+                    and job.mtime
+                    and asset.source_last_modified_at != job.mtime
+                ):
+                    gaps.add(source_ref)
             gaps_found = len(gaps)
             gaps_redriven = 0
 
             for source_ref in gaps:
                 try:
-                    publish_job(
-                        producer, settings.kafka.ingestion_topic, source_jobs[source_ref]
-                    )
+                    publish_job(producer, settings.kafka.ingestion_topic, source_jobs[source_ref])
                     gaps_redriven += 1
                 except Exception as e:
                     logger.error(f"Failed to redrive job for {source_ref}: {e}")

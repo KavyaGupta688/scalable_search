@@ -11,9 +11,6 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
-from ingestion.config import get_settings
-
-
 revision: str = "004"
 down_revision: Union[str, None] = "003"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -152,7 +149,10 @@ def upgrade() -> None:
         WHERE entitlement_id IS NULL
         """
     )
-    bucket_name = get_settings().minio.bucket
+    # Historical compatibility value. Revision 009 removes this former
+    # destination-storage column; keeping 004 self-contained lets a fresh
+    # database migrate through the complete chain without MinIO settings.
+    bucket_name = "legacy-ingestion-data"
     bind.execute(
         sa.text("UPDATE documents SET bucket_name = :bucket WHERE bucket_name IS NULL"),
         {"bucket": bucket_name},

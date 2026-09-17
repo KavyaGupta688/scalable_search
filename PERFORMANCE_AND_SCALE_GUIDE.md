@@ -9,23 +9,23 @@ existing 12-partition job topic. The worker remains sequential within each
 process so Kafka offset ordering stays simple and correct.
 
 Before every stage, confirm the exact prefix byte/object totals, zero consumer
-lag, healthy Prometheus targets, and sufficient MinIO disk headroom. Run
+lag and healthy Prometheus targets. Run
 `scripts/benchmark_ingestion.ps1`; its returned `run_id` is added to job logs,
 and its JSON report contains wall time, failure count, MiB/s, objects/s,
-projected 1-TiB time, queue delay, source read, hashing, validation, MinIO,
-Tika, PostgreSQL, and total worker timings.
+projected 1-TiB time, queue delay, source metadata reads, source read, hashing,
+validation, PostgreSQL, and total worker timings.
 
 | Stage | Proceed only when |
 | --- | --- |
 | 10 GB | No data loss; zero unresolved failures; at least 6 MiB/s for a sub-48-hour 1-TiB projection |
-| 50 GB | Throughput is at least 80% of the 10-GB result; queue lag drains; MinIO and Tika remain healthy |
+| 50 GB | Throughput is at least 80% of the 10-GB result; queue lag drains and source access remains healthy |
 | 100 GB | No growing memory/disk pressure; no RDS connection exhaustion; projected duration is acceptable |
 | 1 TiB | At least 1.25 TiB destination headroom; prior stage is stable; AWS egress and runtime budget approved |
 
 For a 12-hour 1-TiB target, sustained end-to-end throughput must be about
 24.3 MiB/s. For 24 hours it must be about 12.1 MiB/s; for 48 hours, about
 6.1 MiB/s. If the 10-GB stage is below 6 MiB/s, do not increase dataset size:
-move workers and MinIO closer to S3 or resolve the dominant measured stage.
+move workers closer to S3 or resolve the dominant measured stage.
 
 ## What was slow
 
@@ -48,7 +48,7 @@ For a true end-to-end measurement, use a test dataset that has not already
 produced `documents` rows. Replaying a partially processed run is correct and
 safe, but destination-exists and checksum-dedup paths will intentionally skip
 work and invalidate a fresh-throughput comparison. Use a separate test-only
-MinIO bucket if needed; do not delete existing RDS or MinIO data just to make
+source prefix if needed; do not delete existing RDS catalogue data just to make
 a benchmark look clean.
 
 1. Apply migration `002` to RDS using your existing global Alembic setup, then
@@ -107,7 +107,7 @@ a benchmark look clean.
    ```
 
    For a clean full-scope run, explicitly reset the connector's
-   checkpoint first. Do **not** erase RDS or MinIO data to benchmark.
+   checkpoint first. Do **not** erase RDS catalogue data to benchmark.
 
    ```powershell
    docker compose up -d ingestion-api ingestion-worker
@@ -153,9 +153,8 @@ a benchmark look clean.
 | Source object download/read | Worker: `stage="source_read"` |
 | SHA-256 hashing | Worker: `stage="hashing"` |
 | MIME validation | Worker: `stage="validation"` |
-| MinIO object operations | Worker: `stage="minio_exists"` and `stage="minio_write"` |
+| Vendor metadata reads | Worker: `stage="source_metadata"` |
 | PostgreSQL reads/writes | Worker: `stage="postgresql_read"`, `stage="postgresql_write"`, and `stage="postgresql_commit"` |
-| Metadata extraction | Worker: `stage="metadata"` |
 | Per-object total | Worker: `stage="total"` |
 | End-to-end total | Wall clock from trigger until Kafka lag is zero |
 | Enumerator memory | API: `ingestion_process_memory_peak_bytes` |
@@ -163,7 +162,7 @@ a benchmark look clean.
 ## Benchmark report template
 
 Record one cold run of the old implementation (if practical) and one run of
-this build against the same prefix, credentials, MinIO, and RDS.  Do not
+this build against the same prefix, credentials, and RDS. Do not
 compare a capped run with an uncapped run.
 
 | Measure | Before | After |
@@ -176,7 +175,7 @@ compare a capped run with an uncapped run.
 | Source-read seconds (sum) | | |
 | Hashing seconds (sum) | | |
 | Validation seconds (sum) | | |
-| MinIO-write seconds (sum) | | |
+| Source-metadata seconds (sum) | | |
 | PostgreSQL-write seconds (sum) | | |
 | End-to-end seconds | | |
 | Objects/sec | | |
@@ -186,7 +185,7 @@ compare a capped run with an uncapped run.
 ## Production path for 450 TB
 
 The streaming paginator, batched Kafka durability checkpoint, 1,000-key pages,
-connection reuse, bounded memory, and streamed MinIO-to-Tika transfer
+connection reuse, bounded memory, and cached bounded manifest reads
 are production changes.  The prefix and `max_objects` controls are test
 scoping controls; they are also useful for controlled backfills.
 
@@ -205,12 +204,12 @@ enumerator per shard.  Do not start concurrent continuation-token walks of the
 same prefix: S3 continuation tokens are sequential and that design can
 duplicate or miss keys.
 
-Run workers, Kafka, RDS, MinIO, and Tika in the same AWS region/VPC as the
+Run workers, Kafka, and RDS in the same AWS region/VPC as the
 source. Create a multi-partition Kafka topic and scale worker replicas to
 partitions; one worker process is deliberately sequential, while multiple
 same-group worker replicas process separate partitions safely. Measure and
 raise replica count only after ensuring
-MinIO, Tika, RDS connection pools, and Kafka partitions can sustain it.
+RDS connection pools and Kafka partitions can sustain it.
 
 The current database checksum uniqueness gives idempotent content
 deduplication, and a PostgreSQL advisory lock serialises competing workers

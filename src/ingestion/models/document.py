@@ -1,17 +1,27 @@
 """
-Document and DuplicateLink ORM models.
+Canonical document and physical source-asset ORM models.
 
-Document: canonical metadata record for every unique ingested file.
-DuplicateLink: lightweight reference when a duplicate is detected.
+Document: canonical metadata record for every unique SHA-256 content identity.
+SourceAsset: one physical S3/SMB/NFS location containing that content.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ingestion.services.database import Base
@@ -21,9 +31,8 @@ class Document(Base):
     """
     Canonical metadata record for an ingested file.
 
-    One row per unique SHA-256 checksum. The storage_path points to the
-    deduplicated object in MinIO. The unique index on checksum_sha256
-    enforces deduplication at the database level.
+    One row per unique SHA-256 checksum. File bytes remain in vendor storage;
+    source_assets records every physical location containing those bytes.
     """
 
     __tablename__ = "documents"
@@ -44,10 +53,6 @@ class Document(Base):
         Text,
         nullable=False,
     )
-    storage_path: Mapped[str] = mapped_column(
-        Text,
-        nullable=False,
-    )
     source_connector_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("connectors.id"),
@@ -60,34 +65,18 @@ class Document(Base):
     entitlement_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("license_entitlements.id"), nullable=False
     )
-    bucket_name: Mapped[str] = mapped_column(Text, nullable=False)
-
-    # Licence start/expiry/policy live only on LicenseEntitlement. Documents
-    # retain object state and the FK to that authoritative clock.
-    object_version_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    retention_status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="active"
-    )
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_reconciled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    # --- Extended metadata (from Tika + system metadata) ---
-    # Stored as a JSONB column for flexibility across file types.
-    # The Pydantic normalizer validates before this is written.
-    tika_metadata: Mapped[dict | None] = mapped_column(
-        JSONB,
-        nullable=True,
-    )
-
     # Relationships
-    duplicate_links: Mapped[list[DuplicateLink]] = relationship(
-        "DuplicateLink",
-        back_populates="original_document",
+    source_assets: Mapped[list[SourceAsset]] = relationship(
+        "SourceAsset",
+        back_populates="document",
         cascade="all, delete-orphan",
     )
-    entitlement: Mapped["LicenseEntitlement"] = relationship(  # noqa: F821
+    entitlement: Mapped[LicenseEntitlement] = relationship(  # noqa: F821
         "LicenseEntitlement", back_populates="documents"
+    )
+    structured_metadata: Mapped[list[DocumentSourceMetadata]] = relationship(
+        "DocumentSourceMetadata",
+        back_populates="document",
     )
 
     __table_args__ = (
@@ -95,13 +84,6 @@ class Document(Base):
         Index("idx_documents_checksum", "checksum_sha256", unique=True),
         Index("idx_documents_mime_type", "mime_type"),
         Index("idx_documents_source_connector", "source_connector_id"),
-        Index("idx_documents_retention_entitlement", "retention_status", "entitlement_id"),
-        CheckConstraint(
-            "retention_status IN ('active', 'expiry_due', 'deletion_pending', "
-            "'deleted_by_reconciler', 'already_absent_at_expiry', "
-            "'missing_before_expiry', 'held_past_expiry', 'deletion_failed')",
-            name="ck_documents_retention_status",
-        ),
     )
 
     def __repr__(self) -> str:
@@ -111,21 +93,21 @@ class Document(Base):
         )
 
 
-class DuplicateLink(Base):
+class SourceAsset(Base):
     """
-    Lightweight link record for duplicate files.
+    A physical vendor-owned location for canonical document content.
 
-    When a file's SHA-256 matches an existing document, we abort the
-    multipart upload and create this link instead of storing a second copy.
+    Multiple rows may point at one document when byte-identical files exist
+    in different connectors or paths. No vendor file is deleted as deduplication.
     """
 
-    __tablename__ = "duplicate_links"
+    __tablename__ = "source_assets"
 
     id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         primary_key=True,
     )
-    original_document_id: Mapped[UUID] = mapped_column(
+    document_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("documents.id"),
         nullable=False,
@@ -139,25 +121,84 @@ class DuplicateLink(Base):
         Text,
         nullable=False,
     )
-    detected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    etag: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_version_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_last_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    availability_status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="available"
     )
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    original_document: Mapped[Document] = relationship(
+    document: Mapped[Document] = relationship(
         "Document",
-        back_populates="duplicate_links",
+        back_populates="source_assets",
+    )
+    structured_metadata: Mapped[DocumentSourceMetadata | None] = relationship(
+        "DocumentSourceMetadata",
+        back_populates="source_asset",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
     __table_args__ = (
-        Index("idx_duplinks_original", "original_document_id"),
-        Index("idx_duplinks_source_ref", "source_ref"),
+        Index("idx_source_assets_document", "document_id"),
+        Index(
+            "uq_source_assets_active_location",
+            "source_connector_id",
+            "source_ref",
+            unique=True,
+            postgresql_where=(availability_status == "available"),
+        ),
+        Index(
+            "idx_source_assets_connector_availability",
+            "source_connector_id",
+            "availability_status",
+        ),
+        CheckConstraint(
+            "availability_status IN ('available', 'changed', 'missing', 'inaccessible')",
+            name="ck_source_assets_availability_status",
+        ),
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<DuplicateLink(id={self.id}, "
-            f"original={self.original_document_id}, ref={self.source_ref})>"
-        )
+        return f"<SourceAsset(id={self.id}, document={self.document_id}, source={self.source_ref})>"
+
+
+class DocumentSourceMetadata(Base):
+    """Structured metadata supplied by vendor manifest and sidecar files."""
+
+    __tablename__ = "document_metadata"
+
+    source_asset_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("source_assets.id"), primary_key=True
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False
+    )
+    metadata_formats: Mapped[list[str]] = mapped_column(ARRAY(String(32)), nullable=False)
+    metadata_source_refs: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+    external_asset_id: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    primary_category: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    categories: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    brand: Mapped[str | None] = mapped_column(Text)
+    contributor_id: Mapped[str | None] = mapped_column(Text)
+    additional_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    document: Mapped[Document] = relationship(
+        "Document", back_populates="structured_metadata"
+    )
+    source_asset: Mapped[SourceAsset] = relationship(
+        "SourceAsset", back_populates="structured_metadata"
+    )
+
+    __table_args__ = (
+        Index("idx_document_metadata_document", "document_id"),
+        Index("idx_document_metadata_external_asset_id", "external_asset_id"),
+        Index("idx_document_metadata_category", "primary_category"),
+        Index("idx_document_metadata_contributor", "contributor_id"),
+    )

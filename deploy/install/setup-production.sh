@@ -50,35 +50,27 @@ KAFKA_INGESTION_TOPIC=ingestion-jobs
 KAFKA_DEAD_LETTER_TOPIC=ingestion-dead-letter
 KAFKA_AI_PROCESSING_TOPIC=ai-processing-events
 
-# MinIO
-MINIO_ENDPOINT_URL=http://localhost:9000
-MINIO_ACCESS_KEY=replace-from-secret-manager
-MINIO_SECRET_KEY=replace-from-secret-manager
-MINIO_BUCKET=ingestion-data
-MINIO_REGION=us-east-1
-
 # Vault
 VAULT_URL=http://localhost:8200
 VAULT_TOKEN=replace-from-secret-manager
 
-# Tika
-TIKA_SERVER_ENDPOINT=http://localhost:9998
-
-# Licensed-content retention. Start with DRY_RUN=true, inspect the audit,
-# then explicitly enable deletion after change approval.
+# Licence-expiry status reconciliation. It never deletes vendor content.
 RETENTION_ENABLED=true
 RETENTION_DRY_RUN=true
-RETENTION_EXPECTED_BUCKET_VERSIONING=Unversioned
-RETENTION_WRITE_OBJECT_TAGS=false
 RETENTION_POLICY_YEARS=3
-RETENTION_OBJECT_PREFIX=
-RETENTION_LIFECYCLE_RULE_ID=ingestion-retention-v1
-RETENTION_LIFECYCLE_EXPIRATION_DAYS=1097
-RETENTION_NONCURRENT_EXPIRATION_DAYS=1097
-RETENTION_INCOMPLETE_MULTIPART_DAYS=7
 RETENTION_RECONCILIATION_INTERVAL_SECONDS=900
 RETENTION_RECONCILIATION_BATCH_SIZE=500
 RETENTION_METRICS_PORT=9200
+
+# Vendor metadata files
+METADATA_REQUIRED=true
+METADATA_MAX_FILE_BYTES=33554432
+METADATA_CACHE_MAX_DIRECTORIES=1000
+METADATA_MANIFEST_NAMES=metadata.csv,metadata11.csv
+METADATA_SIDECAR_NAMES=.id,.desc,.tags,.lab,.cate
+METADATA_SIDECARS_WITH_MANIFEST=false
+METADATA_ADDITIONAL_METADATA_MAX_KEYS=64
+METADATA_ADDITIONAL_METADATA_MAX_BYTES=65536
 EOF
 
 chmod 600 /etc/ingestion/ingestion.env
@@ -97,8 +89,8 @@ systemctl enable ingestion-retention.service
 echo "========================================================="
 echo "Setup Complete!"
 echo "Manual steps needed:"
-echo "1. Install PostgreSQL, MinIO, Kafka, Vault, Tika, ELK separately."
+echo "1. Install PostgreSQL, Kafka, Vault, and ELK separately."
 echo "2. Edit /etc/ingestion/ingestion.env with production secrets."
 echo "3. Run 'systemctl start ingestion-api' to start services."
-echo "NOTE: Ensure you have backup strategies for PostgreSQL and MinIO."
+echo "NOTE: Back up PostgreSQL and verify vendor-source availability separately."
 echo "========================================================="

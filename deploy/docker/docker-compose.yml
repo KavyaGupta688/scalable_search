@@ -30,11 +30,6 @@ services:
     networks:
       - ingestion-net
 
-  tika:
-    image: apache/tika:latest
-    networks:
-      - ingestion-net
-
   elasticsearch:
     image: elasticsearch:8.13.0
     environment:
@@ -89,7 +84,6 @@ services:
     depends_on:
       - kafka
       - vault
-      - tika
 
   ingestion-worker:
     restart: unless-stopped
@@ -104,7 +98,6 @@ services:
     depends_on:
       - kafka
       - vault
-      - tika
 
   retention-reconciler:
     restart: unless-stopped

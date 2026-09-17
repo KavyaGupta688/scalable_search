@@ -3,22 +3,22 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from typing import AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
 from urllib.parse import urlparse
 
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ClientError, BotoCoreError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from ingestion.config import get_settings
-from ingestion.schemas.job import JobDescriptor
 from ingestion.connectors.base import (
+    PermanentConnectorError,
     SourceConnector,
     TransientConnectorError,
-    PermanentConnectorError,
 )
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
+from ingestion.schemas.job import JobDescriptor
 
 logger = get_logger(__name__)
 
@@ -28,16 +28,16 @@ class S3Connector(SourceConnector):
 
     def __init__(
         self,
-        endpoint_url: Optional[str],
+        endpoint_url: str | None,
         bucket: str,
         access_key: str,
         secret_key: str,
         addressing_style: str = "path",
         signature_version: str = "s3v4",
-        chunk_size: Optional[int] = None,
-        connector_id: Optional[str] = None,
+        chunk_size: int | None = None,
+        connector_id: str | None = None,
         prefix: str = "",
-        max_objects: Optional[int] = None,
+        max_objects: int | None = None,
         page_size: int = 1000,
     ):
         self.bucket = bucket
@@ -115,8 +115,8 @@ class S3Connector(SourceConnector):
             raise self._handle_error(e)
 
     async def enumerate(
-        self, checkpoint: Optional[str] = None
-    ) -> AsyncGenerator[tuple[JobDescriptor, Optional[str]], None]:
+        self, checkpoint: str | None = None
+    ) -> AsyncGenerator[tuple[JobDescriptor, str | None], None]:
         """Yield jobs one ListObjectsV2 page at a time.
 
         S3 continuation tokens are inherently sequential, so fetching the next
@@ -161,14 +161,12 @@ class S3Connector(SourceConnector):
             list_seconds += request_seconds
             page_count += 1
             METRICS.ENUMERATION_PAGES_TOTAL.labels(source_type="S3").inc()
-            METRICS.PROCESSING_DURATION_SECONDS.labels(
-                source_type="S3", stage="enumeration_list_page"
-            ).observe(request_seconds)
+            METRICS.PROCESSING_DURATION_SECONDS.labels(source_type="S3", stage="enumeration_list_page").observe(
+                request_seconds
+            )
 
             if page_count == 1:
-                self.last_enumeration_stats["first_page_seconds"] = (
-                    time.perf_counter() - started_at
-                )
+                self.last_enumeration_stats["first_page_seconds"] = time.perf_counter() - started_at
 
             contents = page.get("Contents", [])
             next_token = page.get("NextContinuationToken")
@@ -181,6 +179,7 @@ class S3Connector(SourceConnector):
                     provisional_id=obj.get("ETag", "").strip('"'),
                     size_bytes=obj.get("Size", 0),
                     etag=obj.get("ETag", "").strip('"'),
+                    mtime=obj.get("LastModified"),
                     bucket=self.bucket,
                     object_key=obj["Key"],
                 )
@@ -243,7 +242,10 @@ class S3Connector(SourceConnector):
         """Yield byte chunks (8MB each) from the source file."""
         key = job.source_ref.split("/", 1)[1]
         try:
-            response = await asyncio.to_thread(self.client.get_object, Bucket=self.bucket, Key=key)
+            params = {"Bucket": self.bucket, "Key": key}
+            if job.version_id:
+                params["VersionId"] = job.version_id
+            response = await asyncio.to_thread(self.client.get_object, **params)
             async for chunk in self._read_stream(response["Body"], self.chunk_size):
                 yield chunk
         except Exception as e:
@@ -253,12 +255,10 @@ class S3Connector(SourceConnector):
         """Resume streaming from a byte offset (for retry with Range requests)."""
         key = job.source_ref.split("/", 1)[1]
         try:
-            response = await asyncio.to_thread(
-                self.client.get_object,
-                Bucket=self.bucket,
-                Key=key,
-                Range=f"bytes={offset}-"
-            )
+            params = {"Bucket": self.bucket, "Key": key, "Range": f"bytes={offset}-"}
+            if job.version_id:
+                params["VersionId"] = job.version_id
+            response = await asyncio.to_thread(self.client.get_object, **params)
             async for chunk in self._read_stream(response["Body"], self.chunk_size):
                 yield chunk
         except Exception as e:
