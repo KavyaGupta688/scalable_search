@@ -21,7 +21,7 @@
             <div class="brand-group">
                 <div class="brand-badge">Multi-Modal &bull; Images, Audio & Video &bull; AWS S3 + RDS</div>
                 <h1>Forensic Watermark <span class="gradient-text">Stream Gateway</span></h1>
-                <p class="subtitle">Multi-Modal S3 data delivery with zero-distortion cryptographic watermarking for Vision, Speech & Video AI</p>
+                <p class="subtitle">S3 data delivery with metadata tracking and optional image, audio and video signal watermarks</p>
             </div>
             <div class="system-status-pills">
                 <div class="status-pill active" id="db-status-pill">
@@ -34,7 +34,7 @@
                 </div>
                 <div class="status-pill">
                     <span class="status-icon">🧬</span>
-                    <span>0.000% Multi-Modal Distortion</span>
+                    <span>Authenticated Download Tracking</span>
                 </div>
             </div>
         </header>
@@ -51,7 +51,7 @@
                 <span class="tab-icon">🔍</span> Forensic Leak Inspector
             </button>
             <button class="tab-btn" data-tab="tab-ml-verify">
-                <span class="tab-icon">🧬</span> ML Zero-Distortion Lab
+                <span class="tab-icon">🧬</span> Watermark Quality
             </button>
             <button class="tab-btn" data-tab="tab-audit">
                 <span class="tab-icon">📋</span> PostgreSQL Forensic Registry
@@ -132,7 +132,7 @@
                                 <span class="card-icon">⚡</span>
                                 <div>
                                     <h3>Multi-Modal Download & Watermarking</h3>
-                                    <p class="card-subtext" id="panel-subtext">Stream Images, Audio & Video with 0% distortion</p>
+                                    <p class="card-subtext" id="panel-subtext">Download tracked images, audio and video</p>
                                 </div>
                             </div>
                         </div>
@@ -171,9 +171,9 @@
 
                             <div class="feature-pills-row">
                                 <span class="mini-tag">🔒 HMAC Token</span>
-                                <span class="mini-tag">🖼️ Vision (0% Pixels)</span>
-                                <span class="mini-tag">🎵 Audio (0% PCM)</span>
-                                <span class="mini-tag">🎬 Video (0% Re-encode)</span>
+                                <span class="mini-tag">🖼️ Images</span>
+                                <span class="mini-tag">🎵 Audio</span>
+                                <span class="mini-tag">🎬 Video</span>
                                 <span class="mini-tag">🐘 AWS RDS Logged</span>
                             </div>
 
@@ -363,35 +363,35 @@
                         <div class="card-title">
                             <span class="card-icon">🧬</span>
                             <div>
-                                <h3>Multi-Modal Zero-Distortion Verification Lab</h3>
-                                <p class="card-subtext">Mathematical proof of 0.000% signal distortion across Vision, Speech Audio, and Video models</p>
+                                <h3>Watermark Quality and Recovery</h3>
+                                <p class="card-subtext">Training impact and robustness need evaluation on your media and models.</p>
                             </div>
                         </div>
                     </div>
 
                     <div class="integrity-hero-banner">
                         <div class="stat-box">
-                            <div class="stat-number green">0.000%</div>
-                            <div class="stat-label">Vision (Pixel Matrix Alteration)</div>
+                            <div class="stat-number green">Images</div>
+                            <div class="stat-label">JPEG DCT / PNG DWT-DCT available</div>
                         </div>
                         <div class="stat-box">
-                            <div class="stat-number blue">0.000%</div>
-                            <div class="stat-label">Speech/Audio (PCM Waveform Distortion)</div>
+                            <div class="stat-number blue">Audio</div>
+                            <div class="stat-label">STFT and native MP3/AAC modes available</div>
                         </div>
                         <div class="stat-box">
-                            <div class="stat-number purple">0.000%</div>
-                            <div class="stat-label">Video (Bitstream Re-encoding Distortion)</div>
+                            <div class="stat-number purple">Video</div>
+                            <div class="stat-label">Experimental H.264/H.265 native modes available</div>
                         </div>
                     </div>
 
                     <div class="explanation-grid">
                         <div class="info-card">
-                            <h4>❌ Lossy Image/Media Re-encoding Approaches</h4>
-                            <p>Standard approaches decode the compressed video frames, audio samples, or JPEG images and re-compress them. This introduces compression artifacts, alters floating-point audio coefficients, shifts pixel matrices by 1-5%, and corrupts model training.</p>
+                            <h4>Signal watermarks</h4>
+                            <p>When enabled, an authenticated download ID is repeated inside image, audio or video coefficients. Metadata stripping recovery is tested. Resizing, cropping and transcoding can destroy the watermark. Quality and training effects require separate evaluation. Native video is currently limited to 1920×1080, 12 seconds and all-intra encoding.</p>
                         </div>
                         <div class="info-card highlight-border">
-                            <h4>✅ Multi-Modal Container Binary Injectors</h4>
-                            <p>Our engine directly inserts standard container metadata chunks (<code>tEXt</code> for PNG, <code>COM</code> for JPEG, <code>LIST/INFO</code> for WAV, <code>ID3v2</code> for MP3, <code>free/udta</code> for MP4) at binary offsets. <strong>Zero decompression = Zero distortion for ML training.</strong></p>
+                            <h4>Metadata tracking</h4>
+                            <p>Metadata tokens record download details without intentionally changing the underlying signal. Metadata can be removed. A valid token authenticates a download ID; it does not prove who subsequently shared the file.</p>
                         </div>
                     </div>
                 </div>

@@ -1,0 +1,6 @@
+-r requirements.txt
+# Native quantized JPEG DCT read/write, tested with this version.
+jpeglib==1.0.2
+scipy==1.18.1
+PyWavelets==1.10.0
+soundfile==0.14.0

@@ -33,7 +33,7 @@ def process_async_watermarked_package(
     """
     Asynchronous Celery worker task:
     1. Downloads files (Images, Audio, Video) from S3.
-    2. Embeds cryptographic tracking tokens on-the-fly into headers (0% signal distortion).
+    2. Applies configured metadata and optional signal/native-codec watermarks.
     3. Packages results into a ZIP archive in async staging storage.
     4. Writes forensic audit trails directly into AWS RDS PostgreSQL.
     5. Updates real-time progress via Redis.
@@ -73,7 +73,7 @@ def process_async_watermarked_package(
                 )
                 token_str = generate_watermark_token(payload)
 
-                # 3. Inject Watermark into Metadata Headers (0% Signal Distortion)
+                # 3. Apply the shared configured watermark backend.
                 watermarked_bytes = inject_watermark_bytes(raw_bytes, token_str, file_identifier=s3_key)
 
                 # 4. Save into ZIP

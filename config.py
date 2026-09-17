@@ -27,6 +27,16 @@ if env_file.exists():
 # Cryptographic Secret for HMAC-SHA256 Signatures
 HMAC_SECRET_KEY = os.getenv("WATERMARK_SECRET_KEY", "ENTERPRISE_SECURE_HMAC_KEY_2026_AGY")
 
+# Explicit opt-in: native JPEG coefficient watermark plus existing metadata.
+# Other formats retain their existing metadata behavior.
+JPEG_CODEC_WATERMARK = os.getenv("JPEG_CODEC_WATERMARK", "false").lower() == "true"
+LOSSLESS_SIGNAL_WATERMARK = os.getenv("LOSSLESS_SIGNAL_WATERMARK", "false").lower() == "true"
+NATIVE_AUDIO_WATERMARK = os.getenv("NATIVE_AUDIO_WATERMARK", "false").lower() == "true"
+NATIVE_VIDEO_WATERMARK = os.getenv("NATIVE_VIDEO_WATERMARK", "false").lower() == "true"
+CODEC_WATERMARK_SECRET = os.getenv("CODEC_WATERMARK_SECRET", "")
+if (JPEG_CODEC_WATERMARK or LOSSLESS_SIGNAL_WATERMARK or NATIVE_AUDIO_WATERMARK or NATIVE_VIDEO_WATERMARK) and len(CODEC_WATERMARK_SECRET.encode()) < 32:
+    raise ValueError("Signal watermarking requires CODEC_WATERMARK_SECRET of at least 32 bytes")
+
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")

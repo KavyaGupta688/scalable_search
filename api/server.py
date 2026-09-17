@@ -20,7 +20,7 @@ from api.routes import router as api_router
 
 app = FastAPI(
     title="AI Data Platform - Download & Metadata Watermarking Gateway",
-    description="High-performance S3 streaming gateway with non-disruptive cryptographic metadata watermarking and forensic leak tracing.",
+    description="S3 gateway with metadata tracking, optional experimental signal/native-codec watermarks, and authenticated download-ID inspection.",
     version="2.0.0"
 )
 

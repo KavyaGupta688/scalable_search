@@ -43,6 +43,16 @@ def analyze_file(file_path_str: str):
     token, detected_format = extract_token_from_file(file_path)
     print(f"Detected Format:   {detected_format}")
 
+    if file_path.stat().st_size <= 64 * 1024 * 1024:
+        from core.codec_forensics import inspect_signal
+        signal = inspect_signal(file_path.read_bytes())
+        if signal and signal.get("authenticated"):
+            download_id = signal["download_id"]
+            print(f"Signal token:      [AUTHENTICATED] {download_id} ({signal['method']})")
+            print(f"Audit record:      {db.find_by_download_id(download_id)}")
+            if not token:
+                return
+
     if not token:
         print("\n[RESULT] No enterprise tracking watermark found in file headers.")
         print("=" * 70)
@@ -79,7 +89,7 @@ def analyze_file(file_path_str: str):
         print(" * Audit Registry: Token authentic, but transaction is outside local database.")
 
     print("=" * 70)
-    print("[CONCLUSION] Origin and downloading user conclusively identified.")
+    print("[RESULT] Download token authenticated; attribution depends on the audit record and user authentication.")
     print("=" * 70)
 
 
