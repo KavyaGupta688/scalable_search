@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { RequireAuth } from './components/RequireAuth';
 import { ToastContainer } from './components/Shell/Toast';
+import { PublicMotionLayout } from './components/Motion';
 
 // Public pages
 import { LandingView } from './views/LandingView';
@@ -45,10 +46,12 @@ export const App = () => {
       <AuthProvider>
         <Routes>
           {/* ── Public ─────────────────────────────────────────────────────── */}
+          <Route element={<PublicMotionLayout />}>
           <Route path="/" element={<LandingView />} />
           <Route path="/login/admin" element={<AdminLoginView showToast={showToast} />} />
           <Route path="/login/user" element={<UserLoginView showToast={showToast} />} />
           <Route path="/register" element={<RegisterView showToast={showToast} />} />
+          </Route>
 
           {/* ── Admin track ─────────────────────────────────────────────────── */}
           <Route

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Brand } from '../DesignSystem';
 import { useDialog } from '../useDialog';
+import { useMediaQuery } from '../Motion';
 
 const items = [
   ['overview', 'Overview', LayoutDashboard],
@@ -21,10 +22,12 @@ export function Sidebar({
   collapsed, onCollapse, mobileOpen, onMobileClose,
 }) {
   const dialogRef = useDialog(onMobileClose, mobileOpen);
+  const mobile = useMediaQuery('(max-width:767px)');
   return (
     <>
-      {mobileOpen && <div className="sidebar-backdrop" onClick={onMobileClose} aria-hidden="true" />}
+      <div className={`sidebar-backdrop ${mobileOpen ? 'is-open' : ''}`} onClick={onMobileClose} aria-hidden="true" />
       <aside
+        inert={mobile && !mobileOpen ? '' : undefined}
         ref={dialogRef}
         tabIndex={-1}
         role={mobileOpen ? 'dialog' : undefined}

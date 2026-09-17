@@ -1,5 +1,6 @@
 import { FileImage, FileVideo, FileAudio, FileText, Table2 } from 'lucide-react';
 import React from 'react';
+import { m, timing, ease, useReducedMotion } from './Motion';
 import { ModalityBadge } from './ModalityBadge';
 import { CheckSquareIcon } from './Icons';
 
@@ -11,7 +12,9 @@ export const SearchResultCard = ({
   isSelected = false,
   onToggleSelect,
   onOpen,
+  index = 0,
 }) => {
+  const reduced = useReducedMotion();
   const fileId = result.file_id || result.id || '';
   const filename = result.name || result.filename || 'Untitled';
   const modality = result.content_type || result.modality || 'document';
@@ -21,7 +24,9 @@ export const SearchResultCard = ({
   const score = result.score != null ? Math.round(result.score * 100) : null;
 
   return (
-    <div
+    <m.div
+      initial={reduced ? false : { opacity: 0 }} animate={{ opacity: 1 }}
+      transition={{ duration: reduced ? 0 : timing.surface, delay: reduced ? 0 : Math.min(index, 5) * 0.025, ease }}
       className={`result-card border overflow-hidden flex flex-col transition-colors cursor-pointer select-none group ${
         isSelected
           ? 'border-nexus-brand bg-nexus-brandSubtle/20'
@@ -108,6 +113,6 @@ export const SearchResultCard = ({
         </span>
         {result.fileSize && <span>{result.fileSize}</span>}
       </div>
-    </div>
+    </m.div>
   );
 };

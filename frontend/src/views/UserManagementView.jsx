@@ -1,4 +1,4 @@
-import { useDialog } from '../components/useDialog';
+import { Presence } from '../components/Motion';
 import { DialogBackdrop } from '../components/DialogBackdrop';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
@@ -42,7 +42,7 @@ export const UserManagementView = ({ showToast }) => {
   }, [fetchUsers]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 page-transition">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
       <header className="user-management-header flex items-center justify-between py-4 border-b border-nexus-borderSubtle">
         <div>
@@ -176,7 +176,7 @@ export const UserManagementView = ({ showToast }) => {
       </section>
 
       {/* Create User Modal */}
-      {showModal && (
+      <Presence>{showModal && (
         <CreateUserModal
           onClose={() => setShowModal(false)}
           onSuccess={(newUser) => {
@@ -186,7 +186,7 @@ export const UserManagementView = ({ showToast }) => {
           }}
           register={register}
         />
-      )}
+      )}</Presence>
     </div>
   );
 };
@@ -199,7 +199,6 @@ const CreateUserModal = ({ onClose, onSuccess, register }) => {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState('user');
-  const dialogRef = useDialog(onClose);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -218,8 +217,8 @@ const CreateUserModal = ({ onClose, onSuccess, register }) => {
   };
 
   return (
-    <DialogBackdrop>
-      <div className="detail-dialog max-w-md dialog-surface modal-enter" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Create User Account" tabIndex={-1}>
+    <DialogBackdrop onClose={onClose}>
+      <div className="detail-dialog max-w-md dialog-surface" role="dialog" aria-modal="true" aria-label="Create User Account" tabIndex={-1}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-nexus-borderSubtle">
           <h2 className="text-sm font-bold text-nexus-textPrimary">Create User Account</h2>

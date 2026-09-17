@@ -1,4 +1,4 @@
-import { useDialog } from '../components/useDialog';
+import { Presence } from '../components/Motion';
 import { DialogBackdrop } from '../components/DialogBackdrop';
 import React, { useState, useEffect, useCallback } from 'react';
 import { getConnectors, testConnector } from '../services/adminApi';
@@ -23,7 +23,6 @@ export const DataSourcesView = ({ showToast }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedConnector, setSelectedConnector] = useState(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const dialogRef = useDialog(() => setSelectedConnector(null), Boolean(selectedConnector));
   const [testingId, setTestingId] = useState(null);
 
   const fetchConnectors = useCallback(async () => {
@@ -101,10 +100,11 @@ export const DataSourcesView = ({ showToast }) => {
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-nexus-surface border border-nexus-border p-3.5 rounded-sm">
-        <div className="relative flex items-center bg-nexus-input border border-nexus-border focus-within:border-nexus-brand rounded-sm px-3 h-8 w-full max-w-sm">
+        <div className="search-field relative flex items-center bg-nexus-input border border-nexus-border rounded-sm px-3 h-12 w-full max-w-sm">
           <SearchIcon className="w-3.5 h-3.5 text-nexus-textMuted shrink-0 mr-2" />
           <input
             type="text"
+            aria-label="Search data sources"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search sources by name, path, or type..."
@@ -175,7 +175,7 @@ export const DataSourcesView = ({ showToast }) => {
               <div
                 key={conn.id}
                 role="button" tabIndex={0} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setSelectedConnector(conn); } }} onClick={() => setSelectedConnector(conn)}
-                className="bg-nexus-surface border border-nexus-border hover:border-nexus-borderStrong p-4 rounded-sm flex flex-col gap-3 cursor-pointer transition-colors"
+                className="interactive-card bg-nexus-surface border border-nexus-border hover:border-nexus-borderStrong p-4 rounded-sm flex flex-col gap-3 cursor-pointer"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex flex-col min-w-0 pr-2">
@@ -246,12 +246,12 @@ export const DataSourcesView = ({ showToast }) => {
       )}
 
       {/* Data source details */}
-      {selectedConnector && (
-        <DialogBackdrop
+      <Presence>{selectedConnector && (
+        <DialogBackdrop onClose={() => setSelectedConnector(null)}
           onClick={() => setSelectedConnector(null)}
         >
           <div
-            className="detail-dialog max-w-xl p-6 flex flex-col gap-5 modal-enter dialog-surface" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Data source details" tabIndex={-1}
+            className="detail-dialog max-w-xl p-6 flex flex-col gap-5 dialog-surface" role="dialog" aria-modal="true" aria-label="Data source details" tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between border-b border-nexus-border pb-3">
@@ -331,7 +331,7 @@ export const DataSourcesView = ({ showToast }) => {
             </div>
           </div>
         </DialogBackdrop>
-      )}
+      )}</Presence>
 
       {/* Modal for connecting source */}
       <ConnectorFormModal

@@ -1,3 +1,4 @@
+import { PageMotion } from '../components/Motion';
 import React from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { Search, Download, LogOut } from 'lucide-react';
@@ -31,9 +32,9 @@ export function UserShell({ showToast }) {
           </button>
         </div>
       </header>
-      <main id="main-content" key={location.pathname} className="user-content page-transition">
+      <PageMotion as="main" id="main-content" key={location.pathname} className="user-content">
         <Outlet />
-      </main>
+      </PageMotion>
       <footer className="workspace-footer">
         <Brand />
         <span>Your next discovery is one search away.</span>

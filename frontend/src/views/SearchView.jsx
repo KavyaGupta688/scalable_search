@@ -1,3 +1,4 @@
+import { Presence } from '../components/Motion';
 import React, { useState, useEffect, useCallback } from 'react';
 import { PageHeading } from '../components/DesignSystem';
 import { search, getFacets, postSearchEvent } from '../services/searchApi';
@@ -318,7 +319,7 @@ export const SearchView = ({ showToast }) => {
             )}
 
             {/* Skeletons while loading */}
-            {loading && (
+            {loading && results.length === 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
@@ -345,8 +346,8 @@ export const SearchView = ({ showToast }) => {
             )}
 
             {/* Results Table View */}
-            {!loading && results.length > 0 && viewMode === 'table' && (
-              <div className="nx-panel overflow-x-auto">
+            {results.length > 0 && viewMode === 'table' && (
+              <div aria-busy={loading} className="nx-panel overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
                   <thead>
                     <tr className="border-b border-nexus-border bg-nexus-elevated text-nexus-textMuted font-mono text-sm uppercase">
@@ -396,10 +397,11 @@ export const SearchView = ({ showToast }) => {
             )}
 
             {/* Results Grid View */}
-            {!loading && results.length > 0 && viewMode === 'grid' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {results.map((doc) => (
+            {results.length > 0 && viewMode === 'grid' && (
+              <div aria-busy={loading} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {results.map((doc, index) => (
                   <SearchResultCard
+                    index={index}
                     key={doc.file_id || doc.id}
                     result={doc}
                     onOpen={() => handleOpenDoc(doc.file_id || doc.id)}
@@ -412,13 +414,13 @@ export const SearchView = ({ showToast }) => {
       </div>
 
       {/* Inspector Drawer */}
-      {activeDocId && (
+      <Presence>{activeDocId && (
         <ModalDetail
           docId={activeDocId}
           onClose={() => setActiveDocId(null)}
           showToast={showToast}
         />
-      )}
+      )}</Presence>
     </>
   );
 };

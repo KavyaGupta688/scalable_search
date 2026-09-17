@@ -22,9 +22,9 @@ export const ModalityBadge = ({ type }) => {
   const { label, colorClass, Icon } = config;
   return (
     <span
-      className={`inline-flex items-center gap-1 text-sm font-mono font-semibold px-1.5 py-0.5 rounded-xs border ${colorClass} shrink-0`}
+      className={`inline-flex w-fit self-start items-center gap-1 whitespace-nowrap text-sm font-mono font-semibold px-1.5 py-0.5 rounded-xs border ${colorClass} shrink-0`}
     >
-      <Icon className="w-3 h-3" />
+      <Icon className="w-3 h-3 shrink-0" />
       {label}
     </span>
   );

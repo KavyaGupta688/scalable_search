@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Presence, FeedbackMotion } from './Motion';
 import { createBatchDownload, getDownloadStatus } from '../services/downloadApi';
 import { DownloadIcon, SpinnerIcon, CloseIcon, CheckCircleIcon } from './Icons';
 
@@ -84,11 +85,10 @@ export const DownloadBar = ({
     if (onComplete) onComplete();
   };
 
-  if (selectedFileIds.length === 0 && !downloadStatus) return null;
-
   return (
+    <Presence>{(selectedFileIds.length > 0 || downloadStatus) &&
     <div className="download-float" role="status" aria-live="polite">
-      <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+      <FeedbackMotion className="download-surface max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-sm bg-nexus-brandSubtle border border-nexus-border flex items-center justify-center text-nexus-brandText shrink-0">
             {downloadStatus === 'building' ? (
@@ -156,7 +156,8 @@ export const DownloadBar = ({
             </button>
           )}
         </div>
-      </div>
+      </FeedbackMotion>
     </div>
+    }</Presence>
   );
 };

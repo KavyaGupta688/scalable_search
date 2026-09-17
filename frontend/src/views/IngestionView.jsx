@@ -1,4 +1,4 @@
-import { useDialog } from '../components/useDialog';
+import { Presence } from '../components/Motion';
 import { DialogBackdrop } from '../components/DialogBackdrop';
 import React, { useState } from 'react';
 import { api } from '../services/api';
@@ -8,7 +8,6 @@ import { RefreshIcon, CloseIcon } from '../components/Icons';
 export const IngestionView = ({ showToast }) => {
   const [jobs, setJobs] = useState(api.getIngestionJobs());
   const [selectedJob, setSelectedJob] = useState(null);
-  const dialogRef = useDialog(() => setSelectedJob(null), Boolean(selectedJob));
   const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = async () => {
@@ -130,12 +129,12 @@ export const IngestionView = ({ showToast }) => {
       </div>
 
       {/* Stream details */}
-      {selectedJob && (
-        <DialogBackdrop
+      <Presence>{selectedJob && (
+        <DialogBackdrop onClose={() => setSelectedJob(null)}
           onClick={() => setSelectedJob(null)}
         >
           <div
-            className="detail-dialog max-w-xl p-6 flex flex-col gap-5 modal-enter dialog-surface" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Ingestion details" tabIndex={-1}
+            className="detail-dialog max-w-xl p-6 flex flex-col gap-5 dialog-surface" role="dialog" aria-modal="true" aria-label="Ingestion details" tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between border-b border-nexus-border pb-3">
@@ -207,7 +206,7 @@ export const IngestionView = ({ showToast }) => {
             </div>
           </div>
         </DialogBackdrop>
-      )}
+      )}</Presence>
     </div>
   );
 };

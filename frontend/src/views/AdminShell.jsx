@@ -1,3 +1,4 @@
+import { PageMotion } from '../components/Motion';
 import React, { useState, useCallback, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -47,9 +48,9 @@ export const AdminShell = ({ showToast }) => {
       />
       <div className="admin-main">
         <Header onMenu={() => setMobileOpen(true)} />
-        <main id="main-content" key={location.pathname} className="workspace-content page-transition">
+        <PageMotion as="main" id="main-content" key={location.pathname} className="workspace-content">
           <Outlet />
-        </main>
+        </PageMotion>
       </div>
     </div>
   );

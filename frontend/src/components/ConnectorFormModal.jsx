@@ -1,4 +1,4 @@
-import { useDialog } from './useDialog';
+import { Presence } from './Motion';
 import { DialogBackdrop } from './DialogBackdrop';
 import React, { useState } from 'react';
 import { createConnector, testConnector } from '../services/adminApi';
@@ -43,8 +43,7 @@ export const ConnectorFormModal = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const dialogRef = useDialog(onClose, isOpen);
-  if (!isOpen) return null;
+
 
   const handleTestConnection = async () => {
     setError('');
@@ -119,8 +118,8 @@ export const ConnectorFormModal = ({
   };
 
   return (
-    <DialogBackdrop>
-      <div className="detail-dialog max-w-2xl flex flex-col modal-enter dialog-surface connector-dialog" ref={dialogRef} role="dialog" aria-modal="true" aria-label="Connect a Data Source" tabIndex={-1}>
+    <Presence>{isOpen && <DialogBackdrop onClose={onClose}>
+      <div className="detail-dialog max-w-2xl flex flex-col dialog-surface connector-dialog" role="dialog" aria-modal="true" aria-label="Connect a Data Source" tabIndex={-1}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-nexus-border flex items-center justify-between bg-nexus-elevated">
           <div className="flex items-center gap-2.5">
@@ -531,6 +530,6 @@ export const ConnectorFormModal = ({
           </div>
         </div>
       </div>
-    </DialogBackdrop>
+    </DialogBackdrop>}</Presence>
   );
 };

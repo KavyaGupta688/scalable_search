@@ -1,4 +1,3 @@
-import { useDialog } from './useDialog';
 import { DialogBackdrop } from './DialogBackdrop';
 import React, { useState, useEffect } from 'react';
 import { getFile, postSearchEvent } from '../services/searchApi';
@@ -23,7 +22,6 @@ import {
  * vector similarity search, and dispatching download presigned URLs.
  */
 export const ModalDetail = ({ docId, onClose, showToast }) => {
-  const dialogRef = useDialog(onClose, Boolean(docId));
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
@@ -176,11 +174,11 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
   };
 
   return (
-    <DialogBackdrop
+    <DialogBackdrop onClose={onClose}
       onClick={onClose}
     >
       <div
-        className="detail-dialog max-w-2xl p-6 flex flex-col gap-5 modal-enter dialog-surface" ref={dialogRef} role="dialog" aria-modal="true" aria-label="File details" tabIndex={-1}
+        className="detail-dialog max-w-2xl p-6 flex flex-col gap-5 dialog-surface" role="dialog" aria-modal="true" aria-label="File details" tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         {loading ? (
@@ -216,6 +214,7 @@ export const ModalDetail = ({ docId, onClose, showToast }) => {
                 <button
                   type="button"
                   onClick={handleToggleSave}
+                  aria-pressed={isSaved}
                   className={`p-1.5 rounded-xs border text-sm flex items-center gap-1 transition-colors ${
                     isSaved
                       ? 'bg-nexus-brandSubtle border-nexus-border text-nexus-brandText'

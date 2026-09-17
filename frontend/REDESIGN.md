@@ -35,6 +35,15 @@ Implemented on `Feature/Re-designed-frontend`. The starting uncommitted work was
 - Hidden sidebar scrollbars preserve wheel, touch, and keyboard scrolling. Removed the prototype workspace message box.
 - Checked all six dialogs at desktop, tablet, and phone sizes for centering, reachable bottom actions, and overflow. Confirmed wheel scrolling, background scroll locking, focus containment, Escape dismissal, and focus restoration. Production build and all six regression tests pass.
 
+## Motion and interaction polish
+
+- Shared Motion helpers use `LazyMotion` and `domAnimation`, with 140ms control feedback, 220ms surface transitions, and 180ms opacity-only route entrances. Navigation stays mounted and destination pages mount immediately. Fixed overlays retain viewport positioning.
+- Buttons have restrained press feedback; precise-pointer devices also receive subtle action-button and clickable-card hover lifts. Static metrics stay still. Landing sections reveal once, and new search cards use capped staggering without replaying on selection or bookmarks. Existing results remain visible during refreshes.
+- All six dialog types share body portals, opening and closing transitions, scroll locking, and focus containment through the closing fade. Exiting controls reject duplicate actions; route changes remove overlays immediately. Toasts, search controls, and the download bar have coordinated transitions.
+- Existing carousel timing, direction, center-card scaling, and completed-slide hover pauses remain intact. Reduced motion disables spatial effects, staggering, and automatic carousel movement; touch devices do not receive hover lifts.
+- Checked all 13 routes at desktop, tablet, and phone widths without horizontal overflow. Exercised both roles, rapid navigation and browser history, search/filtering, selection, bookmarks, prototype download completion, all six dialogs, keyboard focus, reduced motion, touch navigation, and login errors. Representative navigation was also checked with 4x CPU throttling; no browser exceptions were recorded.
+- Production build and all six regression tests pass. JavaScript grows from 102.79 KB to 132.68 KB gzip (about 30 KB) with Motion included. No backend, API, storage-key, or prototype-record changes are part of this update.
+
 ## Prototype service behavior
 
 - Offline search now awaits the mock service and maps its actual record fields, filters, result count, and limit correctly.

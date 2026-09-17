@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Presence, FeedbackMotion } from './Motion';
 import { searchSimilar } from '../services/searchApi';
 import { ScanIcon, SpinnerIcon, CloseIcon } from './Icons';
 import { ModalityBadge } from './ModalityBadge';
@@ -47,8 +48,8 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
         <span>{isOpen ? 'Hide Similar Files' : 'Find Similar Files'}</span>
       </button>
 
-      {isOpen && (
-        <div className="bg-nexus-input border border-nexus-borderStrong rounded-sm p-3 flex flex-col gap-2 mt-1 page-transition">
+      <Presence>{isOpen && (
+        <FeedbackMotion className="bg-nexus-input border border-nexus-borderStrong rounded-sm p-3 flex flex-col gap-2 mt-1">
           <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-1.5">
             <span className="text-sm font-mono uppercase tracking-wider text-nexus-textMuted font-semibold">
               Similar Vector Matches
@@ -103,8 +104,8 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
               ))}
             </div>
           )}
-        </div>
-      )}
+        </FeedbackMotion>
+      )}</Presence>
     </div>
   );
 };

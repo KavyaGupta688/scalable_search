@@ -1,3 +1,4 @@
+import { Presence, FeedbackMotion } from '../components/Motion';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { search, getSuggestions, postSearchEvent } from '../services/searchApi';
 import { TrendingSearches } from '../components/TrendingSearches';
@@ -185,8 +186,8 @@ export const UserSearchView = ({ showToast }) => {
             </div>
 
             {/* Suggestions Dropdown */}
-            {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-nexus-surface border border-nexus-borderStrong rounded-sm shadow-xl z-40 overflow-hidden divide-y divide-nexus-borderSubtle modal-enter">
+            <Presence>{showSuggestions && suggestions.length > 0 && (
+              <FeedbackMotion className="absolute top-full left-0 right-0 mt-1 bg-nexus-surface border border-nexus-borderStrong rounded-sm shadow-xl z-40 overflow-hidden divide-y divide-nexus-borderSubtle">
                 {suggestions.map((s, idx) => (
                   <button
                     key={idx}
@@ -198,8 +199,8 @@ export const UserSearchView = ({ showToast }) => {
                     <ArrowUpLeftIcon className="w-3.5 h-3.5 text-nexus-textMuted" />
                   </button>
                 ))}
-              </div>
-            )}
+              </FeedbackMotion>
+            )}</Presence>
           </div>
 
           {/* Content Type Filter Chips */}
@@ -257,7 +258,7 @@ export const UserSearchView = ({ showToast }) => {
             </div>
 
             {/* Skeletons */}
-            {loading && (
+            {loading && results.length === 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
                   <div
@@ -284,10 +285,11 @@ export const UserSearchView = ({ showToast }) => {
             )}
 
             {/* Results Grid */}
-            {!loading && results.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                {results.map((doc) => (
+            {results.length > 0 && (
+              <div aria-busy={loading} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                {results.map((doc, index) => (
                   <SearchResultCard
+                    index={index}
                     key={doc.file_id || doc.id}
                     result={doc}
                     isSelected={selectedFileIds.includes(doc.file_id || doc.id)}
@@ -309,13 +311,13 @@ export const UserSearchView = ({ showToast }) => {
       />
 
       {/* Document Inspector Modal */}
-      {activeDocId && (
+      <Presence>{activeDocId && (
         <ModalDetail
           docId={activeDocId}
           onClose={() => setActiveDocId(null)}
           showToast={showToast}
         />
-      )}
+      )}</Presence>
     </>
   );
 };

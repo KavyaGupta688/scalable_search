@@ -1,3 +1,4 @@
+import { Presence } from '../components/Motion';
 import { Button } from '../components/DesignSystem';
 import { Link } from 'react-router-dom';
 import React, { useState } from 'react';
@@ -205,7 +206,7 @@ export const OverviewView = ({ showToast }) => {
               <div
                 key={doc.id}
                 role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveDocId(doc.id); } }} onClick={() => setActiveDocId(doc.id)}
-                className="flex items-start gap-3 p-2.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-borderSubtle rounded-sm cursor-pointer transition-colors"
+                className="interactive-card flex items-start gap-3 p-2.5 bg-nexus-elevated hover:bg-nexus-hover border border-nexus-borderSubtle rounded-sm cursor-pointer transition-colors"
               >
                 <div className="p-2 rounded-sm bg-nexus-surface text-nexus-brandText shrink-0">
                   {renderModalityIcon(doc.modality)}
@@ -226,13 +227,13 @@ export const OverviewView = ({ showToast }) => {
       </div>
     </div>
     </div>
-    {activeDocId && (
+    <Presence>{activeDocId && (
       <ModalDetail
         docId={activeDocId}
         onClose={() => setActiveDocId(null)}
         showToast={showToast}
       />
-    )}
+    )}</Presence>
     </>
   );
 };

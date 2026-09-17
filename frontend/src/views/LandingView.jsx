@@ -1,8 +1,8 @@
+import { Presence, Reveal } from '../components/Motion';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Download, Eye, FileText, Image, Music, Search, Table2, Video, X } from 'lucide-react';
 import { Brand, Button } from '../components/DesignSystem';
-import { useDialog } from '../components/useDialog';
 import { DialogBackdrop } from '../components/DialogBackdrop';
 import { useAuth } from '../contexts/AuthContext';
 import { initialMockData } from '../services/mockData';
@@ -122,12 +122,11 @@ function DatasetCard({ doc, onPreview, compact = false }) {
 }
 
 function DatasetPreview({ doc, onClose }) {
-  const dialogRef = useDialog(onClose);
   const { isAuthenticated, role } = useAuth();
   const Icon = modalityIcons[doc.modality] || FileText;
   return (
-    <DialogBackdrop onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section ref={dialogRef} className="nx-panel landing-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-preview-title" tabIndex={-1}>
+    <DialogBackdrop onClose={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="nx-panel landing-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-preview-title" tabIndex={-1}>
         <header><span className="panel-title">Dataset preview</span><button type="button" className="icon-button" onClick={onClose} aria-label="Close preview"><X size={20} /></button></header>
         <div className="preview-file-heading">
           <span className={`dataset-file-icon dataset-file-icon--${doc.modality}`}><Icon size={30} aria-hidden="true" /></span>
@@ -159,35 +158,35 @@ export const LandingView = () => {
         </header>
       </div>
       <main id="main-content">
-        <section className="landing-hero" aria-labelledby="landing-title">
+        <Reveal className="landing-hero" aria-labelledby="landing-title">
           <div className="hero-copy">
             <h1 id="landing-title">Find the data<br />you <em>need.</em></h1>
             <p>Search and download images, videos, audio, documents, and tables from one place.</p>
             <div className="hero-actions"><Button as={Link} to={searchPath} id="hero-launch-search">Search datasets <ArrowRight size={18} aria-hidden="true" /></Button><Link to={isAuthenticated ? workspacePath : '/login/admin'} id="hero-admin-console" className="hero-admin-link">{isAuthenticated ? 'Your workspace' : 'Admin sign in'} <ArrowRight size={16} aria-hidden="true" /></Link></div>
           </div>
           <RotatingDatasets records={heroRecords} compact onPreview={setPreviewDoc} suspended={Boolean(previewDoc)} />
-        </section>
+        </Reveal>
 
-        <section id="benefits" className="landing-benefits" aria-label="Benefits">
+        <Reveal id="benefits" className="landing-benefits" aria-label="Benefits">
           {[
             { icon: Search, title: 'Search naturally', copy: 'Describe what you need in your own words.' },
             { icon: Eye, title: 'Preview before downloading', copy: 'Check file details to find the right match.' },
             { icon: Download, title: 'Download selected datasets', copy: 'Choose the files you need and download them together.' },
           ].map(({ icon: Icon, title, copy }) => <div key={title}><Icon size={23} aria-hidden="true" /><h2>{title}</h2><p>{copy}</p></div>)}
-        </section>
+        </Reveal>
 
-        <section id="popular-datasets" className="landing-popular" aria-labelledby="popular-title">
+        <Reveal id="popular-datasets" className="landing-popular" aria-labelledby="popular-title">
           <div className="landing-section-heading"><h2 id="popular-title">Popular datasets</h2><Link to={searchPath}>Browse catalog <ArrowRight size={17} aria-hidden="true" /></Link></div>
           <RotatingDatasets records={popularRecords} onPreview={setPreviewDoc} suspended={Boolean(previewDoc)} />
-        </section>
+        </Reveal>
 
-        <section className="landing-cta" aria-labelledby="get-started-title">
+        <Reveal className="landing-cta" aria-labelledby="get-started-title">
           <h2 id="get-started-title">Your next dataset is waiting.</h2>
           <div><Button as={Link} to="/login/user">Start exploring <ArrowRight size={18} aria-hidden="true" /></Button></div>
-        </section>
+        </Reveal>
       </main>
       <footer className="landing-footer"><Brand /><span>Search. Preview. Download.</span></footer>
-      {previewDoc && <DatasetPreview doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
+      <Presence>{previewDoc && <DatasetPreview doc={previewDoc} onClose={() => setPreviewDoc(null)} />}</Presence>
     </div>
   );
 };

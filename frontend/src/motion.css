@@ -1,0 +1,42 @@
+/* CSS controls share the timing scale in components/Motion.jsx. */
+:root { --motion-control:140ms; --motion-surface:220ms; --motion-page:180ms; --motion-ease:cubic-bezier(.16,1,.3,1); }
+button,a,input,select,textarea {
+  transition-property:color,background-color,border-color,box-shadow,opacity,translate,scale;
+  transition-duration:var(--motion-control);
+  transition-timing-function:var(--motion-ease);
+}
+:is(button,a):not(:disabled):not([aria-disabled="true"]):active { scale:.98; }
+:is(button,a):disabled,:is(button,a)[aria-disabled="true"] { translate:none; scale:1; }
+button svg { transition:scale var(--motion-control) var(--motion-ease),fill var(--motion-control) var(--motion-ease); }
+button[aria-pressed="true"] svg { scale:1.08; }
+.interactive-card,.result-card { transition:translate var(--motion-surface) var(--motion-ease),border-color var(--motion-surface) var(--motion-ease),box-shadow var(--motion-surface) var(--motion-ease),background-color var(--motion-surface) var(--motion-ease); }
+.dataset-rotation .landing-dataset-card { transition:border-color var(--motion-control) var(--motion-ease); }
+@media (hover:hover) and (pointer:fine) {
+  :is(.nx-button,.landing-signin,button.bg-nexus-brand,button.bg-nexus-elevated,a.bg-nexus-brand):not(:disabled):not([aria-disabled="true"]):hover { translate:0 -1px; }
+  :is(.interactive-card,.result-card):hover { translate:0 -2px; border-color:rgb(var(--nexus-accent)); box-shadow:0 8px 20px #00000022; }
+  .dataset-rotation .landing-dataset-card:hover { border-color:rgb(var(--nexus-accent)); }
+}
+.admin-sidebar { transition:width var(--motion-surface) var(--motion-ease),padding var(--motion-surface) var(--motion-ease); }
+.sidebar-item span { white-space:nowrap; }
+.sidebar-backdrop { display:none; }
+.download-float { padding:0; border:0; border-radius:0; background:none; backdrop-filter:none; box-shadow:none; }
+.download-surface { width:100%; padding:18px 22px; border:1px solid rgb(var(--nexus-borderStrong)); border-radius:20px; background:rgb(var(--nexus-elevated) / .96); box-shadow:0 15px 40px #00000040; }
+.dialog-backdrop[data-closing] { cursor:default; }
+.dialog-backdrop[data-closing] :is(button,a,input,select,textarea) { pointer-events:none; }
+@keyframes group-arrive { from { opacity:0; } to { opacity:1; } }
+.overview-grid>*,.overview-metrics>* { animation:group-arrive var(--motion-surface) var(--motion-ease) both; }
+.overview-grid>:nth-child(2),.overview-metrics>:nth-child(2) { animation-delay:25ms; }
+.overview-grid>:nth-child(3),.overview-metrics>:nth-child(3) { animation-delay:50ms; }
+.overview-grid>:nth-child(n+4),.overview-metrics>:nth-child(n+4) { animation-delay:75ms; }
+@media (max-width:767px) {
+  .admin-sidebar { display:flex; position:fixed; left:0; top:0; width:270px; height:100dvh; padding:25px 16px 16px; transform:translateX(-100%); visibility:hidden; pointer-events:none; transition:transform var(--motion-surface) var(--motion-ease),visibility 0s var(--motion-surface); }
+  .admin-sidebar.is-mobile-open { transform:translateX(0); visibility:visible; pointer-events:auto; transition-delay:0s; }
+  .sidebar-backdrop { display:block; opacity:0; visibility:hidden; pointer-events:none; transition:opacity var(--motion-control) var(--motion-ease),visibility 0s var(--motion-control); }
+  .sidebar-backdrop.is-open { opacity:1; visibility:visible; pointer-events:auto; transition-delay:0s; }
+  .download-surface { padding:14px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  *,*::before,*::after { animation:none !important; transition:none !important; }
+  :is(button,a,.interactive-card,.result-card) { translate:none !important; scale:1 !important; }
+  button svg { scale:1 !important; }
+}
