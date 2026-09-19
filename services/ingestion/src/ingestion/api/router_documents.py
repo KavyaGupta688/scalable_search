@@ -1,81 +1,162 @@
 from __future__ import annotations
 
-from typing import List
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from ingestion.api.auth import RequirePermission
-from ingestion.api.deps import get_async_session, get_minio_client
-from ingestion.storage.minio_client import MinIOClient
-from ingestion.models.document import Document
-from ingestion.schemas.document import DocumentResponse, DocumentSearchParams, DocumentDownloadResponse
+from ingestion.api.deps import get_async_session, get_vault_service
+from ingestion.config import get_settings
+from ingestion.models.document import Document, SourceAsset
+from ingestion.models.ingestion_run import IngestionRunItem
+from ingestion.models.retention import LicenseEntitlement
+from ingestion.schemas.document import (
+    DocumentResponse,
+    DocumentSearchParams,
+    DocumentSourceResponse,
+    SourceAssetResponse,
+)
+from ingestion.services.source_access import SourceAccessDeniedError, generate_source_url
+from ingestion.services.vault import VaultService
 
-router = APIRouter(prefix='/documents', tags=['Documents'])
+router = APIRouter(prefix="/documents", tags=["Documents"])
 
-@router.get("/", response_model=List[DocumentResponse], dependencies=[Depends(RequirePermission('data:read'))])
+
+def _document_response(
+    doc: Document,
+    entitlement: LicenseEntitlement,
+) -> DocumentResponse:
+    values = {column.name: getattr(doc, column.name) for column in Document.__table__.columns}
+    values["first_successful_ingested_at"] = entitlement.license_start_at
+    values["effective_expiry_at"] = entitlement.expires_at
+    values["entitlement_status"] = entitlement.status
+    values["metadata"] = doc.structured_metadata
+    return DocumentResponse.model_validate(values)
+
+
+@router.get(
+    "/",
+    response_model=list[DocumentResponse],
+    dependencies=[Depends(RequirePermission("data:read"))],
+)
 async def search_documents(
     params: DocumentSearchParams = Depends(),
-    db: AsyncSession = Depends(get_async_session)
-):
-    query = select(Document)
-    
-    if hasattr(params, "mime_type") and params.mime_type:
-        query = query.where(Document.mime_type == params.mime_type)
-    if hasattr(params, "source_connector_id") and params.source_connector_id:
-        query = query.where(Document.source_connector_id == params.source_connector_id)
-        
-    if hasattr(params, "limit"):
-        limit = params.limit or 50
-    else:
-        limit = 50
-        
-    if hasattr(params, "offset"):
-        offset = params.offset or 0
-    else:
-        offset = 0
-        
-    query = query.limit(limit).offset(offset)
-    
-    result = await db.execute(query)
-    documents = result.scalars().all()
-    
-    return [DocumentResponse.model_validate(doc) for doc in documents]
-
-@router.get("/{document_id}", response_model=DocumentResponse, dependencies=[Depends(RequirePermission('data:read'))])
-async def get_document(
-    document_id: str,
-    db: AsyncSession = Depends(get_async_session)
-):
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalars().first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    return DocumentResponse.model_validate(doc)
-
-@router.get("/{document_id}/download", response_model=DocumentDownloadResponse, dependencies=[Depends(RequirePermission('data:download'))])
-async def download_document(
-    document_id: str,
     db: AsyncSession = Depends(get_async_session),
-    minio: MinIOClient = Depends(get_minio_client)
 ):
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalars().first()
-    if not doc:
+    query = select(Document, LicenseEntitlement).join(
+        LicenseEntitlement, Document.entitlement_id == LicenseEntitlement.id
+    ).options(selectinload(Document.structured_metadata))
+    if params.mime_type:
+        query = query.where(Document.mime_type == params.mime_type)
+    if params.source_connector_id:
+        query = query.where(
+            Document.id.in_(
+                select(SourceAsset.document_id).where(SourceAsset.source_connector_id == params.source_connector_id)
+            )
+        )
+    if params.run_id:
+        query = query.where(
+            Document.id.in_(
+                select(IngestionRunItem.document_id).where(
+                    IngestionRunItem.run_id == params.run_id,
+                    IngestionRunItem.document_id.is_not(None),
+                )
+            )
+        )
+    if params.checksum:
+        query = query.where(Document.checksum_sha256 == params.checksum)
+    query = query.limit(params.page_size).offset((params.page - 1) * params.page_size)
+    rows = (await db.execute(query)).all()
+    return [_document_response(doc, entitlement) for doc, entitlement in rows]
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentResponse,
+    dependencies=[Depends(RequirePermission("data:read"))],
+)
+async def get_document(document_id: UUID, db: AsyncSession = Depends(get_async_session)):
+    row = (
+        await db.execute(
+            select(Document, LicenseEntitlement)
+            .join(LicenseEntitlement, Document.entitlement_id == LicenseEntitlement.id)
+            .options(selectinload(Document.structured_metadata))
+            .where(Document.id == document_id)
+        )
+    ).first()
+    if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    
-    expires_in = 3600
-    presigned_url = await minio.generate_presigned_url(doc.storage_path, expires_in=expires_in)
-    
-    # Extract filename from storage_path or source_ref
-    filename = doc.source_ref.rsplit("/", 1)[-1] if doc.source_ref else str(doc.id)
-    
-    return DocumentDownloadResponse(
-        document_id=doc.id,
-        download_url=presigned_url,
-        expires_in_seconds=expires_in,
-        filename=filename,
-        mime_type=doc.mime_type,
-        size_bytes=doc.size_bytes,
+    return _document_response(row[0], row[1])
+
+
+@router.get(
+    "/{document_id}/sources",
+    response_model=list[SourceAssetResponse],
+    dependencies=[Depends(RequirePermission("data:read"))],
+)
+async def list_document_sources(document_id: UUID, db: AsyncSession = Depends(get_async_session)):
+    assets = list(
+        (
+            await db.scalars(
+                select(SourceAsset)
+                .where(SourceAsset.document_id == document_id)
+                .order_by(
+                    SourceAsset.availability_status,
+                    SourceAsset.last_verified_at.desc().nullslast(),
+                )
+            )
+        ).all()
+    )
+    if not assets:
+        raise HTTPException(status_code=404, detail="Document or source not found")
+    return assets
+
+
+@router.get(
+    "/{document_id}/source",
+    response_model=DocumentSourceResponse,
+    dependencies=[Depends(RequirePermission("data:download"))],
+)
+@router.get(
+    "/{document_id}/download",
+    response_model=DocumentSourceResponse,
+    dependencies=[Depends(RequirePermission("data:download"))],
+    include_in_schema=False,
+)
+async def resolve_document_source(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    vault: VaultService = Depends(get_vault_service),
+):
+    asset = await db.scalar(
+        select(SourceAsset)
+        .where(
+            SourceAsset.document_id == document_id,
+            SourceAsset.availability_status == "available",
+        )
+        .order_by(SourceAsset.last_verified_at.desc().nullslast())
+        .limit(1)
+    )
+    if asset is None:
+        raise HTTPException(status_code=404, detail="No available source location")
+
+    expires_in = get_settings().source_access.presigned_url_seconds
+    try:
+        access_url, actual_expires_in = await generate_source_url(
+            db, asset, vault, expires_in=expires_in
+        )
+    except SourceAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Source access resolution failed") from exc
+
+    return DocumentSourceResponse(
+        document_id=document_id,
+        source_asset=SourceAssetResponse.model_validate(asset),
+        access_mode="presigned_url" if access_url else "connector_stream",
+        access_url=access_url,
+        expires_in_seconds=actual_expires_in if access_url else None,
     )

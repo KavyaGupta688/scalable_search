@@ -1,63 +1,95 @@
 from __future__ import annotations
+
 from fastapi import FastAPI
 from fastapi.responses import Response
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+
 
 class MetricsNamespace:
     """Namespace for Prometheus metrics."""
+
     FILES_PROCESSED_TOTAL = Counter(
-        'ingestion_files_processed_total', 
-        'Total number of files processed',
-        ['source_type', 'outcome']
+        "ingestion_files_processed_total", "Total number of files processed", ["source_type", "outcome"]
     )
-    
+
     FILES_FAILED_TOTAL = Counter(
-        'ingestion_files_failed_total', 
-        'Total number of files that failed processing',
-        ['source_type', 'failure_type']
+        "ingestion_files_failed_total", "Total number of files that failed processing", ["source_type", "failure_type"]
     )
-    
+
     PROCESSING_DURATION_SECONDS = Histogram(
-        'ingestion_processing_duration_seconds', 
-        'Time taken to process files',
-        ['source_type', 'stage']
+        "ingestion_processing_duration_seconds", "Time taken to process files", ["source_type", "stage"]
     )
-    
-    THROUGHPUT_BYTES_TOTAL = Counter(
-        'ingestion_throughput_bytes_total', 
-        'Total bytes processed',
-        ['source_type']
+
+    ENUMERATION_PAGES_TOTAL = Counter(
+        "ingestion_enumeration_pages_total", "S3 ListObjectsV2 pages read", ["source_type"]
     )
-    
-    QUEUE_DEPTH = Gauge(
-        'ingestion_queue_depth', 
-        'Kafka consumer lag or current queue depth'
+
+    ENUMERATION_OBJECTS_TOTAL = Counter(
+        "ingestion_enumeration_objects_total", "Objects yielded by the enumerator", ["source_type"]
     )
-    
-    CIRCUIT_BREAKER_STATE = Gauge(
-        'ingestion_circuit_breaker_state', 
-        'State of circuit breaker (0=closed, 1=open, 2=half-open)'
+
+    ENUMERATION_LIMIT_REACHED_TOTAL = Counter(
+        "ingestion_enumeration_limit_reached_total",
+        "Enumerations stopped by an explicit max_objects safety cap",
+        ["source_type"],
     )
-    
-    DB_QUERY_DURATION_SECONDS = Histogram(
-        'ingestion_db_query_duration_seconds', 
-        'Time taken for database queries'
+
+    PROCESS_MEMORY_PEAK_BYTES = Gauge(
+        "ingestion_process_memory_peak_bytes", "Peak resident memory reported by the current process"
     )
-    
-    ACTIVE_UPLOADS = Gauge(
-        'ingestion_active_uploads', 
-        'Number of currently active file uploads'
+
+    THROUGHPUT_BYTES_TOTAL = Counter("ingestion_throughput_bytes_total", "Total bytes processed", ["source_type"])
+
+    QUEUE_DEPTH = Gauge("ingestion_queue_depth", "Kafka consumer lag or current queue depth")
+
+    RUNS_TOTAL = Counter(
+        "ingestion_runs_total",
+        "Completed ingestion runs by bounded terminal status",
+        ["source_type", "status"],
     )
-    
-    MINIO_ERRORS_TOTAL = Counter(
-        'ingestion_minio_errors_total', 
-        'Total number of MinIO/S3 related errors'
+
+    RUN_DURATION_SECONDS = Histogram(
+        "ingestion_run_duration_seconds",
+        "End-to-end ingestion run wall-clock duration",
+        ["source_type"],
     )
+
+    DB_QUERY_DURATION_SECONDS = Histogram("ingestion_db_query_duration_seconds", "Time taken for database queries")
+
+    RETENTION_RECONCILIATION_RUNS_TOTAL = Counter(
+        "ingestion_retention_reconciliation_runs_total", "Retention reconciliation runs", ["outcome"]
+    )
+
+    RETENTION_OBJECTS_TOTAL = Counter(
+        "ingestion_retention_objects_total",
+        "Licence records observed or acted on by expiry reconciliation",
+        ["outcome"],
+    )
+
+    RETENTION_EXPIRED_PENDING = Gauge(
+        "ingestion_retention_expired_pending", "Active entitlement records whose expiry status is not yet reconciled"
+    )
+
+    RETENTION_ENFORCEMENT_ENABLED = Gauge(
+        "ingestion_retention_enforcement_enabled", "Whether licence-expiry reconciliation is enabled"
+    )
+
+    RETENTION_LAST_SUCCESS_TIMESTAMP = Gauge(
+        "ingestion_retention_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful retention reconciliation",
+    )
+
+    RETENTION_RECONCILIATION_DURATION_SECONDS = Histogram(
+        "ingestion_retention_reconciliation_duration_seconds", "Duration of retention reconciliation runs"
+    )
+
 
 METRICS = MetricsNamespace()
 
+
 def setup_metrics_endpoint(app: FastAPI) -> None:
     """Adds a GET /metrics route to the FastAPI app."""
+
     @app.get("/metrics")
     async def metrics():
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)

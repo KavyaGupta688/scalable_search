@@ -7,8 +7,7 @@ Credentials are stored in Vault — never in Postgres.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,16 +16,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ingestion.api.auth import RequirePermission, TokenPayload
 from ingestion.api.deps import get_async_session, get_vault_service
-from ingestion.services.vault import VaultService
 from ingestion.connectors import create_connector
 from ingestion.models.connector import Connector, ConnectorStatus, SourceType
+from ingestion.models.document import SourceAsset
+from ingestion.models.ingestion_run import IngestionRun
+from ingestion.monitoring.logging import get_logger
 from ingestion.schemas.connector import (
     ConnectorCreate,
     ConnectorResponse,
     ConnectorTestResponse,
+    S3AuthenticationUpdate,
+    S3EnumerationScopeUpdate,
 )
 from ingestion.services.vault import VaultService
-from ingestion.monitoring.logging import get_logger
+from ingestion.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -47,13 +50,26 @@ async def create_connector_endpoint(
     """Create a new source connector. Stores credentials in Vault, NOT in Postgres."""
     connector_id = uuid4()
 
+    if (
+        connector_in.s3
+        and connector_in.s3.auth_mode == "static_keys"
+        and not get_settings().source_access.allow_static_s3_credentials
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Static S3 credentials are disabled; configure aws_assume_role",
+        )
+
     # Extract credentials from the request body
     credentials: dict = {}
     if connector_in.source_type == "S3" and connector_in.s3:
-        credentials = {
-            "access_key": connector_in.s3.access_key,
-            "secret_key": connector_in.s3.secret_key,
-        }
+        if connector_in.s3.auth_mode == "static_keys":
+            credentials = {
+                "access_key": connector_in.s3.access_key,
+                "secret_key": connector_in.s3.secret_key,
+            }
+        else:
+            credentials = {"external_id": connector_in.s3.external_id or ""}
     elif connector_in.source_type in ("NAS_SMB", "NAS_NFS") and connector_in.nas:
         credentials = {
             "username": connector_in.nas.username or "",
@@ -74,12 +90,20 @@ async def create_connector_endpoint(
         bucket=connector_in.s3.bucket if connector_in.s3 else None,
         addressing_style=connector_in.s3.addressing_style if connector_in.s3 else None,
         signature_version=connector_in.s3.signature_version if connector_in.s3 else None,
+        s3_auth_mode=connector_in.s3.auth_mode if connector_in.s3 else None,
+        s3_role_arn=connector_in.s3.role_arn if connector_in.s3 else None,
+        s3_session_duration_seconds=(
+            connector_in.s3.session_duration_seconds if connector_in.s3 else None
+        ),
+        s3_prefix=connector_in.s3.prefix if connector_in.s3 else None,
+        enumeration_max_objects=(
+            connector_in.s3.max_objects if connector_in.s3 else connector_in.nas.max_files if connector_in.nas else None
+        ),
+        enumeration_page_size=connector_in.s3.page_size if connector_in.s3 else None,
         # NAS-specific fields
         mount_path=connector_in.nas.mount_path if connector_in.nas else None,
         # Vault reference
         secret_path=secret_path,
-        # Audit
-        created_by=UUID(payload.sub) if payload.sub else uuid4(),
         status=ConnectorStatus.UNVERIFIED,
     )
 
@@ -94,13 +118,90 @@ async def create_connector_endpoint(
     return ConnectorResponse.model_validate(db_connector)
 
 
-@router.get("/", response_model=List[ConnectorResponse])
+@router.patch("/{connector_id}/s3-scope", response_model=ConnectorResponse)
+async def update_s3_enumeration_scope(
+    connector_id: UUID,
+    scope: S3EnumerationScopeUpdate,
+    payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Set a bounded S3 scope without changing the connector's credentials."""
+    result = await db.execute(select(Connector).where(Connector.id == connector_id))
+    connector = result.scalar_one_or_none()
+    if not connector:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.source_type != SourceType.S3:
+        raise HTTPException(status_code=400, detail="Enumeration scope is only supported for S3 connectors")
+
+    connector.s3_prefix = scope.prefix
+    connector.enumeration_max_objects = scope.max_objects
+    connector.enumeration_page_size = scope.page_size
+    await db.flush()
+    await db.refresh(connector)
+    logger.info(
+        "S3 enumeration scope updated",
+        extra={
+            "connector_id": str(connector_id),
+            "context": {
+                "prefix": scope.prefix,
+                "max_objects": scope.max_objects,
+                "page_size": scope.page_size,
+            },
+        },
+    )
+    return ConnectorResponse.model_validate(connector)
+
+
+@router.patch("/{connector_id}/s3-auth", response_model=ConnectorResponse)
+async def update_s3_authentication(
+    connector_id: UUID,
+    authentication: S3AuthenticationUpdate,
+    payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
+    db: AsyncSession = Depends(get_async_session),
+    vault: VaultService = Depends(get_vault_service),
+):
+    """Switch an existing S3 connector between static and AssumeRole modes."""
+
+    connector = await db.scalar(select(Connector).where(Connector.id == connector_id))
+    if connector is None:
+        raise HTTPException(status_code=404, detail="Connector not found")
+    if connector.source_type != SourceType.S3:
+        raise HTTPException(status_code=400, detail="Authentication mode applies only to S3 connectors")
+    if (
+        authentication.auth_mode == "static_keys"
+        and not get_settings().source_access.allow_static_s3_credentials
+    ):
+        raise HTTPException(status_code=400, detail="Static S3 credentials are disabled")
+
+    credentials = (
+        {"access_key": authentication.access_key, "secret_key": authentication.secret_key}
+        if authentication.auth_mode == "static_keys"
+        else {"external_id": authentication.external_id or ""}
+    )
+    vault.store_connector_secret(connector_id, credentials)
+    connector.s3_auth_mode = authentication.auth_mode
+    connector.s3_role_arn = authentication.role_arn
+    connector.s3_session_duration_seconds = authentication.session_duration_seconds
+    connector.status = ConnectorStatus.UNVERIFIED
+    await db.flush()
+    await db.refresh(connector)
+    logger.info(
+        "S3 connector authentication replaced",
+        extra={
+            "connector_id": str(connector_id),
+            "context": {"auth_mode": authentication.auth_mode},
+        },
+    )
+    return ConnectorResponse.model_validate(connector)
+
+
+@router.get("/", response_model=list[ConnectorResponse])
 async def list_connectors(
     payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
     db: AsyncSession = Depends(get_async_session),
 ):
     """List all configured connectors."""
-    result = await db.execute(select(Connector).order_by(Connector.created_at.desc()))
+    result = await db.execute(select(Connector).order_by(Connector.name, Connector.id))
     connectors = result.scalars().all()
     return [ConnectorResponse.model_validate(c) for c in connectors]
 
@@ -137,7 +238,7 @@ async def test_connector(
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     try:
         # Load credentials from Vault
         creds = vault.get_connector_secret(connector.secret_path)
@@ -146,11 +247,9 @@ async def test_connector(
         # Call test_connection
         await source_connector.test_connection()
         connector.status = ConnectorStatus.VERIFIED
-        connector.last_verified_at = now
         message = "Connection test successful"
     except Exception as e:
         connector.status = ConnectorStatus.FAILED
-        connector.last_verified_at = now
         message = f"Connection test failed: {str(e)}"
         logger.warning(
             f"Connector test failed: {connector_id}",
@@ -179,6 +278,21 @@ async def delete_connector(
     connector = result.scalar_one_or_none()
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
+
+    entitlement_exists = await db.scalar(
+        select(SourceAsset.id).where(SourceAsset.source_connector_id == connector_id).limit(1)
+    )
+    run_exists = await db.scalar(
+        select(IngestionRun.id).where(IngestionRun.connector_id == connector_id).limit(1)
+    )
+    if entitlement_exists is not None or run_exists is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Connector has immutable licence/audit records and cannot be hard-deleted; "
+                "retain it for audit and revoke its source credentials instead"
+            ),
+        )
 
     # Delete Vault secret first
     try:

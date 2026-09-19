@@ -1,15 +1,4 @@
-version: '3.8'
-
 services:
-
-  minio:
-    image: minio/minio
-    command: server /data --console-address ':9001'
-    volumes:
-      - minio_data:/data
-    networks:
-      - ingestion-net
-
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     environment:
@@ -18,6 +7,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092'
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 12
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_JMX_PORT: 9101
@@ -37,11 +27,6 @@ services:
     cap_add:
       - IPC_LOCK
     command: server -dev -dev-root-token-id=dev-root-token
-    networks:
-      - ingestion-net
-
-  tika:
-    image: apache/tika:latest
     networks:
       - ingestion-net
 
@@ -75,6 +60,8 @@ services:
     image: prom/prometheus
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./retention-alerts.yml:/etc/prometheus/retention-alerts.yml:ro
+      - prometheus_data:/prometheus
     networks:
       - ingestion-net
 
@@ -95,12 +82,11 @@ services:
     networks:
       - ingestion-net
     depends_on:
-      - minio
       - kafka
       - vault
-      - tika
 
   ingestion-worker:
+    restart: unless-stopped
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
@@ -110,10 +96,21 @@ services:
     networks:
       - ingestion-net
     depends_on:
-      - minio
       - kafka
       - vault
-      - tika
+
+  retention-reconciler:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      ENTRYPOINT_SCRIPT: scripts/run_retention.py
+    env_file: .env
+    networks:
+      - ingestion-net
+    depends_on:
+      - prometheus
 
   ingestion-enumerator:
     build:
@@ -134,5 +131,5 @@ networks:
   ingestion-net:
 
 volumes:
-  minio_data:
   grafana_data:
+  prometheus_data:

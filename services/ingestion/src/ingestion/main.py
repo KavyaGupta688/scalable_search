@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,10 +15,6 @@ logger = get_logger(__name__)
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    
-    os.environ["TIKA_CLIENT_ONLY"] = "True"
-    if hasattr(settings, "tika") and hasattr(settings.tika, "server_endpoint"):
-        os.environ["TIKA_SERVER_ENDPOINT"] = settings.tika.server_endpoint
     
     app = FastAPI(
         title="Data Ingestion API",

@@ -2,9 +2,11 @@
 """Entrypoint for the Data Ingestion API server."""
 import uvicorn
 from ingestion.config import get_settings
+from ingestion.monitoring.logging import setup_logging
 
 def main():
     settings = get_settings()
+    setup_logging(settings.logging)
     uvicorn.run(
         "ingestion.main:app",
         host=settings.api_host,

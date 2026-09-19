@@ -1,11 +1,4 @@
-version: '3.8'
-
 services:
-  minio:
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-
   kafka:
     ports:
       - "9092:9092"
@@ -43,7 +36,7 @@ services:
     environment:
       - JWT_DEV_TOKEN_ENABLED=true
       - APP_ENVIRONMENT=development
-      - APP_DEBUG=true
+      - APP_DEBUG=false
 
   ingestion-worker:
     volumes:
@@ -51,7 +44,15 @@ services:
       - ../../scripts:/app/scripts:ro
     environment:
       - APP_ENVIRONMENT=development
-      - APP_DEBUG=true
+      - APP_DEBUG=false
+
+  retention-reconciler:
+    volumes:
+      - ../../src:/app/src:ro
+      - ../../scripts:/app/scripts:ro
+    environment:
+      - APP_ENVIRONMENT=development
+      - APP_DEBUG=false
 
   ingestion-enumerator:
     volumes:
@@ -59,4 +60,4 @@ services:
       - ../../scripts:/app/scripts:ro
     environment:
       - APP_ENVIRONMENT=development
-      - APP_DEBUG=true
+      - APP_DEBUG=false

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from datetime import datetime, timezone
 from typing import AsyncGenerator, Optional
+from uuid import UUID
 
 import smbclient
 from smbprotocol.exceptions import SMBException, SMBOSError
@@ -25,24 +27,33 @@ class NASConnectorSMB(SourceConnector):
         share_name: str,
         username: str,
         password: str,
+        connector_id: UUID,
         domain: Optional[str] = None,
+        root_path: str = "",
         port: int = 445,
         chunk_size: Optional[int] = None,
-        connector_id: Optional[str] = None,
+        max_files: Optional[int] = None,
     ):
         self.server = server
         self.share_name = share_name
         self.connector_id = connector_id
+        self.root_path = root_path.strip("\\/")
         self.base_path = f"\\\\{server}\\{share_name}"
+        if self.root_path:
+            self.base_path = f"{self.base_path}\\{self.root_path}"
+        self.max_files = max_files
         
         settings = get_settings()
         self.chunk_size = chunk_size or settings.worker.chunk_size_bytes
         self.checkpoint_interval = settings.worker.checkpoint_interval_pages
 
         try:
+            session_username = username
+            if domain and username and "\\" not in username and "@" not in username:
+                session_username = f"{domain}\\{username}"
             smbclient.register_session(
                 server=server,
-                username=username,
+                username=session_username,
                 password=password,
                 port=port,
             )
@@ -62,7 +73,8 @@ class NASConnectorSMB(SourceConnector):
     async def test_connection(self) -> bool:
         """Test connectivity to the source. Returns True on success."""
         try:
-            entries = await asyncio.to_thread(lambda: list(smbclient.scandir(self.base_path)))
+            entries = await asyncio.to_thread(smbclient.scandir, self.base_path)
+            await asyncio.to_thread(next, iter(entries), None)
             return True
         except Exception as e:
             raise self._handle_error(e)
@@ -70,14 +82,24 @@ class NASConnectorSMB(SourceConnector):
     async def enumerate(self, checkpoint: Optional[str] = None) -> AsyncGenerator[tuple[JobDescriptor, Optional[str]], None]:
         """Yield (job_descriptor, checkpoint_token) pairs."""
         try:
-            walker = await asyncio.to_thread(lambda: list(smbclient.walk(self.base_path)))
+            walker = await asyncio.to_thread(smbclient.walk, self.base_path)
         except Exception as e:
             raise self._handle_error(e)
 
         skip = bool(checkpoint)
         count = 0
         
-        for root, dirs, files in walker:
+        while True:
+            try:
+                walked = await asyncio.to_thread(_next_or_none, walker)
+            except Exception as e:
+                raise self._handle_error(e)
+            if walked is None:
+                break
+
+            root, dirs, files = walked
+            dirs.sort(key=str.casefold)
+            files.sort(key=str.casefold)
             for file_name in files:
                 full_path = f"{root}\\{file_name}"
                 relative_path = full_path[len(self.base_path) + 1:].replace("\\", "/")
@@ -90,18 +112,22 @@ class NASConnectorSMB(SourceConnector):
                 try:
                     stat = await asyncio.to_thread(smbclient.stat, full_path)
                 except Exception as e:
-                    continue  # Skip files we can't stat
+                    raise self._handle_error(e)
                 
                 prov_str = f"{relative_path}:{stat.st_size}:{stat.st_mtime}".encode()
                 provisional_id = hashlib.sha256(prov_str).hexdigest()[:16]
                 
-                from datetime import datetime
-                mtime_dt = datetime.fromtimestamp(stat.st_mtime)
+                mtime_dt = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+
+                source_parts = [self.share_name]
+                if self.root_path:
+                    source_parts.append(self.root_path.replace("\\", "/"))
+                source_parts.append(relative_path)
                 
                 job = JobDescriptor(
                     source_type="NAS_SMB",
                     connector_id=self.connector_id,
-                    source_ref=f"{self.share_name}/{relative_path}",
+                    source_ref="/".join(source_parts),
                     provisional_id=provisional_id,
                     size_bytes=stat.st_size,
                     mount_path=self.base_path,
@@ -112,6 +138,14 @@ class NASConnectorSMB(SourceConnector):
                 count += 1
                 token = relative_path if count % (self.checkpoint_interval * 100) == 0 else None
                 yield job, token
+                if self.max_files is not None and count >= self.max_files:
+                    return
+
+        if skip:
+            raise PermanentConnectorError(
+                f"SMB checkpoint path no longer exists: {checkpoint}. "
+                "Clear the connector checkpoint and restart enumeration."
+            )
 
     async def _read_stream(self, file_obj, chunk_size: int) -> AsyncGenerator[bytes, None]:
         try:
@@ -125,7 +159,7 @@ class NASConnectorSMB(SourceConnector):
 
     async def open_stream(self, job: JobDescriptor) -> AsyncGenerator[bytes, None]:
         """Yield byte chunks from the source file."""
-        relative_path = job.source_ref.split("/", 1)[1].replace("/", "\\")
+        relative_path = (job.relative_path or job.source_ref.split("/", 1)[1]).replace("/", "\\")
         full_path = f"{self.base_path}\\{relative_path}"
         try:
             file_obj = await asyncio.to_thread(smbclient.open_file, full_path, mode="rb", share_access="r")
@@ -136,7 +170,7 @@ class NASConnectorSMB(SourceConnector):
 
     async def open_stream_from_offset(self, job: JobDescriptor, offset: int) -> AsyncGenerator[bytes, None]:
         """Resume streaming from a byte offset."""
-        relative_path = job.source_ref.split("/", 1)[1].replace("/", "\\")
+        relative_path = (job.relative_path or job.source_ref.split("/", 1)[1]).replace("/", "\\")
         full_path = f"{self.base_path}\\{relative_path}"
         try:
             file_obj = await asyncio.to_thread(smbclient.open_file, full_path, mode="rb", share_access="r")
@@ -145,3 +179,11 @@ class NASConnectorSMB(SourceConnector):
                 yield chunk
         except Exception as e:
             raise self._handle_error(e)
+
+
+def _next_or_none(iterator):
+    """Advance a blocking iterator without leaking StopIteration through a Future."""
+    try:
+        return next(iterator)
+    except StopIteration:
+        return None

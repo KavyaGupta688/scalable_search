@@ -1,0 +1,24 @@
+# Opt-in only: expose a host AWS CLI/Identity Center profile to containers so
+# boto3 can obtain a base identity and call STS AssumeRole. Static-key connector
+# development does not need this override.
+services:
+  ingestion-api:
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_SDK_LOAD_CONFIG: "1"
+    volumes:
+      - ${AWS_CONFIG_DIR:?Set AWS_CONFIG_DIR to your host .aws directory}:/root/.aws:ro
+
+  ingestion-worker:
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_SDK_LOAD_CONFIG: "1"
+    volumes:
+      - ${AWS_CONFIG_DIR:?Set AWS_CONFIG_DIR to your host .aws directory}:/root/.aws:ro
+
+  ingestion-enumerator:
+    environment:
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+      AWS_SDK_LOAD_CONFIG: "1"
+    volumes:
+      - ${AWS_CONFIG_DIR:?Set AWS_CONFIG_DIR to your host .aws directory}:/root/.aws:ro

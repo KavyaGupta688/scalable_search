@@ -8,8 +8,9 @@ Both S3 and NAS jobs use the same schema — differentiated by source_type field
 from __future__ import annotations
 
 import enum
-from datetime import datetime
-from typing import Literal, Optional
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -26,51 +27,29 @@ class JobDescriptor(BaseModel):
     source_type: Literal["S3", "NAS_SMB", "NAS_NFS"] = Field(
         ..., description="Source discriminator for worker dispatch"
     )
-    connector_id: UUID = Field(
-        ..., description="ID of the source connector"
-    )
+    connector_id: UUID = Field(..., description="ID of the source connector")
+    run_id: UUID | None = Field(None, description="One trigger/backfill execution identifier")
+    enumerated_at: datetime | None = Field(None, description="UTC time when this job was published by enumeration")
     source_ref: str = Field(
         ...,
-        description=(
-            "Canonical source reference. "
-            "S3: 'bucket/key', NAS: 'share/relative/path'"
-        ),
+        description=("Canonical source reference. S3: 'bucket/key', NAS: 'share/relative/path'"),
     )
-    size_bytes: Optional[int] = Field(
-        None, description="File size in bytes (from source listing)"
-    )
+    size_bytes: int | None = Field(None, description="File size in bytes (from source listing)")
 
     # S3-specific fields
-    etag: Optional[str] = Field(
-        None, description="S3 ETag (S3 only)"
-    )
-    bucket: Optional[str] = Field(
-        None, description="S3 bucket name (S3 only)"
-    )
-    object_key: Optional[str] = Field(
-        None, description="S3 object key (S3 only)"
-    )
+    etag: str | None = Field(None, description="S3 ETag (S3 only)")
+    version_id: str | None = Field(None, description="Stable source object version ID when available")
+    bucket: str | None = Field(None, description="S3 bucket name (S3 only)")
+    object_key: str | None = Field(None, description="S3 object key (S3 only)")
 
     # NAS-specific fields
-    mount_path: Optional[str] = Field(
-        None, description="NAS share/mount path (NAS only)"
-    )
-    relative_path: Optional[str] = Field(
-        None, description="Path relative to mount (NAS only)"
-    )
-    mtime: Optional[datetime] = Field(
-        None, description="File modification time (NAS only)"
-    )
+    mount_path: str | None = Field(None, description="NAS share/mount path (NAS only)")
+    relative_path: str | None = Field(None, description="Path relative to mount (NAS only)")
+    mtime: datetime | None = Field(None, description="File modification time (NAS only)")
 
     # Provisional identifier for pre-hash dedup checks.
     # S3: ETag, NAS: hash(path + size + mtime)
-    provisional_id: str = Field(
-        ..., description="Pre-hash provisional identifier"
-    )
-
-    def target_storage_key(self) -> str:
-        """Generate the MinIO storage key for this file."""
-        return f"{self.connector_id}/{self.source_ref}"
+    provisional_id: str = Field(..., description="Pre-hash provisional identifier")
 
 
 class ProcessResult(str, enum.Enum):
@@ -82,3 +61,14 @@ class ProcessResult(str, enum.Enum):
     REJECTED = "rejected"  # MIME type validation failure
     TRANSIENT_ERROR = "transient_error"
     PERMANENT_ERROR = "permanent_error"
+
+
+@dataclass
+class ProcessingStats:
+    """Mutable timing/result detail populated during one worker attempt."""
+
+    processing_started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    bytes_processed: int = 0
+    stage_seconds: dict[str, float] = field(default_factory=dict)
+    document_id: UUID | None = None
+    source_asset_id: UUID | None = None

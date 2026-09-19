@@ -1,274 +1,156 @@
-# Data Ingestion Module
+# Data Ingestion
 
-Production-grade multimodal data ingestion system for AI processing pipelines. Collects, validates, deduplicates, stores, and tags datasets (100TB–500TB scale) from S3-compatible buckets and on-premises NAS shares (SMB/NFS).
+Production-oriented, zero-copy catalogue ingestion for vendor-owned S3, SMB,
+and NFS data. Source bytes remain in their existing storage. The system reads
+each supported file once to validate its MIME type and calculate SHA-256, reads
+the vendor-supplied manifest/sidecar metadata, persists catalogue state in
+PostgreSQL, and publishes a Kafka event for
+downstream AI processing.
 
-## Architecture
+## Hybrid Mode A flow
 
-Six-layer architecture matching the reference design:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Layer 1: Presentation/Access (FastAPI + JWT Auth)              │
-│  POST /admin/connectors  |  GET /documents  |  GET /metrics     │
-├─────────────────────────────────────────────────────────────────┤
-│  Layer 2: Source Interface (Pluggable Connectors)               │
-│  S3Connector  |  NASConnectorSMB  |  NASConnectorNFS           │
-├─────────────────────────────────────────────────────────────────┤
-│  Layer 3: Ingestion Orchestration (Kafka + Checkpointing)       │
-│  Enumerator → Kafka ingestion-jobs topic → Worker pool          │
-├─────────────────────────────────────────────────────────────────┤
-│  Layer 4: Processing & Validation (Streaming Worker)            │
-│  Chunk read → MIME validate → SHA-256 hash → MinIO upload       │
-├─────────────────────────────────────────────────────────────────┤
-│  Layer 5: Storage & Metadata (MinIO + PostgreSQL + Tika)        │
-│  Multipart upload → Tika extract → Pydantic normalize → INSERT  │
-├─────────────────────────────────────────────────────────────────┤
-│  Layer 6: Infrastructure (Docker dev / systemd prod)            │
-│  Prometheus + Grafana | ELK Stack | HashiCorp Vault             │
-└─────────────────────────────────────────────────────────────────┘
+```text
+S3 / SMB / NFS enumeration
+        |
+        v
+Kafka ingestion-jobs
+        |
+        v
+vendor CSV/sidecars -> structured document_metadata
+single source read -> MIME -> SHA-256
+        |
+        +-> PostgreSQL documents (one row per checksum)
+        +-> PostgreSQL source_assets (every physical location)
+        +-> PostgreSQL document_metadata (one typed row per physical source)
+        +-> Kafka ai-processing-events (document + source locator)
 ```
 
-## Quick Start (Development)
+The binary is not copied or spooled. Small metadata files are bounded by
+`METADATA_MAX_FILE_BYTES` and manifests are cached per run/directory.
 
-### Prerequisites
-- Docker & Docker Compose v2+
-- Git
+## Services
 
-### 1. Clone and start the dev stack
+- PostgreSQL: catalogue, source locations, checkpoints and current licence state.
+- Kafka: ingestion work queue and downstream AI events.
+- Vault: S3/SMB connector secrets. Raw credentials never enter PostgreSQL or Kafka.
+- Prometheus/Grafana: stage timing, throughput, outcomes and expiry reconciliation.
 
-```bash
-cd deploy/docker
-docker compose up -d
+PostgreSQL may be AWS RDS. S3 and NAS are source systems. There is no MinIO
+destination and no second permanent copy.
+
+## Development startup
+
+Create `deploy/docker/.env` from `.env.example`, fill the RDS/Vault settings,
+and then run:
+
+```powershell
+Set-Location deploy/docker
+docker compose up -d kafka vault prometheus grafana ingestion-api
+docker compose up -d --scale ingestion-worker=4 ingestion-worker
+docker compose up -d retention-reconciler
+docker compose run --rm ingestion-api alembic upgrade head
 ```
 
-This starts **all infrastructure** (PostgreSQL, MinIO, Kafka, Vault, Tika, Elasticsearch, Logstash, Kibana, Prometheus, Grafana) plus the application services (API, Worker).
+The current schema head is `012`.
 
-The `docker-compose.override.yml` is auto-loaded, exposing these ports:
+## Core tables
 
-| Service       | Port(s)        | URL                          |
-|--------------|----------------|------------------------------|
-| API Server   | 8000           | http://localhost:8000        |
-| MinIO Console| 9000, 9001     | http://localhost:9001        |
-| PostgreSQL   | 5432           | localhost:5432               |
-| Kafka        | 9092           | localhost:9092               |
-| Vault        | 8200           | http://localhost:8200        |
-| Grafana      | 3000           | http://localhost:3000        |
-| Kibana       | 5601           | http://localhost:5601        |
-| Prometheus   | 9090           | http://localhost:9090        |
+- `documents`: canonical checksum, size, MIME, preferred source reference and
+  entitlement link.
+- `document_metadata`: typed vendor metadata from `metadata.csv`, stock-library
+  CSV, and per-asset sidecars; one row per physical source, linked to its
+  `source_asset` and canonical `document`.
+- `source_assets`: every S3/SMB/NFS location, source fingerprint and availability.
+- `license_entitlements`: immutable calendar-year licence clock keyed by SHA-256.
+- `connectors`: non-secret source configuration and Vault reference.
+- `enumeration_checkpoints`: resumable listing state.
+- `ingestion_runs`: authoritative per-trigger counters, timings and terminal status.
+- `ingestion_run_items`: idempotent per-source outcomes, stage timings and links
+  to the resulting document/source asset.
 
-### 2. Get an API token (dev mode)
+Exact duplicate content creates one `documents` row and multiple
+`source_assets` rows. Vendor files are never removed as part of deduplication.
 
-```bash
-curl -X POST http://localhost:8000/auth/token \
-  -d "username=admin&password=dev"
+## Direct-source access
+
+Downstream events include `source_asset_id`, connector ID, source reference,
+checksum and source fingerprint. Stored credentials are never included.
+
+- `GET /documents/{id}/source` returns a short-lived vendor-S3 presigned URL.
+- For SMB/NFS it returns `access_mode=connector_stream`; trusted workers use
+  `ingestion.services.source_access.open_source_stream` with Vault credentials.
+- `GET /documents/{id}/sources` lists all known locations for failover.
+
+The legacy `/documents/{id}/download` route aliases the new source resolver.
+
+### S3 credential modes
+
+Existing development connectors continue to use `auth_mode=static_keys`; their
+keys are stored in Vault and never PostgreSQL. Production connectors should use
+`auth_mode=aws_assume_role`, a vendor role ARN and an External ID. The External
+ID is stored in Vault. The worker's normal AWS credential chain supplies the
+base identity and STS issues refreshable temporary sessions.
+
+Set `SOURCE_ACCESS_ALLOW_STATIC_S3_CREDENTIALS=false` in production after
+migration. Short-lived source URLs are capped at both
+`SOURCE_ACCESS_PRESIGNED_URL_SECONDS` and the document entitlement expiry.
+Expired or inactive entitlements receive HTTP 403 and no URL is generated.
+`PATCH /admin/connectors/{connector_id}/s3-auth` replaces an existing
+connector's Vault secret and authentication mode, marks it `unverified`, and
+requires a successful connector test before its next trigger.
+
+For optional local AssumeRole testing, sign in with the selected AWS CLI or
+IAM Identity Center profile, set `AWS_CONFIG_DIR` and `AWS_PROFILE`, then add
+the read-only profile override:
+
+```powershell
+docker compose `
+  -f docker-compose.yml `
+  -f docker-compose.override.yml `
+  -f docker-compose.aws-dev.yml `
+  up -d --build ingestion-api ingestion-worker
 ```
 
-Response:
-```json
-{"access_token": "eyJhbG...", "token_type": "bearer", "expires_in": 3600}
+Do not use this override for the existing `static_keys` development mode.
+
+## Licence expiry
+
+The clock starts after source metadata parsing, hashing, validation and successful
+catalogue persistence. Expiry is the same UTC calendar date three years later;
+February 29 maps to February 28 in a non-leap target year.
+
+The reconciler marks the entitlement `expired`. It does not delete vendor data
+or manage vendor-side revocation. The API independently checks status and expiry
+on every source-URL request, so access is denied even before reconciliation has
+updated a stale `active` status. Audit history remains the responsibility of the
+separate audit module.
+Re-ingestion of identical bytes resolves to the existing SHA-256 entitlement,
+so it cannot create a fresh licence clock.
+
+## Per-run statistics
+
+`POST /admin/ingestion/trigger/{connector_id}` creates an `ingestion_runs` row
+before enumeration starts. Workers upsert one `ingestion_run_items` row per
+source reference; Kafka replay therefore cannot double-count a terminal result.
+
+- `GET /admin/ingestion/runs?connector_id=<uuid>` lists recent runs.
+- `GET /admin/ingestion/runs/{run_id}` returns exact end-to-end and stage stats.
+- `GET /admin/ingestion/runs/{run_id}/items` returns paginated object outcomes.
+- `GET /documents/?run_id=<uuid>` returns document metadata created or observed
+  in that run.
+
+Prometheus intentionally exposes only bounded aggregate run status/duration
+metrics. Structured logs include `run_id`; PostgreSQL is the authoritative
+source for per-run history and avoids unbounded Prometheus label cardinality.
+Use `scripts/get_ingestion_run.ps1` to save a completed run report.
+
+## Tests
+
+```powershell
+python -m pytest -q
+python -m ruff check src tests alembic scripts
 ```
 
-### 3. Create a connector
-
-```bash
-# S3 connector
-```curl -X POST http://localhost:8000/admin/connectors/ \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "vendor-bucket",
-    "source_type": "S3",
-    "s3": {
-      "endpoint_url": "http://minio:9000",
-      "bucket": "source-data",
-      "access_key": "minioadmin",
-      "secret_key": "minioadmin",
-      "addressing_style": "path",
-      "signature_version": "s3v4"
-    }
-  }'
-```
-
-### 4. Test the connector
-
-```bash
-curl -X POST http://localhost:8000/admin/connectors/<id>/test \
-  -H "Authorization: Bearer <token>"
-```
-
-### 5. Trigger enumeration
-
-```bash
-curl -X POST http://localhost:8000/admin/ingestion/trigger/<connector_id> \
-  -H "Authorization: Bearer <token>"
-```
-
-Or run the enumerator directly:
-```bash
-docker compose run --rm ingestion-enumerator python scripts/run_enumerator.py <connector_id>
-```
-
-### 6. Monitor
-
-- **API docs**: http://localhost:8000/docs (Swagger UI)
-- **Metrics**: http://localhost:8000/metrics (Prometheus format)
-- **Grafana**: http://localhost:3000 (pre-configured dashboard)
-- **Kibana**: http://localhost:5601 (structured JSON logs)
-- **Health**: http://localhost:8000/health
-
----
-
-## Production Deployment (Bare Metal + systemd)
-
-> **Dev uses Docker Compose. Production uses bare metal + systemd. These are NOT the same deployment path.**
-
-### Prerequisites (bare metal Linux)
-- Python 3.11+
-- PostgreSQL 16+
-- MinIO (standalone or distributed)
-- Apache Kafka (KRaft mode)
-- HashiCorp Vault (Community Edition)
-- Apache Tika Server
-- Elasticsearch + Logstash + Kibana
-- Prometheus + Grafana
-
-### Install the application
-
-```bash
-sudo bash deploy/install/setup-production.sh
-```
-
-This script:
-1. Creates `ingestion` user/group
-2. Installs system dependencies (`libmagic1`, Python 3.11)
-3. Creates virtualenv at `/opt/ingestion/venv`
-4. Installs the Python package
-5. Generates `/etc/ingestion/ingestion.env` template
-6. Copies systemd unit files to `/etc/systemd/system/`
-7. Enables and starts services
-
-### Configure
-
-Edit `/etc/ingestion/ingestion.env` with your production values:
-
-```bash
-# Database
-DB_HOST=db.internal
-DB_PORT=5432
-DB_NAME=ingestion
-DB_USER=ingestion
-DB_PASSWORD=<from-vault>
-
-# MinIO
-MINIO_ENDPOINT_URL=https://minio.internal:9000
-MINIO_ACCESS_KEY=<from-vault>
-MINIO_SECRET_KEY=<from-vault>
-MINIO_BUCKET=ingestion-data
-
-# Kafka
-KAFKA_BOOTSTRAP_SERVERS=kafka1.internal:9092,kafka2.internal:9092
-
-# Vault
-VAULT_URL=https://vault.internal:8200
-VAULT_AUTH_METHOD=approle
-VAULT_ROLE_ID=<role-id>
-VAULT_SECRET_ID=<secret-id>
-
-# JWT (production: tokens come from your SSO/IdP)
-JWT_SECRET_KEY=<strong-random-secret>
-JWT_DEV_TOKEN_ENABLED=false
-
-# Environment
-APP_ENVIRONMENT=production
-```
-
-### Manage services
-
-```bash
-# Start/stop/restart
-sudo systemctl start ingestion-api
-sudo systemctl start ingestion-worker
-
-# View logs
-journalctl -u ingestion-api -f
-journalctl -u ingestion-worker -f
-
-# Enable reconciliation timer
-sudo systemctl enable --now ingestion-reconciliation.timer
-```
-
-### Backup & Disaster Recovery
-
-> **The database should be backed up using the organization's existing backup infrastructure.**
->
-> Recommended: Configure PostgreSQL continuous archiving (WAL) or periodic `pg_dump` via your DBA team. MinIO supports bucket replication for object storage redundancy. Kafka topic retention handles message replay.
->
-> Specific backup automation will be added based on client infrastructure feedback.
-
----
-
-## Project Structure
-
-```
-data-ingestion/
-├── src/ingestion/
-│   ├── config.py                  # Pydantic Settings (all env-based)
-│   ├── main.py                    # FastAPI app factory
-│   ├── api/                       # Layer 1: REST API + JWT auth
-│   ├── connectors/                # Layer 2: S3, SMB, NFS connectors
-│   ├── orchestration/             # Layer 3: Enumeration + checkpointing
-│   ├── worker/                    # Layer 4: Streaming processor
-│   ├── storage/                   # Layer 5: MinIO + metadata pipeline
-│   ├── models/                    # SQLAlchemy ORM models
-│   ├── schemas/                   # Pydantic request/response schemas
-│   ├── services/                  # Vault, Kafka, Database
-│   ├── monitoring/                # Prometheus metrics + JSON logging
-│   └── reconciliation/            # Gap detection + re-drive
-├── scripts/                       # Entrypoints (API, worker, enumerator)
-├── deploy/
-│   ├── docker/                    # Docker Compose (dev only)
-│   ├── systemd/                   # systemd units (production)
-│   ├── install/                   # Bare-metal install script
-│   └── grafana/                   # Dashboard JSON
-├── migrations/                    # Raw SQL migrations
-├── alembic/                       # Alembic migrations
-└── tests/                         # Test scaffold
-```
-
-## Key Design Decisions
-
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Kafka library | `confluent-kafka` | librdkafka wrapper, 10x faster than kafka-python, actively maintained |
-| UUIDv7 | `uuid-utils` | Rust-based, RFC 9562, 10-20x faster than uuid6 |
-| SMB access | `smbprotocol` | SDK-based, no OS mount, works in unprivileged containers |
-| JWT signing | HS256 | Simpler key management; RS256 available if org needs asymmetric |
-| Tika | Server sidecar | `TIKA_CLIENT_ONLY=True` prevents 80MB JAR auto-download |
-| NFS | OS-mount fallback | Pure SDK NFS in Python is poorly maintained |
-
-## Security
-
-- **No secrets in code or database**: All credentials stored in HashiCorp Vault; Postgres only holds vault path references
-- **JWT-based auth**: Permission claims (`ingestion:configure`, `data:read`, `data:download`, `ingestion:trigger`)
-- **Token issuance**: Dev-only (`JWT_DEV_TOKEN_ENABLED=true`); production uses organization SSO
-- **Connector model invariant**: The `Connector` ORM model has zero columns for raw credentials
-
-## Streaming Pipeline (Zero Full-Object Buffering)
-
-Every file, regardless of size, is processed in a single streaming pass:
-
-```
-Source → 8MB chunks → [First chunk: MIME validate] → SHA-256 update → MinIO upload_part
-                                                                            ↓
-                                                          After last chunk: hash complete
-                                                                            ↓
-                                                    Dedup check → complete/abort multipart
-                                                                            ↓
-                                                        Metadata pipeline → DB INSERT
-```
-
-No file is ever fully buffered in memory or on local disk.
-
-## License
-
-Proprietary — see LICENSE file.
+See `METADATA_JOURNEY_GUIDE.md`, `METADATA_TEST_DATASET_GUIDE.md`,
+`RETENTION_POLICY_GUIDE.md`, and `PERFORMANCE_AND_SCALE_GUIDE.md` for
+operational details.

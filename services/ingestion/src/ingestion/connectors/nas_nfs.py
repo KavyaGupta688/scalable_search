@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import os
 from typing import AsyncGenerator, Optional
+from uuid import UUID
+from datetime import datetime, timezone
 
 from ingestion.config import get_settings
 from ingestion.schemas.job import JobDescriptor
@@ -20,9 +22,13 @@ class NASConnectorNFS(SourceConnector):
     def __init__(
         self,
         mount_path: str,
+        connector_id: UUID,
         chunk_size: Optional[int] = None,
+        max_files: Optional[int] = None,
     ):
         self.mount_path = os.path.abspath(mount_path)
+        self.connector_id = connector_id
+        self.max_files = max_files
         
         settings = get_settings()
         self.chunk_size = chunk_size or settings.worker.chunk_size_bytes
@@ -40,18 +46,24 @@ class NASConnectorNFS(SourceConnector):
     async def enumerate(self, checkpoint: Optional[str] = None) -> AsyncGenerator[tuple[JobDescriptor, Optional[str]], None]:
         """Yield (job_descriptor, checkpoint_token) pairs."""
         
-        def walk_dir():
-            return list(os.walk(self.mount_path))
-            
         try:
-            walker = await asyncio.to_thread(walk_dir)
+            walker = await asyncio.to_thread(os.walk, self.mount_path)
         except Exception as e:
             raise TransientConnectorError(f"Error enumerating NFS: {str(e)}")
 
         skip = bool(checkpoint)
         count = 0
         
-        for root, dirs, files in walker:
+        while True:
+            try:
+                walked = await asyncio.to_thread(_next_or_none, walker)
+            except Exception as e:
+                raise TransientConnectorError(f"Error enumerating NFS: {str(e)}") from e
+            if walked is None:
+                break
+            root, dirs, files = walked
+            dirs.sort(key=str.casefold)
+            files.sort(key=str.casefold)
             for file_name in files:
                 full_path = os.path.join(root, file_name)
                 relative_path = os.path.relpath(full_path, self.mount_path).replace("\\", "/")
@@ -64,25 +76,33 @@ class NASConnectorNFS(SourceConnector):
                 try:
                     stat = await asyncio.to_thread(os.stat, full_path)
                 except Exception as e:
-                    continue  # Skip files we can't stat
+                    raise TransientConnectorError(f"Error reading NFS file metadata for {relative_path}: {e}") from e
                 
                 prov_str = f"{relative_path}:{stat.st_size}:{stat.st_mtime}".encode()
                 provisional_id = hashlib.sha256(prov_str).hexdigest()[:16]
                 
                 job = JobDescriptor(
                     source_type="NAS_NFS",
+                    connector_id=self.connector_id,
                     source_ref=relative_path,
                     provisional_id=provisional_id,
                     size_bytes=stat.st_size,
-                    metadata={
-                        "mtime": stat.st_mtime,
-                        "full_path": full_path,
-                    }
+                    mount_path=self.mount_path,
+                    relative_path=relative_path,
+                    mtime=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
                 )
                 
                 count += 1
                 token = relative_path if count % (self.checkpoint_interval * 100) == 0 else None
                 yield job, token
+                if self.max_files is not None and count >= self.max_files:
+                    return
+
+        if skip:
+            raise PermanentConnectorError(
+                f"NFS checkpoint path no longer exists: {checkpoint}. "
+                "Clear the connector checkpoint and restart enumeration."
+            )
 
     async def _read_stream(self, file_obj, chunk_size: int) -> AsyncGenerator[bytes, None]:
         try:
@@ -96,7 +116,7 @@ class NASConnectorNFS(SourceConnector):
 
     async def open_stream(self, job: JobDescriptor) -> AsyncGenerator[bytes, None]:
         """Yield byte chunks from the source file."""
-        full_path = os.path.join(self.mount_path, job.source_ref)
+        full_path = os.path.join(self.mount_path, job.relative_path or job.source_ref)
         try:
             file_obj = await asyncio.to_thread(open, full_path, "rb")
             async for chunk in self._read_stream(file_obj, self.chunk_size):
@@ -108,7 +128,7 @@ class NASConnectorNFS(SourceConnector):
 
     async def open_stream_from_offset(self, job: JobDescriptor, offset: int) -> AsyncGenerator[bytes, None]:
         """Resume streaming from a byte offset."""
-        full_path = os.path.join(self.mount_path, job.source_ref)
+        full_path = os.path.join(self.mount_path, job.relative_path or job.source_ref)
         try:
             file_obj = await asyncio.to_thread(open, full_path, "rb")
             await asyncio.to_thread(file_obj.seek, offset)
@@ -118,3 +138,10 @@ class NASConnectorNFS(SourceConnector):
             raise PermanentConnectorError(f"File not found: {full_path}")
         except Exception as e:
             raise TransientConnectorError(f"Error opening NFS file: {str(e)}")
+
+
+def _next_or_none(iterator):
+    try:
+        return next(iterator)
+    except StopIteration:
+        return None

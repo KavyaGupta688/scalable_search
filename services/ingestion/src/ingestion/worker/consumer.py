@@ -1,8 +1,7 @@
 """
 Kafka consumer that dispatches jobs to the streaming worker processor.
 
-Implements manual offset commit, dead-letter routing, circuit breaker
-checks, and connector instance caching.
+Implements manual offset commit, dead-letter routing, and connector caching.
 """
 
 from __future__ import annotations
@@ -10,28 +9,66 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from typing import Dict, Any, Optional
+import time
+from datetime import UTC, datetime
 from uuid import UUID
 
+from confluent_kafka import KafkaError, TopicPartition
 from sqlalchemy import select
 
 from ingestion.config import get_settings
-from ingestion.services.database import get_raw_session
-from ingestion.services.kafka import create_consumer, create_producer, publish_to_dead_letter
-from ingestion.services.vault import VaultService
+from ingestion.connectors import SourceConnector, create_connector
 from ingestion.models.connector import Connector
-from ingestion.connectors import create_connector, SourceConnector
-from ingestion.worker.processor import process_job
-from ingestion.worker.validator import PermanentProcessingError, TransientProcessingError
-from ingestion.worker.circuit_breaker import MinIOCircuitBreaker
-from ingestion.storage.minio_client import MinIOClient
-from ingestion.schemas.job import JobDescriptor, ProcessResult
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
-
-from confluent_kafka import KafkaError
+from ingestion.schemas.job import JobDescriptor, ProcessResult, ProcessingStats
+from ingestion.services.database import get_raw_session
+from ingestion.services.kafka import create_consumer, create_producer, publish_to_dead_letter
+from ingestion.services.run_tracking import (
+    add_commit_duration,
+    record_terminal_result,
+    record_transient_retry,
+)
+from ingestion.services.vault import VaultService
+from ingestion.worker.processor import process_job
+from ingestion.worker.validator import PermanentProcessingError, TransientProcessingError
 
 logger = get_logger(__name__)
+
+
+async def _safe_rollback(session) -> None:
+    """Rollback without crashing the consumer if the DB connection died."""
+    try:
+        await session.rollback()
+    except Exception as rollback_error:
+        logger.warning("Database rollback failed after connection loss: %s", rollback_error)
+
+
+async def _retry_current_message(consumer, msg, delay_seconds: float = 2.0) -> None:
+    """Seek back before retrying so a later commit cannot skip this record."""
+    consumer.seek(TopicPartition(msg.topic(), msg.partition(), msg.offset()))
+    await asyncio.sleep(delay_seconds)
+
+
+async def _save_commit_duration(job: JobDescriptor, seconds: float) -> None:
+    """Best-effort post-commit timing update; never reprocess a successful object."""
+
+    if job.run_id is None:
+        return
+    timing_session = await get_raw_session()
+    try:
+        await add_commit_duration(timing_session, job.run_id, job.source_ref, seconds)
+        await timing_session.commit()
+    except Exception as exc:
+        await _safe_rollback(timing_session)
+        logger.warning(
+            "Could not persist PostgreSQL commit timing: %s",
+            exc,
+            extra={"run_id": str(job.run_id), "source_ref": job.source_ref},
+        )
+    finally:
+        await timing_session.close()
+
 
 # Global shutdown flag
 _shutdown_requested = False
@@ -51,9 +88,8 @@ async def run_consumer():
     For each job message:
     1. Deserialize JobDescriptor
     2. Load connector (cached) from DB + Vault
-    3. Check circuit breaker
-    4. Call process_job()
-    5. Commit offset on success/permanent failure, skip on transient failure
+    3. Call process_job()
+    4. Commit offset on success/permanent failure, skip on transient failure
     """
     global _shutdown_requested
 
@@ -67,11 +103,9 @@ async def run_consumer():
 
     dlq_producer = create_producer(settings.kafka)
     vault_service = VaultService()
-    minio_client = MinIOClient()
-    circuit_breaker = MinIOCircuitBreaker()
 
     # Cache connector instances to avoid re-creating for every message
-    connector_cache: Dict[UUID, SourceConnector] = {}
+    connector_cache: dict[UUID, SourceConnector] = {}
 
     logger.info(
         "Ingestion worker started",
@@ -107,15 +141,15 @@ async def run_consumer():
                 consumer.commit(message=msg, asynchronous=False)
                 continue
 
-            # Check circuit breaker — if open, pause consumption
-            if circuit_breaker.is_open:
-                logger.warning(
-                    "Circuit breaker is OPEN, pausing consumption for 5s",
-                    extra={"connector_id": str(job.connector_id)},
+            queue_wait = 0.0
+            if job.enumerated_at is not None:
+                queue_wait = max(
+                    0.0,
+                    (datetime.now(UTC) - job.enumerated_at).total_seconds(),
                 )
-                METRICS.CIRCUIT_BREAKER_STATE.set(1)
-                await asyncio.sleep(5.0)
-                continue
+                METRICS.PROCESSING_DURATION_SECONDS.labels(source_type=job.source_type, stage="queue_wait").observe(
+                    queue_wait
+                )
 
             # Get or create connector instance
             connector = connector_cache.get(job.connector_id)
@@ -123,9 +157,7 @@ async def run_consumer():
                 try:
                     session = await get_raw_session()
                     try:
-                        result = await session.execute(
-                            select(Connector).where(Connector.id == job.connector_id)
-                        )
+                        result = await session.execute(select(Connector).where(Connector.id == job.connector_id))
                         connector_model = result.scalar_one_or_none()
                         if not connector_model:
                             logger.error(
@@ -145,26 +177,34 @@ async def run_consumer():
                         f"Failed to initialize connector: {e}",
                         extra={"connector_id": str(job.connector_id)},
                     )
-                    await asyncio.sleep(2.0)
+                    await _retry_current_message(consumer, msg)
                     continue
 
             # Process the job
             session = await get_raw_session()
+            processing_stats = ProcessingStats()
+            if queue_wait:
+                processing_stats.stage_seconds["queue_wait"] = queue_wait
             try:
                 result = await process_job(
                     job=job,
                     connector=connector,
                     session=session,
-                    minio_client=minio_client,
                     producer=dlq_producer,
+                    processing_stats=processing_stats,
                 )
 
                 if result in (ProcessResult.SUCCESS, ProcessResult.DUPLICATE, ProcessResult.SKIPPED):
+                    await record_terminal_result(session, job, result, processing_stats)
+                    commit_started = time.perf_counter()
                     await session.commit()
+                    commit_seconds = time.perf_counter() - commit_started
+                    METRICS.PROCESSING_DURATION_SECONDS.labels(
+                        source_type=job.source_type, stage="postgresql_commit"
+                    ).observe(commit_seconds)
                     consumer.commit(message=msg, asynchronous=False)
-                    METRICS.FILES_PROCESSED_TOTAL.labels(
-                        source_type=job.source_type, outcome=result.value
-                    ).inc()
+                    await _save_commit_duration(job, commit_seconds)
+                    METRICS.FILES_PROCESSED_TOTAL.labels(source_type=job.source_type, outcome=result.value).inc()
                     logger.info(
                         f"Job completed: {result.value}",
                         extra={
@@ -172,57 +212,74 @@ async def run_consumer():
                             "source_type": job.source_type,
                             "source_ref": job.source_ref,
                             "outcome": result.value,
+                            "run_id": str(job.run_id) if job.run_id else None,
                         },
                     )
                 elif result == ProcessResult.REJECTED:
+                    await record_terminal_result(
+                        session, job, ProcessResult.REJECTED, processing_stats,
+                        error="MIME type rejected",
+                    )
+                    commit_started = time.perf_counter()
                     await session.commit()
+                    commit_seconds = time.perf_counter() - commit_started
+                    METRICS.PROCESSING_DURATION_SECONDS.labels(
+                        source_type=job.source_type, stage="postgresql_commit"
+                    ).observe(commit_seconds)
                     publish_to_dead_letter(
-                        dlq_producer, settings.kafka.dead_letter_topic, msg,
-                        PermanentProcessingError(f"MIME type rejected for {job.source_ref}")
+                        dlq_producer,
+                        settings.kafka.dead_letter_topic,
+                        msg,
+                        PermanentProcessingError(f"MIME type rejected for {job.source_ref}"),
                     )
                     consumer.commit(message=msg, asynchronous=False)
-                    METRICS.FILES_FAILED_TOTAL.labels(
-                        source_type=job.source_type, failure_type="mime_rejected"
-                    ).inc()
+                    await _save_commit_duration(job, commit_seconds)
+                    METRICS.FILES_FAILED_TOTAL.labels(source_type=job.source_type, failure_type="mime_rejected").inc()
 
             except PermanentProcessingError as e:
-                await session.rollback()
+                await _safe_rollback(session)
+                await record_terminal_result(
+                    session, job, ProcessResult.PERMANENT_ERROR, processing_stats, error=e
+                )
+                await session.commit()
                 logger.error(
                     f"Permanent error processing job: {e}",
                     extra={
                         "job_id": job.provisional_id,
                         "source_ref": job.source_ref,
                         "outcome": "permanent_error",
+                        "run_id": str(job.run_id) if job.run_id else None,
                     },
                 )
-                publish_to_dead_letter(
-                    dlq_producer, settings.kafka.dead_letter_topic, msg, e
-                )
+                publish_to_dead_letter(dlq_producer, settings.kafka.dead_letter_topic, msg, e)
                 consumer.commit(message=msg, asynchronous=False)
-                METRICS.FILES_FAILED_TOTAL.labels(
-                    source_type=job.source_type, failure_type="permanent"
-                ).inc()
+                METRICS.FILES_FAILED_TOTAL.labels(source_type=job.source_type, failure_type="permanent").inc()
 
             except TransientProcessingError as e:
-                await session.rollback()
+                await _safe_rollback(session)
+                await record_transient_retry(session, job, processing_stats, e)
+                await session.commit()
                 logger.warning(
                     f"Transient error, will retry: {e}",
                     extra={
                         "job_id": job.provisional_id,
                         "source_ref": job.source_ref,
                         "outcome": "transient_error",
+                        "run_id": str(job.run_id) if job.run_id else None,
                     },
                 )
                 # Do NOT commit offset — message will be redelivered
-                await asyncio.sleep(2.0)
+                await _retry_current_message(consumer, msg)
 
             except Exception as e:
-                await session.rollback()
+                await _safe_rollback(session)
+                await record_transient_retry(session, job, processing_stats, e)
+                await session.commit()
                 logger.error(
                     f"Unexpected error processing job: {e}",
                     extra={"job_id": job.provisional_id},
                 )
-                await asyncio.sleep(2.0)
+                await _retry_current_message(consumer, msg)
 
             finally:
                 await session.close()
