@@ -1,13 +1,14 @@
 import React from 'react';
 import { CheckIcon, AlertIcon } from '../Icons';
+import { Presence, FeedbackMotion } from '../Motion';
 
 export const ToastContainer = ({ toasts }) => {
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
-      {toasts.map((toast) => (
-        <div
+    <div role="status" aria-live="polite" className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
+      <Presence>{toasts.map((toast) => (
+        <FeedbackMotion
           key={toast.id}
-          className={`pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-prism-elevated border text-xs text-prism-textPrimary max-w-sm toast-enter ${
+          className={`pointer-events-auto flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-nexus-elevated border text-sm text-nexus-textPrimary max-w-sm ${
             toast.type === 'success'
               ? 'border-emerald-500/40 text-emerald-300'
               : toast.type === 'warning'
@@ -21,8 +22,8 @@ export const ToastContainer = ({ toasts }) => {
             <AlertIcon className="w-4 h-4 shrink-0 text-blue-400" />
           )}
           <span className="leading-snug">{toast.message}</span>
-        </div>
-      ))}
+        </FeedbackMotion>
+      ))}</Presence>
     </div>
   );
 };

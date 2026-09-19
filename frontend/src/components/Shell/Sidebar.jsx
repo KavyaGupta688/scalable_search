@@ -1,83 +1,84 @@
 import React from 'react';
 import {
-  PrismIcon,
-  OverviewIcon,
-  SearchIcon,
-  S3Icon,
-  IngestionIcon,
-  CpuIcon,
-  AuditIcon,
-  LogoutIcon
-} from '../Icons';
+  LayoutDashboard, Search, Database, Workflow, Sparkles, ClipboardList,
+  Users, LogOut,
+} from 'lucide-react';
+import { Brand } from '../DesignSystem';
+import { useDialog } from '../useDialog';
+import { useMediaQuery } from '../Motion';
 
-export const Sidebar = ({ currentRoute, onNavigate, onLogout, currentUser }) => {
-  const isAdmin = ['admin', 'administrator', 'platform administrator'].includes((currentUser.role || '').toLowerCase());
-  const navItems = [
-    { id: 'overview', label: 'Overview', icon: OverviewIcon },
-    { id: 'search', label: 'Multimodal Search', icon: SearchIcon },
-    { id: 'data-sources', label: 'S3 Buckets', icon: S3Icon },
-    { id: 'ingestion', label: 'S3 Ingestion', icon: IngestionIcon },
-    { id: 'enrichment', label: 'AI Enrichment', icon: CpuIcon },
-    { id: 'audit', label: 'Audit Log', icon: AuditIcon },
-  ];
+const items = [
+  ['overview', 'Overview', LayoutDashboard],
+  ['search', 'Multimodal Search', Search],
+  ['data-sources', 'Data Sources', Database],
+  ['ingestion', 'Ingestion', Workflow],
+  ['enrichment', 'AI Enrichment', Sparkles],
+  ['audit', 'Audit Log', ClipboardList],
+  ['users', 'Users', Users],
+];
 
+export function Sidebar({
+  currentRoute, onNavigate, onLogout, currentUser,
+  collapsed, onCollapse, mobileOpen, onMobileClose,
+}) {
+  const dialogRef = useDialog(onMobileClose, mobileOpen);
+  const mobile = useMediaQuery('(max-width:767px)');
   return (
-    <aside className="w-60 bg-prism-surface border-r border-prism-border flex flex-col h-screen sticky top-0 z-30 select-none">
-      {/* Brand Header */}
-      <div className="h-13 px-4 flex items-center gap-2.5 border-b border-prism-borderSubtle">
-        <div className="w-7 h-7 bg-prism-brand rounded-sm flex items-center justify-center text-white shrink-0">
-          <PrismIcon className="w-4 h-4" />
-        </div>
-        <div className="flex flex-col leading-tight">
-          <span className="text-xs font-bold text-prism-textPrimary tracking-tight">Samsung Prism</span>
-          <span className="text-[9px] font-semibold text-prism-textMuted uppercase tracking-wider">S3 Multimodal Data</span>
-        </div>
-      </div>
-
-      {/* Nav List */}
-      <nav className="flex-1 overflow-y-auto p-2.5 flex flex-col gap-1">
-        <div className="text-[10px] font-semibold text-prism-textMuted uppercase tracking-wider px-2 py-1.5 mt-1">
-          Navigation
-        </div>
-        {navItems.filter((item) => item.id !== 'audit' || isAdmin).map((item) => {
-          const Icon = item.icon;
-          const isActive = currentRoute === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => onNavigate(item.id)}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-xs font-medium border transition-colors ${
-                isActive
-                  ? 'bg-prism-brandSubtle text-prism-brandText border-[#23426e] font-semibold'
-                  : 'bg-transparent text-prism-textSecondary border-transparent hover:bg-prism-hover hover:text-prism-textPrimary'
-              }`}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* Footer / User Profile */}
-      <div className="p-3 border-t border-prism-borderSubtle bg-[#0f151f]">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-sm bg-prism-brandSubtle border border-[#284470] text-prism-brandText flex items-center justify-center text-[10px] font-bold shrink-0">
-            AK
-          </div>
-          <div className="flex flex-col min-w-0 flex-1 leading-tight">
-            <span className="text-[11px] font-semibold text-prism-textPrimary truncate">{currentUser.email}</span>
-            <span className="text-[10px] text-prism-textMuted truncate">{currentUser.role}</span>
-          </div>
+    <>
+      <div className={`sidebar-backdrop ${mobileOpen ? 'is-open' : ''}`} onClick={onMobileClose} aria-hidden="true" />
+      <aside
+        inert={mobile && !mobileOpen ? '' : undefined}
+        ref={dialogRef}
+        tabIndex={-1}
+        role={mobileOpen ? 'dialog' : undefined}
+        aria-modal={mobileOpen || undefined}
+        aria-label="Admin navigation"
+        className={`admin-sidebar ${collapsed ? 'is-collapsed' : ''} ${mobileOpen ? 'is-mobile-open' : ''}`}
+      >
+        <div className="sidebar-brand">
           <button
-            onClick={onLogout}
-            title="Sign out"
-            className="p-1 text-prism-textMuted hover:text-prism-textPrimary hover:bg-prism-hover rounded-sm transition-colors"
+            type="button"
+            className="sidebar-brand-toggle"
+            onClick={mobileOpen ? onMobileClose : onCollapse}
+            title={mobileOpen ? 'Close navigation' : collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={mobileOpen ? 'Close navigation' : collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={mobileOpen || !collapsed}
+            aria-controls="admin-sidebar-navigation"
           >
-            <LogoutIcon className="w-4 h-4" />
+            <Brand compact={collapsed && !mobileOpen} />
           </button>
         </div>
-      </div>
-    </aside>
+        <div className="sidebar-scroll" id="admin-sidebar-navigation">
+        <div className="sidebar-caption">WORKSPACE</div>
+        <nav aria-label="Admin modules">
+          {items.map(([id, label, Icon]) => (
+            <button
+              key={id}
+              title={label}
+              aria-label={label}
+              aria-current={currentRoute === id ? 'page' : undefined}
+              className={`sidebar-item ${currentRoute === id ? 'active' : ''}`}
+              onClick={() => { onNavigate(id); onMobileClose(); }}
+            >
+              <Icon size={19} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="sidebar-profile">
+            <span className="avatar">{currentUser?.displayName?.[0] || 'A'}</span>
+            <div>
+              <strong>{currentUser?.displayName || 'Administrator'}</strong>
+              <small>Administrator</small>
+            </div>
+            <button className="icon-button" onClick={onLogout} aria-label="Sign out" title="Sign out">
+              <LogOut size={18} />
+            </button>
+          </div>
+        </div>
+        </div>
+      </aside>
+    </>
   );
-};
+}

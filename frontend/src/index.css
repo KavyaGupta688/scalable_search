@@ -3,54 +3,53 @@
 @import "tailwindcss/utilities";
 
 :root {
-  --bg-app: #0d131a;
-  --bg-surface: #131b26;
-  --bg-surface-elevated: #1a2433;
-  --bg-surface-hover: #223044;
-  --bg-input: #0a0f15;
-  --border-default: #1f2937;
-  --border-strong: #2b3b52;
-  --border-subtle: #192330;
-  --brand-primary: #1428a0;
-  --brand-primary-hover: #1c34c5;
-  --brand-primary-subtle: rgba(20, 40, 160, 0.15);
-  --brand-primary-text: #60a5fa;
+  --nexus-bg: 9 21 64;
+  --nexus-accent: 118 146 255;
+  --nexus-surface: 16 32 77;
+  --nexus-elevated: 23 43 91;
+  --nexus-hover: 32 55 112;
+  --nexus-input: 11 25 64;
+  --nexus-border: 43 63 113;
+  --nexus-borderStrong: 83 109 177;
+  --nexus-borderSubtle: 31 50 99;
+  --nexus-brand: 27 44 193;
+  --nexus-brandHover: 43 65 222;
+  --nexus-brandSubtle: 29 47 105;
+  --nexus-brandText: 171 210 250;
+  --nexus-textPrimary: 245 248 255;
+  --nexus-textSecondary: 185 202 231;
+  --nexus-textMuted: 153 175 210;
+  --nexus-success: 126 221 179;
+  --nexus-warning: 245 199 116;
+  --nexus-danger: 255 157 173;
+  --bg-app: rgb(var(--nexus-bg));
+  --bg-surface: rgb(var(--nexus-surface));
+  --bg-surface-elevated: rgb(var(--nexus-elevated));
+  --bg-surface-hover: rgb(var(--nexus-hover));
+  --bg-input: rgb(var(--nexus-input));
+  --border-default: rgb(var(--nexus-border));
+  --border-strong: rgb(var(--nexus-borderStrong));
+  --border-subtle: rgb(var(--nexus-borderSubtle));
+  --brand-primary: rgb(var(--nexus-brand));
+  --brand-primary-hover: rgb(var(--nexus-brandHover));
+  --brand-primary-subtle: rgb(var(--nexus-brand) / 0.15);
+  --brand-primary-text: rgb(var(--nexus-brandText));
   --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-secondary: rgb(var(--nexus-textSecondary));
+  --text-muted: rgb(var(--nexus-textMuted));
   --header-height: 52px;
   --sidebar-width: 240px;
-}
-
-.theme-light {
-  --bg-app: #f3f6fa;
-  --bg-surface: #ffffff;
-  --bg-surface-elevated: #eef3f8;
-  --bg-surface-hover: #e4ebf3;
-  --bg-input: #f8fafc;
-  --border-default: #d5dee8;
-  --border-strong: #9fb0c3;
-  --border-subtle: #e5ebf2;
-  --brand-primary: #1428a0;
-  --brand-primary-hover: #1c34c5;
-  --brand-primary-subtle: rgba(20, 40, 160, 0.10);
-  --brand-primary-text: #1d4ed8;
-  --text-primary: #122033;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
 }
 
 body {
   margin: 0;
   padding: 0;
-  background-color: var(--bg-app);
-  color: var(--text-primary);
-  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: rgb(var(--nexus-bg));
+  color: #f8fafc;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
-.theme-light body { background-color: var(--bg-app); color: var(--text-primary); }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
@@ -58,104 +57,28 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0d131a;
+  background: rgb(var(--nexus-bg));
 }
 ::-webkit-scrollbar-thumb {
-  background: #1f2937;
+  background: rgb(var(--nexus-border));
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #2b3b52;
+  background: rgb(var(--nexus-borderStrong));
 }
 
-/* Global Interaction Transitions */
-button, input, select, textarea, a {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-  transition-duration: 180ms;
+/* Line clamp utilities */
+.line-clamp-1 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
 }
-
-/* Page and Interaction Transitions */
-@keyframes fadeInPage {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.page-transition {
-  animation: fadeInPage 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes backdropFadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.backdrop-enter {
-  animation: backdropFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes drawerSlideIn {
-  from {
-    opacity: 0.8;
-    transform: translateX(100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.drawer-enter {
-  animation: drawerSlideIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes modalScaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.modal-enter {
-  animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes toastSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.toast-enter {
-  animation: toastSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-/* Interactive Card & List Item Transitions */
-.interactive-card {
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              border-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
-              background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.interactive-card:hover {
-  transform: translateY(-1px);
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }

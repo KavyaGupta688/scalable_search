@@ -35,6 +35,9 @@ qdrant_storage/
 async_downloads_staging/
 sample_s3_data/
 
+# Application data (user store, credentials)
+data/
+
 # Node / Frontend
 node_modules/
 frontend/node_modules/

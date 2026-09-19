@@ -9,7 +9,8 @@ export default defineConfig({
       '/search': 'http://localhost:8000',
       '/ingestion': 'http://localhost:8000',
       '/ai': 'http://localhost:8000',
-      '/downloads': 'http://localhost:8000'
+      '/downloads': 'http://localhost:8000',
+      '/auth': 'http://localhost:8000'
     }
   },
   build: {

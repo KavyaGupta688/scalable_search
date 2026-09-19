@@ -1,25 +1,35 @@
 import React, { useState } from 'react';
 import { initialMockData } from '../services/mockData';
 import { api } from '../services/api';
-import { CpuIcon, RefreshIcon, CopyIcon, ImageIcon, VideoIcon, AudioIcon, DocumentIcon, TabularIcon } from '../components/Icons';
+import {
+  CpuIcon,
+  RefreshIcon,
+  CopyIcon,
+  ImageIcon,
+  VideoIcon,
+  AudioIcon,
+  DocumentIcon,
+  TabularIcon,
+  AlertCircleIcon,
+} from '../components/Icons';
 
-export const EnrichmentView = ({ onShowToast }) => {
+export const EnrichmentView = ({ showToast }) => {
   const { aiEnrichment, documents } = initialMockData;
-  const [selectedDocId, setSelectedDocId] = useState(documents[0].id);
+  const [selectedDocId, setSelectedDocId] = useState(documents[0]?.id || 'doc-001');
   const [isReEnriching, setIsReEnriching] = useState(false);
-  const [activeStepIndex, setActiveStepIndex] = useState(2); // Step 3 is currently active in pipeline by default (0-indexed: 0, 1, 2, 3)
+  const [activeStepIndex, setActiveStepIndex] = useState(2); // Step 3 active (0=step1 active, 1=step2 active, 2=step3 active, 3=step4 active, 4=all completed)
 
   const selectedDoc = api.getDocument(selectedDocId) || documents[0];
 
-  // Strictly sequential stages definition
+  // Strictly sequential stages definition (1 -> 2 -> 3 -> 4)
   const stages = [
     {
       id: 'step-1',
       num: 'STEP 01',
-      name: 'S3 Validated Stream',
+      name: 'Storage Validated Stream',
       status: activeStepIndex >= 0 ? (activeStepIndex > 0 ? 'completed' : 'active') : 'pending',
       count: '1,840 objects',
-      desc: 'MIME validation & SHA-256'
+      desc: 'MIME validation & SHA-256',
     },
     {
       id: 'step-2',
@@ -27,7 +37,7 @@ export const EnrichmentView = ({ onShowToast }) => {
       name: 'Content Extraction & OCR',
       status: activeStepIndex >= 1 ? (activeStepIndex > 1 ? 'completed' : 'active') : 'pending',
       count: '1,240 objects',
-      desc: 'Layout parsing & keyframes'
+      desc: 'Layout parsing & keyframes',
     },
     {
       id: 'step-3',
@@ -35,7 +45,7 @@ export const EnrichmentView = ({ onShowToast }) => {
       name: 'Vision-LLM & Acoustic Tagging',
       status: activeStepIndex >= 2 ? (activeStepIndex > 2 ? 'completed' : 'active') : 'pending',
       count: '810 objects',
-      desc: 'Neural tags & descriptions'
+      desc: 'Neural tags & descriptions',
     },
     {
       id: 'step-4',
@@ -43,45 +53,45 @@ export const EnrichmentView = ({ onShowToast }) => {
       name: '1536-d Embedding & Indexing',
       status: activeStepIndex >= 3 ? (activeStepIndex > 3 ? 'completed' : 'active') : 'pending',
       count: '420 objects',
-      desc: 'Joint vector indexing'
-    }
+      desc: 'Joint vector indexing',
+    },
   ];
 
   const handleSimulateReEnrichment = async () => {
     setIsReEnriching(true);
-    onShowToast(`Starting sequential AI re-enrichment for '${selectedDoc.filename}'`, 'info');
+    if (showToast) showToast(`Starting sequential AI re-enrichment for '${selectedDoc.filename}'`, 'info');
 
-    // Sequential step-by-step animation
+    // Sequential step-by-step animation (strictly 0 -> 1 -> 2 -> 3 -> 4)
     setActiveStepIndex(0);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 450));
     setActiveStepIndex(1);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 450));
     setActiveStepIndex(2);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 450));
     setActiveStepIndex(3);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 450));
     setActiveStepIndex(4); // All completed
 
     setIsReEnriching(false);
-    onShowToast(`Completed step-by-step enrichment: 1536-d vector generated (100% Synced)`, 'success');
+    if (showToast) showToast(`Completed sequential enrichment: 1536-d vector generated`, 'success');
   };
 
   const handleCopyJson = () => {
     const payload = JSON.stringify(
       {
         document_id: selectedDoc.id,
-        s3_uri: selectedDoc.sourceUri,
+        source_uri: selectedDoc.sourceUri,
         modality: selectedDoc.modality,
         caption: selectedDoc.canonicalCaption,
         tags: selectedDoc.tags,
         confidence: selectedDoc.confidence,
-        vector_dim: 1536
+        vector_dim: 1536,
       },
       null,
       2
     );
     if (navigator.clipboard) navigator.clipboard.writeText(payload);
-    onShowToast('Copied enriched metadata JSON to clipboard', 'success');
+    if (showToast) showToast('Copied enriched metadata JSON to clipboard', 'success');
   };
 
   const renderModalityIcon = (mod) => {
@@ -96,24 +106,35 @@ export const EnrichmentView = ({ onShowToast }) => {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Notice Banner: Stub notification per Milestone 12 */}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-[#1a1c29] border border-[#2d324d] text-nexus-textSecondary text-sm">
+        <AlertCircleIcon className="w-4 h-4 text-nexus-brandText shrink-0" />
+        <div>
+          <span className="font-mono text-sm font-bold text-nexus-brandText uppercase mr-2">
+            [Stub — AI module integration pending]
+          </span>
+          <span>
+            This screen displays mockup telemetry. Live integration will wire to the AI Tagging module specification once published.
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-bold font-mono tracking-widest text-prism-brandText uppercase">
-            Neural Processing Fabric
-          </span>
-          <h1 className="text-xl font-bold text-prism-textPrimary tracking-tight">AI Enrichment</h1>
-          <p className="text-xs text-prism-textMuted mt-0.5">
-            Automated neural tagging, OCR layout analysis, audio transcription, and 1536-d vector embeddings for S3 objects.
+          <h1 className="page-title">AI Enrichment</h1>
+          <p className="text-sm text-nexus-textMuted mt-0.5">
+            Automated neural tagging, OCR layout analysis, audio transcription, and 1536-d vector embeddings.
           </p>
         </div>
         <button
+          type="button"
           onClick={async () => {
-            onShowToast('Running model benchmark across active neural cluster...', 'info');
+            if (showToast) showToast('Running model benchmark across active neural cluster...', 'info');
             await new Promise((r) => setTimeout(r, 800));
-            onShowToast('Benchmark Completed: Vision-LLM 9.4B (142ms P95), Whisper (480ms P95), ViT-H/14 (24ms P95)', 'success');
+            if (showToast) showToast('Benchmark Completed: Vision-LLM (142ms P95), Whisper (480ms P95), ViT-H/14 (24ms P95)', 'success');
           }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-prism-brand hover:bg-prism-brandHover text-white text-xs font-semibold rounded-sm transition-colors self-start"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors self-start border border-nexus-brand"
         >
           <CpuIcon className="w-4 h-4" />
           <span>Run Model Benchmark</span>
@@ -121,14 +142,14 @@ export const EnrichmentView = ({ onShowToast }) => {
       </div>
 
       {/* Sequential 4-Stage Pipeline Flow */}
-      <div className="bg-prism-surface border border-prism-border p-5 rounded-sm flex flex-col gap-4">
+      <div className="nx-panel p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-xs font-bold text-prism-textPrimary">Sequential AI Pipeline Flow</h3>
-            <p className="text-[11px] text-prism-textMuted">Strict linear progression: S3 Ingestion → Extraction → Tagging → 1536-d Vector Index</p>
+            <h3 className="panel-title">Sequential AI Pipeline Flow</h3>
+            <p className="text-sm text-nexus-textMuted">Strict linear progression: Ingestion → Extraction → Tagging → 1536-d Vector Index</p>
           </div>
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-xs">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Pipeline Synchronized
+          <span className="inline-flex items-center gap-1 text-sm font-semibold text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-2 py-0.5 rounded-xs">
+            Pipeline Synchronized
           </span>
         </div>
 
@@ -138,31 +159,31 @@ export const EnrichmentView = ({ onShowToast }) => {
               key={stg.id}
               className={`p-3.5 rounded-sm border flex flex-col gap-2 transition-all ${
                 stg.status === 'completed'
-                  ? 'bg-prism-elevated border-emerald-500/30'
+                  ? 'bg-nexus-elevated border-[#1f5739]'
                   : stg.status === 'active'
-                  ? 'bg-prism-brandSubtle border-[#23426e]'
-                  : 'bg-prism-surface border-prism-borderSubtle opacity-60'
+                  ? 'bg-nexus-brandSubtle border-nexus-border'
+                  : 'bg-nexus-surface border-nexus-borderSubtle opacity-60'
               }`}
             >
-              <div className="flex items-center justify-between text-[10px] font-mono">
-                <span className="font-bold text-prism-textMuted">{stg.num}</span>
+              <div className="flex items-center justify-between text-sm font-mono">
+                <span className="font-bold text-nexus-textMuted">{stg.num}</span>
                 <span
-                  className={`px-1.5 py-0.5 rounded-xs font-semibold uppercase ${
+                  className={`px-1.5 py-0.5 rounded-xs font-sans font-semibold uppercase ${
                     stg.status === 'completed'
-                      ? 'text-emerald-400 bg-emerald-500/10'
+                      ? 'text-[#4ade80] bg-[#122a1e] border border-[#1f5739]'
                       : stg.status === 'active'
-                      ? 'text-blue-400 bg-blue-500/10 animate-pulse'
-                      : 'text-prism-textMuted bg-prism-elevated'
+                      ? 'text-[#60a5fa] bg-nexus-brandSubtle border border-nexus-border animate-pulse'
+                      : 'text-nexus-textMuted bg-nexus-elevated'
                   }`}
                 >
                   {stg.status}
                 </span>
               </div>
-              <span className="text-xs font-bold text-prism-textPrimary">{stg.name}</span>
-              <span className="text-[10px] text-prism-textSecondary">{stg.desc}</span>
-              <div className="flex items-center justify-between text-[10px] font-mono text-prism-textMuted border-t border-prism-borderSubtle pt-2 mt-auto">
+              <span className="text-sm font-bold text-nexus-textPrimary">{stg.name}</span>
+              <span className="text-sm text-nexus-textSecondary">{stg.desc}</span>
+              <div className="flex items-center justify-between text-sm font-mono text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
                 <span>Queued</span>
-                <span className="text-prism-textPrimary">{stg.count}</span>
+                <span className="text-nexus-textPrimary">{stg.count}</span>
               </div>
             </div>
           ))}
@@ -172,31 +193,31 @@ export const EnrichmentView = ({ onShowToast }) => {
       {/* Active Multimodal Models Grid */}
       <div className="flex flex-col gap-3">
         <div>
-          <h3 className="text-xs font-bold text-prism-textPrimary">Active Multimodal Models</h3>
-          <p className="text-[11px] text-prism-textMuted">Dedicated neural cluster engines processing S3 object streams</p>
+          <h3 className="panel-title">Active Multimodal Models</h3>
+          <p className="text-sm text-nexus-textMuted">Dedicated neural cluster engines processing object streams</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           {aiEnrichment.activePipelines.map((pipe) => (
-            <div key={pipe.id} className="bg-prism-surface border border-prism-border p-4 rounded-sm flex flex-col gap-3">
+            <div key={pipe.id} className="nx-panel p-6 flex flex-col gap-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-xs font-bold text-prism-textPrimary block">{pipe.name}</span>
-                  <span className="text-[10px] text-prism-textMuted font-mono">Latency: {pipe.latencyAvg}</span>
+                  <span className="text-sm font-bold text-nexus-textPrimary block">{pipe.name}</span>
+                  <span className="text-sm text-nexus-textMuted font-mono">Latency: {pipe.latencyAvg}</span>
                 </div>
-                <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-xs font-semibold">
+                <span className="text-sm text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-1.5 py-0.5 rounded-xs font-semibold">
                   {pipe.status}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 bg-prism-elevated p-2 rounded-xs border border-prism-borderSubtle">
+              <div className="grid grid-cols-2 gap-2 bg-nexus-elevated p-2 rounded-xs border border-nexus-borderSubtle">
                 <div className="flex flex-col">
-                  <span className="text-[9px] uppercase text-prism-textMuted font-semibold">Throughput</span>
-                  <span className="text-xs font-bold text-prism-brandText font-mono">{pipe.throughput}</span>
+                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Throughput</span>
+                  <span className="text-sm font-bold text-nexus-brandText font-mono">{pipe.throughput}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-[9px] uppercase text-prism-textMuted font-semibold">Queue</span>
-                  <span className="text-xs font-bold text-prism-textPrimary font-mono">{pipe.queueSize.toLocaleString()}</span>
+                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Queue</span>
+                  <span className="text-sm font-bold text-nexus-textPrimary font-mono">{pipe.queueSize.toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -205,22 +226,22 @@ export const EnrichmentView = ({ onShowToast }) => {
       </div>
 
       {/* Interactive S3 Object AI Enrichment Inspector */}
-      <div className="bg-prism-surface border border-prism-border p-5 rounded-sm flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-prism-border pb-3">
+      <div className="nx-panel p-6 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-nexus-border pb-3">
           <div>
-            <h3 className="text-xs font-bold text-prism-textPrimary">Interactive S3 Object AI Inspector</h3>
-            <p className="text-[11px] text-prism-textMuted">Select an S3 object to inspect its extracted neural metadata and vector representation</p>
+            <h3 className="panel-title">Interactive Object AI Inspector</h3>
+            <p className="text-sm text-nexus-textMuted">Select an object to inspect its extracted neural metadata and vector representation</p>
           </div>
           <div className="flex items-center gap-2">
-            <label htmlFor="inspect-doc-select" className="text-xs text-prism-textMuted">Inspect S3 Object:</label>
+            <label htmlFor="inspect-doc-select" className="text-sm text-nexus-textMuted">Inspect Object:</label>
             <select
               id="inspect-doc-select"
               value={selectedDocId}
               onChange={(e) => {
                 setSelectedDocId(e.target.value);
-                setActiveStepIndex(4); // Already completed for indexed documents
+                setActiveStepIndex(2); // Reset to standard pipeline state
               }}
-              className="bg-prism-input border border-prism-border text-xs text-prism-textPrimary px-2.5 py-1 rounded-sm outline-none font-mono"
+              className="bg-nexus-elevated border border-nexus-border rounded-sm text-sm text-nexus-textPrimary px-2.5 py-1 outline-none"
             >
               {documents.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -231,159 +252,103 @@ export const EnrichmentView = ({ onShowToast }) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-5 items-start">
-          {/* Left: Raw S3 Media View & Technical Specs */}
-          <div className="bg-prism-elevated border border-prism-borderSubtle p-4 rounded-sm flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-prism-textMuted uppercase font-mono">S3 Input Object</span>
-              <span className="text-[10px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded-xs bg-blue-500/10 text-blue-400">
-                {selectedDoc.modality}
-              </span>
-            </div>
-
-            <div className="text-xs font-bold text-prism-textPrimary truncate" title={selectedDoc.filename}>
-              {selectedDoc.filename}
-            </div>
-
-            <div className="font-mono text-[11px] text-prism-brandText bg-prism-surface p-2 rounded-xs border border-prism-borderSubtle truncate">
-              {selectedDoc.sourceUri}
-            </div>
-
-            {/* Media Sample Box */}
-            <div className="h-44 bg-black rounded-sm relative flex items-center justify-center overflow-hidden">
-              <div className="text-center text-prism-textMuted flex flex-col items-center gap-1">
+        {/* Inspector Detail Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Left Column: Media & Vision AI Detection Box */}
+          <div className="flex flex-col gap-3">
+            <div className="h-52 bg-black rounded-sm relative flex items-center justify-center overflow-hidden border border-nexus-borderSubtle">
+              <div className="text-center text-nexus-textMuted flex flex-col items-center gap-1.5">
                 {renderModalityIcon(selectedDoc.modality)}
-                <span className="text-[9px] font-mono uppercase tracking-widest">{selectedDoc.modality} RAW STREAM</span>
+                <span className="text-sm font-mono uppercase tracking-wider">{selectedDoc.filename}</span>
+                <span className="text-sm text-nexus-textMuted">{selectedDoc.sourceUri}</span>
               </div>
-              {selectedDoc.modality === 'image' && selectedDoc.detectedObjects.length > 0 && (
-                <div className="absolute top-[20%] left-[55%] w-[32%] h-[38%] border-2 border-red-500 bg-red-500/15 rounded-xs">
-                  <span className="absolute -top-4 left-0 bg-red-500 text-white text-[9px] font-bold px-1 py-0.5">
-                    Defect (96.8%)
+
+              {selectedDoc.detectedObjects && selectedDoc.detectedObjects.length > 0 && (
+                <div className="absolute top-[22%] left-[48%] w-[38%] h-[40%] border-2 border-red-500 bg-red-500/20 rounded-xs">
+                  <span className="absolute -top-4 left-0 bg-red-500 text-white text-sm font-bold px-1 py-0.5">
+                    {selectedDoc.detectedObjects[0].label} ({Math.round(selectedDoc.detectedObjects[0].confidence * 100)}%)
                   </span>
                 </div>
               )}
             </div>
 
-            {/* Specs */}
-            <div className="grid grid-cols-[110px_1fr] gap-2 text-[11px] bg-prism-surface p-3 rounded-xs border border-prism-borderSubtle">
-              <span className="text-prism-textMuted">Document ID:</span>
-              <span className="font-mono text-prism-brandText truncate">{selectedDoc.id}</span>
-              <span className="text-prism-textMuted">File Size:</span>
-              <span className="font-mono text-prism-textPrimary">{selectedDoc.fileSize}</span>
-              <span className="text-prism-textMuted">SHA-256:</span>
-              <span className="font-mono text-prism-textMuted text-[10px] truncate">{selectedDoc.checksum}</span>
-            </div>
-
-            <button
-              onClick={handleSimulateReEnrichment}
-              disabled={isReEnriching}
-              className="mt-1 px-3 py-2 bg-prism-brand hover:bg-prism-brandHover disabled:bg-blue-900 text-white text-xs font-semibold rounded-sm flex items-center justify-center gap-1.5 transition-colors"
-            >
-              <RefreshIcon className={`w-3.5 h-3.5 ${isReEnriching ? 'animate-spin' : ''}`} />
-              <span>{isReEnriching ? 'Running Sequential Pipeline...' : 'Simulate Re-Enrichment'}</span>
-            </button>
-          </div>
-
-          {/* Right: Extracted Multimodal Intelligence */}
-          <div className="bg-prism-elevated border border-prism-borderSubtle p-4 rounded-sm flex flex-col gap-3.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-prism-textMuted uppercase font-mono">
-                Multimodal Extracted Intelligence
-              </span>
-              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-xs font-mono">
-                {Math.round(selectedDoc.confidence * 100)}% Model Confidence
-              </span>
-            </div>
-
-            {/* Caption */}
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold text-prism-textMuted uppercase">AI Synthesized Caption:</span>
-              <p className="text-xs text-prism-textPrimary bg-prism-surface p-2.5 rounded-xs border border-prism-borderSubtle leading-relaxed">
-                {selectedDoc.canonicalCaption}
+            {/* Neural Canonical Caption */}
+            <div className="flex flex-col gap-1 bg-nexus-elevated p-3 rounded-xs border border-nexus-borderSubtle">
+              <span className="text-sm font-mono uppercase font-bold text-nexus-brandText">Canonical AI Caption</span>
+              <p className="text-sm text-nexus-textPrimary leading-relaxed italic">
+                &ldquo;{selectedDoc.canonicalCaption || selectedDoc.description}&rdquo;
               </p>
             </div>
 
-            {/* Tags */}
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-semibold text-prism-textMuted uppercase">Semantic AI Tags:</span>
+            {/* AI Tags */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-mono uppercase font-bold text-nexus-textMuted">Extracted Semantic Tags</span>
               <div className="flex flex-wrap gap-1.5">
                 {selectedDoc.tags.map((t) => (
-                  <span
-                    key={t}
-                    className="text-[10px] font-medium px-2 py-0.5 rounded-xs bg-prism-surface border border-prism-border text-prism-brandText"
-                  >
-                    {t}
+                  <span key={t} className="text-sm font-mono px-2 py-0.5 bg-nexus-elevated border border-nexus-border text-nexus-brandText rounded-xs">
+                    #{t}
                   </span>
                 ))}
               </div>
             </div>
+          </div>
 
-            {/* OCR / Transcript */}
-            {selectedDoc.ocrText && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold text-prism-textMuted uppercase">OCR Extracted Text:</span>
-                <div className="font-mono text-[11px] text-prism-textSecondary bg-prism-surface p-2 rounded-xs border border-prism-borderSubtle">
-                  {selectedDoc.ocrText}
-                </div>
+          {/* Right Column: 1536-d Vector Embedding & JSON Spec */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-nexus-textPrimary">1536-d Vector Embedding</span>
+                <span className="text-sm font-sans text-[#4ade80] bg-[#122a1e] border border-[#1f5739] px-1.5 py-0.2 rounded-xs">Qdrant Indexed</span>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={handleCopyJson}
+                className="flex items-center gap-1 text-sm text-nexus-textMuted hover:text-nexus-brandText transition-colors"
+              >
+                <CopyIcon className="w-3 h-3" />
+                <span>Copy JSON</span>
+              </button>
+            </div>
 
-            {selectedDoc.transcript && (
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-semibold text-prism-textMuted uppercase">Whisper Audio Transcript:</span>
-                <div className="font-mono text-[11px] text-prism-textSecondary bg-prism-surface p-2 rounded-xs border border-prism-borderSubtle">
-                  {selectedDoc.transcript}
-                </div>
+            {/* Embedding Vector Visualizer Matrix */}
+            <div className="bg-nexus-input p-3 rounded-sm border border-nexus-border font-mono text-sm text-nexus-textMuted flex flex-col gap-2">
+              <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-1.5">
+                <span>Dense Float32 Embedding Array</span>
+                <span className="text-nexus-brandText font-semibold">1536 Float32 Numbers</span>
               </div>
-            )}
-
-            {/* 1536-d Vector Embedding */}
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="font-semibold text-prism-textMuted uppercase">1536-d Joint Multimodal Vector:</span>
-                <span className="font-mono text-prism-brandText font-semibold">ViT-H/14 · L2 Normalized</span>
+              <div className="text-sm text-blue-300 break-all leading-tight font-mono">
+                [ 0.0418, -0.0892, 0.1245, 0.0091, -0.2104, 0.0812, 0.3189, -0.0541, 0.1872, -0.0128, 0.0984, -0.1432, 0.0571, -0.0389, ... +1,522 dims ]
               </div>
-              <div className="flex items-center gap-0.5 h-5 bg-prism-surface p-1 rounded-xs border border-prism-borderSubtle overflow-hidden">
+              <div className="h-6 flex items-center gap-0.5 mt-1">
                 {Array.from({ length: 48 }).map((_, i) => (
                   <div
                     key={i}
-                    className="flex-1 h-full bg-blue-500 rounded-2xs"
-                    style={{ opacity: 0.2 + Math.abs(Math.sin(i * 0.5)) * 0.8 }}
+                    className="flex-1 rounded-2xs"
+                    style={{
+                      height: `${Math.abs(Math.sin(i * 0.5)) * 18 + 4}px`,
+                      backgroundColor: i % 3 === 0 ? '#38bdf8' : i % 2 === 0 ? '#1428a0' : '#4ade80',
+                      opacity: 0.8,
+                    }}
                   />
                 ))}
               </div>
-              <div className="font-mono text-[10px] text-prism-textMuted">
-                [-0.0482, 0.1291, 0.0814, -0.0029, 0.2319, -0.1102, 0.0451, ...]
-              </div>
             </div>
 
-            {/* Enriched JSON Payload */}
-            <div className="flex flex-col gap-1 pt-1">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="font-semibold text-prism-textMuted uppercase">Enriched JSON Schema:</span>
-                <button
-                  onClick={handleCopyJson}
-                  className="inline-flex items-center gap-1 text-[10px] text-prism-brandText hover:underline"
-                >
-                  <CopyIcon className="w-3 h-3" />
-                  <span>Copy JSON</span>
-                </button>
+            {/* Re-Enrichment Trigger Action */}
+            <div className="mt-auto flex items-center justify-between bg-nexus-elevated p-3 rounded-sm border border-nexus-borderSubtle">
+              <div className="flex flex-col">
+                <span className="text-sm font-bold text-nexus-textPrimary">Sequential Re-Enrichment</span>
+                <span className="text-sm text-nexus-textMuted">Run 4 stages sequentially for this object</span>
               </div>
-              <pre className="font-mono text-[10px] text-blue-300 bg-prism-surface p-2.5 rounded-xs border border-prism-borderSubtle max-h-24 overflow-y-auto leading-tight">
-                {JSON.stringify(
-                  {
-                    document_id: selectedDoc.id,
-                    s3_uri: selectedDoc.sourceUri,
-                    modality: selectedDoc.modality,
-                    caption: selectedDoc.canonicalCaption,
-                    tags: selectedDoc.tags,
-                    confidence: selectedDoc.confidence,
-                    vector_dim: 1536
-                  },
-                  null,
-                  2
-                )}
-              </pre>
+              <button
+                type="button"
+                onClick={handleSimulateReEnrichment}
+                disabled={isReEnriching}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover disabled:opacity-50 text-white rounded-sm text-sm font-semibold transition-colors border border-nexus-brand"
+              >
+                <RefreshIcon className={`w-3.5 h-3.5 ${isReEnriching ? 'animate-spin' : ''}`} />
+                <span>{isReEnriching ? 'Processing 4 Stages...' : 'Re-Run 4-Stage AI'}</span>
+              </button>
             </div>
           </div>
         </div>
