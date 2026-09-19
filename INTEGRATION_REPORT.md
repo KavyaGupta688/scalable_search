@@ -1,6 +1,6 @@
 # Integration report — Feature/Integration
 
-Date: 20 September 2026 (Asia/Kolkata). Work is local only. No push, pull request, main-branch update, history rewrite, production deployment, or enterprise identity rollout was performed.
+Date: 20 September 2026 (Asia/Kolkata). The integration code at `2d4ac57` was published to `origin/Feature/Integration` after the user explicitly authorized the push. This is a review candidate. No pull request, main-branch update, history rewrite, production deployment, or enterprise identity rollout was performed.
 
 ## Result and confidence
 
@@ -10,7 +10,7 @@ The redesigned frontend is connected to the active Ingestion, AI, Search, Downlo
 
 ## Sources and branch history
 
-Before implementation, the working tree was rechecked, branch history and cached remote commits were inspected, and all three supplied DOCX handoffs were read. Their contents were treated as integration reference requirements; the user's local-only instructions governed actions.
+Before implementation, the working tree was rechecked, branch history and cached remote commits were inspected, and all three supplied DOCX handoffs were read. Their contents were treated as integration reference requirements. Implementation remained local until the user separately authorized publishing the integration branch.
 
 | Source | Revision | Role |
 |---|---|---|
@@ -82,9 +82,24 @@ The integration scripts under `tests/integration/` are intentionally destructive
 Before calling this fully stable or merging:
 
 1. Supply the RAM++ checkpoint and all required remaining model resources, then run successful actual-model ingestion→enrichment→index→search→download flows across all five modalities. Review safety/needs_review outcomes and cold-start memory/CPU behavior. The missing-model failure path passing is not a substitute.
-2. Validate real vendor S3/AssumeRole credentials and remote SMB/NFS access. Current S3/NAS tests are bounded local acceptance fixtures.
+2. Complete real vendor S3/AssumeRole and remote SMB/NFS validation. A subsequent bounded, authenticated listing of the supplied S3 bucket succeeded; it returned four prefixes and no root objects. This establishes listing access only. Real vendor object reads and the full ingestion flow remain unverified; the completed workflow tests used bounded local acceptance fixtures.
 3. Rehearse migrations and the optional identity importer against disposable copies of the actual deployed schemas/data. Legacy jobs are preserved for history; old noncanonical S3-key jobs are not silently reinterpreted as new canonical batches.
 4. Build/test patched native codecs before enabling their optional settings. Eleven supplied tests remain skipped for that prerequisite.
 5. Finish broad lint cleanup and extend browser coverage for large-result pagination and all administration edge cases. No enterprise IdP, scheduler, distributed scaling, or production deployment certification is included.
 
 Additional practical limits: source enumeration still runs as the ingestion module's manual background task; after interruption, inspect the persisted run and retrigger safely rather than assuming automatic enumeration resume. Search uses bounded candidate windows, protected previews have a 32 MiB browser cap, and downloads have configurable file/batch bounds. These choices are documented instead of being represented as unrestricted capability.
+
+## Team inputs needed for acceptance
+
+Credentials alone do not establish stability. The implementation still needs successful actual-model and external-source acceptance, a representative migration rehearsal, and the remaining code and browser checks.
+
+- **AI team:** provide the RAM++ checkpoint, confirmed model versions and remaining model resources, expected hardware requirements, and representative expected outputs for all five supported modalities. Missing-model recovery is verified; successful full-model enrichment is not.
+- **Ingestion and source owners:** identify an approved, bounded S3 prefix containing representative files and the required vendor metadata sidecars. Provide entitlement examples and expected scan results. For remote NAS acceptance, provide the reachable SMB share or NFS mount details and access method. The supplied S3 credentials passed listing only.
+- **Database and infrastructure owners:** provide a reachable disposable database copy or sanitized deployment snapshot and its migration history. The supplied RDS endpoint timed out on port 5432 before authentication during a TLS-required connection attempt; confirm the required VPN, tunnel, or network allowlist and whether that database is development, staging, or production. No migration was attempted against it.
+- **Download team:** provide an existing watermarked sample, its expected forensic record, and the supported verification procedure for compatibility testing. Supply patched native codec builds only if those optional features will be enabled; the default metadata watermarking path already passed local acceptance.
+- **Search and Audit owners:** confirm representative expected search/filter/entitlement outcomes and the event names and analytics expected for representative operations. Existing deterministic search, visibility, and persistent Audit checks passed; a real corpus and deployment schema are still needed for acceptance.
+- **Frontend and integration owners:** finish broader lint cleanup and browser checks for larger result sets, pagination, and remaining administration edge cases; verify actual-model results and failure states in both user roles.
+
+The isolated stack already provides PostgreSQL, Kafka, Redis, Vault, and Qdrant; extra teammate credentials for these local services are not required. Share any external credentials through the team's secure channel, keep them untracked, and use scoped test access. Replace the live AWS/database credentials shared in chat; retain any prior watermark key needed to verify historical files before changing watermark configuration.
+
+The shareable companion is `docs/Integration_and_Setup_Guide.docx`, combining this report with `deploy/integration/README.md`. The Markdown files remain the editable technical sources for future updates.
