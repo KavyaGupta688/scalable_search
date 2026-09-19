@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/integration-services.test.js",
+    "test": "node --test tests/integration-services.test.js tests/restoration-adapters.test.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"

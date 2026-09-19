@@ -18,7 +18,7 @@ export const StatusBadge = ({ status = 'Unverified', size = 'sm' }) => {
   } else if (norm === 'unverified' || norm === 'queued' || norm === 'pending' || norm === 'warning' || norm === 'paused') {
     colorClasses = 'text-[#f59e0b] bg-[#2b200b] border-[#593d14]';
     Icon = ClockIcon;
-  } else if (norm === 'failed' || norm === 'error' || norm === 'offline') {
+  } else if (['failed','error','offline','failed_terminal','queue_failed','denied'].includes(norm)) {
     colorClasses = 'text-[#f87171] bg-[#2b1414] border-[#592323]';
     Icon = XCircleIcon;
   } else if (norm === 'processing' || norm === 'building' || norm === 'active' || norm === 'in_progress' || norm === 'running') {

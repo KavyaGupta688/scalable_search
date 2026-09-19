@@ -77,3 +77,22 @@ docker compose --env-file .integration/stack.env -f deploy/integration/compose.y
 Restarting workers preserves durable jobs. Review `integration_outbox` attempts/error/delivered_at in the relevant schema. Correct the dependency before restarting or manually retrying failed AI tasks through `/ai/retry/{document_id}`. Do not advance Kafka offsets to hide failed work. AI locks expire after their configured lease; a lost worker may delay redelivery until expiry. Review DLQ messages and task errors before replay. Automatic enumeration of an interrupted manual scan is not implemented; retrigger it after inspecting the persisted run, relying on unchanged-file detection.
 
 Acceptance helpers are under `tests/integration`. They are **test-only** and mutate synthetic data in the isolated project; `projection_workflow.py` deliberately supplies deterministic AI outputs and must never run against production. `acceptance.yml` adds the bounded S3 emulator and fixture mounts. Generate `.integration/nas` fixtures with `create_fixtures.py` mounted as `/fixtures`. Full real-model tests are distinct from these deterministic integration checks. See `INTEGRATION_REPORT.md` for the exact verified results and remaining gaps.
+
+## Restored frontend and visual review
+
+The active UI uses the original `Feature/Re-designed-frontend` design at `92ff6d1`, with service adapters on `Feature/Integration`. The local restoration is not pushed. Build it from `frontend` with `npm run build`. In the current acceptance stack the gateway mounts the repository and serves `frontend/dist`, so refresh `http://localhost:18000` after the build. For an image-only installation, rebuild/recreate the gateway using the Compose build instructions above; do not remove volumes. Existing login credentials and sessions remain valid.
+
+Original layouts remain for every module and both search roles. Missing backend metrics show unavailable; scheduling, separate checksum revalidation, benchmark and unsupported filters remain disabled. Source scans are manual. Create a connector, test it from Sources, then trigger a manual crawl from its details. Archived connectors cannot start scans. Search defaults to hybrid and retains server ordering. Open a file for protected preview/similarity, select files for a persistent batch, and save the archive when ready or from Downloads. AI failures and missing models appear in the administrator inspector; retry queues real work and does not imply successful enrichment.
+
+The isolated reference copy is `.integration/redesign-reference/frontend`, extracted from `92ff6d1` without switching branches. It currently runs on `http://localhost:18001`, with only its local authentication proxy pointed at port 18000. Its prototype fixtures are for visual review only. The integrated application's runtime has no fixture substitution.
+
+To reproduce comparison captures, prepare the ignored reference directory, install its frontend dependencies (or reuse the local frontend dependency directory), run its Vite preview on port 18001, and keep the integrated stack on port 18000. The scripts require Playwright and Edge available to Node. Run from the repository root:
+
+```powershell
+node tests/integration/restored-browser.cjs
+node tests/integration/restored-ui-regressions.cjs
+node tests/integration/redesign-comparison.cjs
+node tests/integration/build-comparison-gallery.cjs
+```
+
+`restored-browser.cjs` uses the ignored bootstrap credentials, the existing synthetic acceptance catalog, and a one-file-limit empty NAS test directory to verify real operations. The other two browser suites inject test-only responses in their own browser contexts, including 61-result pagination and matched original sample records. They never configure fixtures in the running application. Screenshots and results are stored in `.integration/redesign-qa`; the gallery is `.integration/redesign-qa/comparison/index.html`. Its current optional localhost-only helper serves that directory on port 18002. Stop the reference and gallery helpers when review is complete; leave the integration stack and its volumes intact.

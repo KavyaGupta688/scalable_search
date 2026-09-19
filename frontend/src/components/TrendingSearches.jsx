@@ -7,6 +7,7 @@ import { TrendingIcon } from './Icons';
  */
 export const TrendingSearches = ({ onSelectTerm }) => {
   const [terms, setTerms] = useState([]);
+  const [error,setError] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,7 +19,8 @@ export const TrendingSearches = ({ onSelectTerm }) => {
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        if (isMounted) setError(err.message);
         if (isMounted) setLoading(false);
       });
     return () => {
@@ -27,7 +29,7 @@ export const TrendingSearches = ({ onSelectTerm }) => {
   }, []);
 
   const handleClick = (queryTerm) => {
-    postSearchEvent('SEARCH', { query_terms: queryTerm });
+
     if (onSelectTerm) onSelectTerm(queryTerm);
   };
 
@@ -48,7 +50,7 @@ export const TrendingSearches = ({ onSelectTerm }) => {
     );
   }
 
-  if (!terms || terms.length === 0) return null;
+
 
   return (
     <div className="flex items-center gap-2 flex-wrap py-1.5">
@@ -56,7 +58,7 @@ export const TrendingSearches = ({ onSelectTerm }) => {
         <TrendingIcon className="w-3.5 h-3.5 text-nexus-brandText" />
         Trending:
       </span>
-      {terms.slice(0, 8).map((item, idx) => {
+      <span role={error ? 'alert' : undefined} className="text-sm text-nexus-textMuted">{error || (!terms.length ? 'No recent searches.' : '')}</span>{terms.slice(0, 8).map((item, idx) => {
         const queryText = typeof item === 'string' ? item : item.query || item.term;
         return (
           <button

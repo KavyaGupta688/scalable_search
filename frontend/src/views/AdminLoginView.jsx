@@ -104,7 +104,10 @@ export const AdminLoginView = ({ showToast }) => {
 
           {/* Links / Navigation */}
           <div className="flex flex-col gap-2.5 text-center text-sm text-nexus-textMuted border-t border-nexus-borderSubtle pt-4">
-            <p>Ask an existing administrator to create an administrator account.</p>
+            <div className="flex items-center justify-center gap-3">
+              <span>Need administrator access?</span>
+              <button disabled title="An existing administrator must create this account." className="text-nexus-brandText font-semibold">Ask your administrator</button>
+            </div>
             <div>
               Not an administrator?{' '}
               <button

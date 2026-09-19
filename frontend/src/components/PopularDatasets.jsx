@@ -7,6 +7,7 @@ import { DatasetsIcon, ChevronRightIcon } from './Icons';
  */
 export const PopularDatasets = ({ onBrowse }) => {
   const [datasets, setDatasets] = useState([]);
+  const [error,setError] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,7 +19,8 @@ export const PopularDatasets = ({ onBrowse }) => {
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        if (isMounted) setError(err.message);
         if (isMounted) setLoading(false);
       });
     return () => {
@@ -27,7 +29,7 @@ export const PopularDatasets = ({ onBrowse }) => {
   }, []);
 
   const handleBrowse = (ds) => {
-    postSearchEvent('DATASET_OPEN', { file_id: ds.id, query_terms: ds.name });
+
     if (onBrowse) onBrowse(ds.id, ds.name);
   };
 
@@ -47,7 +49,7 @@ export const PopularDatasets = ({ onBrowse }) => {
     );
   }
 
-  if (!datasets || datasets.length === 0) return null;
+
 
   return (
     <div className="nx-panel p-4 flex flex-col gap-3">
@@ -57,7 +59,7 @@ export const PopularDatasets = ({ onBrowse }) => {
       </div>
 
       <div className="divide-y divide-nexus-borderSubtle flex flex-col">
-        {datasets.map((ds) => (
+        <p role={error ? 'alert' : undefined} className="text-sm text-nexus-textMuted">{error || (!datasets.length ? 'No published datasets.' : '')}</p>{datasets.map((ds) => (
           <div
             key={ds.id}
             className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0 gap-4"

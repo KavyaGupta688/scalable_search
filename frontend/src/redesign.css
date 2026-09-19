@@ -303,6 +303,4 @@
 .nx-input { border:1px solid rgb(var(--nexus-border)); border-radius:10px; padding:10px 14px; background:rgb(var(--nexus-elevated)); color:rgb(var(--nexus-textPrimary)); }
 .nx-button:not([class*="nx-button--"]) { border-color:rgb(var(--nexus-border)); background:rgb(var(--nexus-elevated)); }
 .nx-button:disabled { opacity:.45; cursor:not-allowed; }
-.nx-panel h2 { font-size:18px; font-weight:600; margin-bottom:12px; }
-.nx-panel table th { font-size:12px; color:rgb(var(--nexus-textMuted)); padding:16px; }
-.nx-panel table td { padding:16px; font-size:13px; }
+button:disabled, input:disabled, select:disabled { cursor:not-allowed; }

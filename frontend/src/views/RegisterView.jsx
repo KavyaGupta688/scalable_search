@@ -73,6 +73,40 @@ export const RegisterView = ({ showToast }) => {
         {/* Registration Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
           
+          {/* Account Role Selector */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-nexus-textSecondary uppercase tracking-wider">
+              Account Role
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setRole('user')}
+                className={`h-9 px-3 rounded-xs border text-sm font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                  role === 'user'
+                    ? 'bg-nexus-brandSubtle text-nexus-brandText border-nexus-borderStrong font-semibold'
+                    : 'bg-nexus-input text-nexus-textMuted border-nexus-border hover:text-nexus-textSecondary'
+                }`}
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>Standard User</span>
+              </button>
+              <button
+                type="button"
+                disabled title="Administrator accounts must be created by an existing administrator."
+                className={`h-9 px-3 rounded-xs border text-sm font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                  role === 'admin'
+                    ? 'bg-nexus-brandSubtle text-nexus-brandText border-nexus-borderStrong font-semibold'
+                    : 'bg-nexus-input text-nexus-textMuted border-nexus-border hover:text-nexus-textSecondary'
+                }`}
+              >
+                <ShieldIcon className="w-3.5 h-3.5" />
+                <span>Administrator</span>
+              </button>
+            </div>
+          </div>
+
+          <p className="text-sm text-nexus-textMuted">Administrator accounts are created by an existing administrator.</p>
           {/* Email */}
           <div className="flex flex-col gap-1">
             <label className="text-sm font-semibold text-nexus-textSecondary" htmlFor="reg-email">

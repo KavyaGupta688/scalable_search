@@ -17,7 +17,8 @@ export const SearchResultCard = ({
   const reduced = useReducedMotion();
   const fileId = result.file_id || result.id || '';
   const filename = result.title || result.file_name || result.name || result.filename || 'Untitled';
-  const modality = result.file_type || result.content_type || result.modality || 'document';
+  const rawModality = result.file_type || result.content_type || result.modality || 'document';
+  const modality = rawModality === 'csv' ? 'tabular' : rawModality;
   const description = result.description || result.aiDescription || '';
   const PreviewIcon = ({image:FileImage,video:FileVideo,audio:FileAudio,document:FileText,tabular:Table2})[modality] || FileText;
   const tags = result.tags || [];

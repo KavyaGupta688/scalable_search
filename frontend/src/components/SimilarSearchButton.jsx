@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Presence, FeedbackMotion } from './Motion';
 import { searchSimilar } from '../services/searchApi';
 import { ScanIcon, SpinnerIcon, CloseIcon } from './Icons';
@@ -7,7 +7,9 @@ import { ModalityBadge } from './ModalityBadge';
 /**
  * SimilarSearchButton — Button and dropdown / results panel for finding similar files to a target file.
  */
-export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
+export const SimilarSearchButton = ({ fileId, onSelectResult, filters = {} }) => {
+  const controllerRef = useRef(null);
+  useEffect(() => {setResults(null);setIsOpen(false);setLoading(false);return () => controllerRef.current?.abort();}, [fileId]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -19,17 +21,19 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
       return;
     }
 
-    setIsOpen(true);
+    controllerRef.current?.abort();
+    const controller = new AbortController(); controllerRef.current = controller;
+    setResults(null); setIsOpen(true);
     setLoading(true);
     setError('');
 
     try {
-      const data = await searchSimilar(fileId, 6);
-      setResults(data.results || []);
+      const data = await searchSimilar(fileId, 6, filters, controller.signal);
+      if (!controller.signal.aborted) setResults(data.results || []);
     } catch (err) {
-      setError(err.message || 'Failed to search similar objects');
+      if (!controller.signal.aborted) setError(err.message || 'Failed to search similar objects');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   };
 
@@ -70,7 +74,7 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
           )}
 
           {error && (
-            <div className="text-sm text-nexus-danger bg-red-900/20 border border-red-800/40 p-2 rounded-xs">
+            <div role="alert" className="text-sm text-nexus-danger bg-red-900/20 border border-red-800/40 p-2 rounded-xs">
               {error}
             </div>
           )}
@@ -86,7 +90,7 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
               {results.map((item) => (
                 <div
                   key={item.file_id || item.id}
-                  onClick={() => onSelectResult && onSelectResult(item)}
+                  role="button" tabIndex={0} onKeyDown={e => {if (e.key === 'Enter' || e.key === ' ') {e.preventDefault();onSelectResult?.(item);}}} onClick={() => onSelectResult && onSelectResult(item)}
                   className="flex items-center justify-between p-2 rounded-xs bg-nexus-surface hover:bg-nexus-hover border border-nexus-borderSubtle cursor-pointer transition-colors"
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -95,9 +99,9 @@ export const SimilarSearchButton = ({ fileId, onSelectResult }) => {
                       {item.name || item.filename}
                     </span>
                   </div>
-                  {item.score != null && (
+                  {item.score_info?.rrf_score != null && (
                     <span className="text-sm font-mono text-nexus-brandText shrink-0 ml-2">
-                      {Math.round(item.score * 100)}% match
+                      Relevance {item.scoreLabel}
                     </span>
                   )}
                 </div>
