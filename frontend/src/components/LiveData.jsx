@@ -1,0 +1,4 @@
+import React,{useState,useEffect} from 'react';
+import { request } from '../services/http';
+export function useLiveData(path,interval=5000){const [data,setData]=useState(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);useEffect(()=>{const c=new AbortController();let timer;const load=async()=>{try{const value=await request(path,{signal:c.signal});if(!c.signal.aborted){setData(value);setError('');}}catch(e){if(e.name!=='AbortError')setError(e.message);}if(!c.signal.aborted)timer=setTimeout(load,interval);};load();return()=>{c.abort();clearTimeout(timer);};},[path,interval,revision]);return {data,error,reload:()=>setRevision(x=>x+1)};}
+export function LiveState({data,error}){return error?<p role="alert" className="nx-panel p-4 text-red-400">{error}</p>:data===null?<p role="status">Loading…</p>:null;}

@@ -13,14 +13,19 @@ from modules.ai_tag_description_generation.app.db import get_sync_session
 from modules.ai_tag_description_generation.app.models import DocumentEnrichmentMetadata
 from modules.ai_tag_description_generation.app.qdrant_client import qdrant_manager
 from modules.ai_tag_description_generation.app.config import settings
-from modules.ai_tag_description_generation.worker.pipeline.model_manager import encode_text
-from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError
+from modules.ai_tag_description_generation.worker.pipeline.model_manager import (
+    encode_text,
+)
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import (
+    TransientError,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def retry_handler(func):
     """Simple retry decorator for transient failures."""
+
     def wrapper(*args, **kwargs):
         retries = 3
         for i in range(retries):
@@ -31,12 +36,20 @@ def retry_handler(func):
                     raise TransientError(
                         f"Persistence operation {func.__name__} failed after {retries} attempts: {e}"
                     ) from e
-                logger.warning(f"Transient error in {func.__name__}, retrying ({i+1}/{retries}): {e}")
+                logger.warning(
+                    f"Transient error in {func.__name__}, retrying ({i + 1}/{retries}): {e}"
+                )
+
     return wrapper
 
 
 @retry_handler
-def persist_metadata(document_id: str, metadata_record: Dict[str, Any], model_version: str, enrichment_version: str) -> str:
+def persist_metadata(
+    document_id: str,
+    metadata_record: Dict[str, Any],
+    model_version: str,
+    enrichment_version: str,
+) -> str:
     """Upsert metadata to PostgreSQL."""
     metadata_record = dict(metadata_record)
     for uuid_field in ("source_asset_id", "run_id"):
@@ -44,12 +57,16 @@ def persist_metadata(document_id: str, metadata_record: Dict[str, Any], model_ve
             metadata_record[uuid_field] = UUID(str(metadata_record[uuid_field]))
     with get_sync_session() as session:
         normalized_id = UUID(document_id)
-        existing = session.query(DocumentEnrichmentMetadata).filter_by(
-            document_id=normalized_id,
-            model_name="ai_tag_description_generation",
-            model_version=model_version,
-            enrichment_version=enrichment_version
-        ).first()
+        existing = (
+            session.query(DocumentEnrichmentMetadata)
+            .filter_by(
+                document_id=normalized_id,
+                model_name="ai_tag_description_generation",
+                model_version=model_version,
+                enrichment_version=enrichment_version,
+            )
+            .first()
+        )
 
         if existing:
             # Update fields
@@ -65,7 +82,7 @@ def persist_metadata(document_id: str, metadata_record: Dict[str, Any], model_ve
                 model_name="ai_tag_description_generation",
                 model_version=model_version,
                 enrichment_version=enrichment_version,
-                **metadata_record
+                **metadata_record,
             )
             session.add(new_record)
             session.commit()
@@ -75,20 +92,23 @@ def persist_metadata(document_id: str, metadata_record: Dict[str, Any], model_ve
 def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool:
     """Generate CLIP embedding and upsert to Qdrant."""
     try:
-        tags = metadata_record.get('generated_tags', [])
-        short_desc = metadata_record.get('short_description', '')
-        search_desc = metadata_record.get('search_description', '')
-        
+        tags = metadata_record.get("generated_tags", [])
+        short_desc = metadata_record.get("short_description", "")
+        search_desc = metadata_record.get("search_description", "")
+
         # Build text representation
         text_parts = []
         if tags:
-            labels = [tag.get("tag", "") if isinstance(tag, dict) else str(tag) for tag in tags]
+            labels = [
+                tag.get("tag", "") if isinstance(tag, dict) else str(tag)
+                for tag in tags
+            ]
             text_parts.append(f"Tags: {', '.join(label for label in labels if label)}")
         if short_desc:
             text_parts.append(f"Description: {short_desc}")
         if search_desc:
             text_parts.append(f"Details: {search_desc}")
-            
+
         text_representation = " | ".join(text_parts)
         if not text_representation:
             logger.info(f"No text to embed for {file_id}")
@@ -101,8 +121,10 @@ def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool
         # Build payload
         payload = {
             "document_id": file_id,
+            "file_id": file_id,
+            "published": False,
             "tags": tags,
-            "short_description": short_desc
+            "short_description": short_desc,
         }
 
         # Upsert

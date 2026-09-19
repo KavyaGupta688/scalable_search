@@ -19,11 +19,19 @@ def get_auth_service() -> AuthService:
     """Lazy-init singleton so the service is only created once."""
     global _auth_service
     if _auth_service is None:
-        _auth_service = AuthService()
+        import os
+
+        if os.getenv("DATABASE_URL_SYNC"):
+            from modules.shared.auth.postgres import PostgresAuthService
+
+            _auth_service = PostgresAuthService()
+        else:
+            _auth_service = AuthService()
     return _auth_service
 
 
 # ── Dependency: current user ────────────────────────────────────────────────
+
 
 async def get_current_user(
     token: str | None = Depends(oauth2_scheme),
@@ -71,6 +79,7 @@ async def get_current_user(
 
 # ── Dependency: require admin role ──────────────────────────────────────────
 
+
 async def require_admin(
     user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:
@@ -87,6 +96,7 @@ async def require_admin(
 
 
 # ── Dependency: require user role ───────────────────────────────────────────
+
 
 async def require_user(
     user: UserInDB = Depends(get_current_user),

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from ingestion.config import get_settings
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/auth/token')
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
 class TokenPayload(BaseModel):
@@ -22,26 +22,9 @@ class TokenPayload(BaseModel):
 
 
 async def get_current_token_payload(token: str = Depends(oauth2_scheme)) -> TokenPayload:
-    settings = get_settings()
-    try:
-        payload = jwt.decode(
-            token,
-            settings.jwt.secret_key,
-            algorithms=["HS256"]
-        )
-        token_data = TokenPayload(**payload)
-        if token_data.exp < int(time.time()):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token expired",
-            )
-        return token_data
-    except jwt.PyJWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    from modules.shared.integration import verify_assertion
+
+    return TokenPayload(**verify_assertion(token, "ingestion"))
 
 
 class RequirePermission:
@@ -51,12 +34,11 @@ class RequirePermission:
     def __call__(self, payload: TokenPayload = Depends(get_current_token_payload)) -> TokenPayload:
         if "admin:*" in payload.permissions:
             return payload
-            
+
         for permission in self.required_permissions:
             if permission not in payload.permissions:
                 raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Missing required permission: {permission}"
+                    status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing required permission: {permission}"
                 )
         return payload
 
@@ -68,7 +50,7 @@ def create_access_token(subject: str, permissions: List[str], expires_delta: tim
         expire = now + expires_delta
     else:
         expire = now + timedelta(minutes=settings.jwt.access_token_expire_minutes)
-        
+
     to_encode = {
         "sub": subject,
         "permissions": permissions,

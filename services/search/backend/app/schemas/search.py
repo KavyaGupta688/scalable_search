@@ -1,28 +1,40 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Literal, Optional, List, Dict, Any
 from datetime import datetime
 from app.schemas.filters import SearchFilters, FacetsResponse
 
+
 class SearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="Keyword or natural language query string")
+    query: str = Field(
+        ..., min_length=1, description="Keyword or natural language query string"
+    )
     filters: Optional[SearchFilters] = None
-    search_mode: str = Field(default="hybrid", description="hybrid, vector, text")
+    search_mode: Literal["hybrid", "vector", "text"] = Field(
+        default="hybrid", description="hybrid, vector, text"
+    )
     limit: int = Field(default=20, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
+    offset: int = Field(default=0, ge=0, le=10000)
     rrf_k: Optional[int] = Field(default=60, description="RRF smoothing constant k")
     keyword_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
     vector_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
 
+
 class VectorSearchRequest(BaseModel):
-    query: str = Field(..., min_length=1, description="Natural language search query to convert to embedding")
+    query: str = Field(
+        ...,
+        min_length=1,
+        description="Natural language search query to convert to embedding",
+    )
     filters: Optional[SearchFilters] = None
     limit: int = Field(default=20, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
+    offset: int = Field(default=0, ge=0, le=10000)
+
 
 class SimilarSearchRequest(BaseModel):
     file_id: str = Field(..., description="Target file ID to find similar items for")
     filters: Optional[SearchFilters] = None
     limit: int = Field(default=10, ge=1, le=50)
+
 
 class SearchResultScoreInfo(BaseModel):
     rrf_score: float
@@ -31,6 +43,7 @@ class SearchResultScoreInfo(BaseModel):
     vector_similarity: Optional[float] = None
     text_score: Optional[float] = None
     match_sources: List[str] = []
+
 
 class SearchResultItem(BaseModel):
     file_id: str
@@ -59,6 +72,7 @@ class SearchResultItem(BaseModel):
     download_count: int = 0
     file_preview_count: int = 0
 
+
 class SearchResponse(BaseModel):
     query: str
     search_mode: str
@@ -69,21 +83,25 @@ class SearchResponse(BaseModel):
     results: List[SearchResultItem]
     facets: Optional[FacetsResponse] = None
 
+
 class SuggestionItem(BaseModel):
     text: str
     type: str  # query, tag, category, dataset
     badge: Optional[str] = None
+
 
 class SuggestionsResponse(BaseModel):
     query: str
     suggestions: List[SuggestionItem]
     total: int
 
+
 class TrendingItem(BaseModel):
     query: str
     search_count: int
     category: Optional[str] = None
     trending_score: float
+
 
 class TrendingResponse(BaseModel):
     time_window: str = "last_24_hours"

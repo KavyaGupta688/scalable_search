@@ -1,191 +1,142 @@
-from typing import List, Optional, Dict, Any, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, update, desc
-from app.models.file_metadata import FileMetadata
-from app.schemas.filters import SearchFilters, FacetsResponse, FacetCountItem
+from sqlalchemy import select, func, or_, update, desc, cast, String, case, text
+from app.models.file_metadata import FileMetadata as F
+from app.schemas.filters import FacetsResponse, FacetCountItem
 from app.utils.filters import build_sqlalchemy_filters
 from app.utils.query_normalizer import tokenize
 
-class FileRepository:
-    def __init__(self, db: AsyncSession):
-        self.db = db
 
-    async def get_by_id(self, file_id: str) -> Optional[FileMetadata]:
-        stmt = select(FileMetadata).where(FileMetadata.file_id == file_id)
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
-
-    async def get_by_ids(self, file_ids: List[str]) -> List[FileMetadata]:
-        if not file_ids:
-            return []
-        stmt = select(FileMetadata).where(FileMetadata.file_id.in_(file_ids))
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def search_keyword(
-        self,
-        query: str,
-        filters: Optional[SearchFilters] = None,
-        limit: int = 50,
-        offset: int = 0
-    ) -> Tuple[List[Tuple[FileMetadata, float]], int]:
-        """
-        Performs keyword full-text / term matching across title, description, tags, OCR, transcript, summary.
-        Computes match score based on term frequency and field importance.
-        """
-        filter_clauses = build_sqlalchemy_filters(filters)
-        
-        if query.lower() in ["all", "*", ""]:
-            tokens = []
-        else:
-            tokens = tokenize(query)
-
-        if not tokens:
-            # If no tokens or wildcard, return filtered files sorted by ingested_at
-            stmt = select(FileMetadata).where(*filter_clauses).order_by(desc(FileMetadata.ingested_at)).offset(offset).limit(limit)
-            count_stmt = select(func.count(FileMetadata.file_id)).where(*filter_clauses)
-            
-            res = await self.db.execute(stmt)
-            count_res = await self.db.execute(count_stmt)
-            files = list(res.scalars().all())
-            total = count_res.scalar() or 0
-            return [(f, 1.0) for f in files], total
-
-        # Build term match conditions across fields
-        match_conditions = []
-        for token in tokens:
-            t_pattern = f"%{token}%"
-            match_conditions.append(
-                or_(
-                    FileMetadata.title.ilike(t_pattern),
-                    FileMetadata.description.ilike(t_pattern),
-                    FileMetadata.file_name.ilike(t_pattern),
-                    FileMetadata.category.ilike(t_pattern),
-                    FileMetadata.content_summary.ilike(t_pattern),
-                    FileMetadata.ocr_text.ilike(t_pattern),
-                    FileMetadata.transcript.ilike(t_pattern),
-                    FileMetadata.caption.ilike(t_pattern)
+def conditions(query, filters):
+    clauses = build_sqlalchemy_filters(filters)
+    tokens = [] if query.strip().lower() in ("", "*", "all") else tokenize(query)[:32]
+    fields = [
+        F.title,
+        F.description,
+        F.file_name,
+        F.category,
+        F.content_summary,
+        F.ocr_text,
+        F.transcript,
+        F.caption,
+        cast(F.tags, String),
+    ]
+    if tokens:
+        clauses.append(
+            or_(
+                *(
+                    field.ilike("%" + token + "%")
+                    for token in tokens
+                    for field in fields
                 )
             )
+        )
+    return clauses, tokens, fields
 
-        query_clauses = filter_clauses + [or_(*match_conditions)]
-        
-        # Execute query
-        stmt = select(FileMetadata).where(*query_clauses)
-        res = await self.db.execute(stmt)
-        all_matches = list(res.scalars().all())
-        total = len(all_matches)
 
-        # Score matches in Python by token hits & field weights
-        scored_results: List[Tuple[FileMetadata, float]] = []
-        for file in all_matches:
-            score = 0.0
-            t_lower = (file.title or "").lower()
-            d_lower = (file.description or "").lower()
-            c_lower = (file.caption or "").lower()
-            ocr_lower = (file.ocr_text or "").lower()
-            tr_lower = (file.transcript or "").lower()
-            sum_lower = (file.content_summary or "").lower()
-            cat_lower = (file.category or "").lower()
-            
-            for token in tokens:
-                if token in t_lower:
-                    score += 5.0
-                if token in cat_lower:
-                    score += 4.0
-                if token in c_lower:
-                    score += 3.0
-                if token in sum_lower:
-                    score += 2.5
-                if token in d_lower:
-                    score += 2.0
-                if token in ocr_lower:
-                    score += 1.5
-                if token in tr_lower:
-                    score += 1.5
-                if file.tags and any(token in str(t).lower() for t in file.tags):
-                    score += 3.0
+class FileRepository:
+    def __init__(self, db):
+        self.db = db
 
-            scored_results.append((file, score))
+    async def get_by_id(self, file_id):
+        return await self.db.scalar(
+            select(F).where(F.file_id == file_id, *build_sqlalchemy_filters(None))
+        )
 
-        # Sort descending by score
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        paginated = scored_results[offset : offset + limit]
-        return paginated, total
+    async def get_by_ids(self, file_ids):
+        if not file_ids:
+            return []
+        return list(
+            (
+                await self.db.scalars(
+                    select(F).where(
+                        F.file_id.in_(file_ids), *build_sqlalchemy_filters(None)
+                    )
+                )
+            ).all()
+        )
 
-    async def compute_facets(self, query: str = "", filters: Optional[SearchFilters] = None) -> FacetsResponse:
-        """
-        Computes dynamic facet counts (file types, categories, AI generated, PII, datasets, top tags).
-        """
-        filter_clauses = build_sqlalchemy_filters(filters)
-        
-        if query:
-            tokens = tokenize(query)
-            if tokens:
-                match_conditions = [
-                    or_(
-                        FileMetadata.title.ilike(f"%{t}%"),
-                        FileMetadata.description.ilike(f"%{t}%"),
-                        FileMetadata.caption.ilike(f"%{t}%"),
-                        FileMetadata.ocr_text.ilike(f"%{t}%"),
-                        FileMetadata.transcript.ilike(f"%{t}%")
-                    ) for t in tokens
-                ]
-                filter_clauses.append(or_(*match_conditions))
+    async def search_keyword(self, query, filters=None, limit=50, offset=0):
+        clauses, tokens, fields = conditions(query, filters)
+        total = await self.db.scalar(
+            select(func.count()).select_from(F).where(*clauses)
+        )
+        weights = [5, 2, 3, 4, 2, 1, 1, 3, 3]
+        score = sum(
+            (
+                case((field.ilike("%" + token + "%"), weight), else_=0)
+                for token in tokens
+                for field, weight in zip(fields, weights)
+            ),
+            0,
+        )
+        if not tokens:
+            score = case((F.file_id.isnot(None), 1), else_=0)
+        stmt = (
+            select(F, score.label("score"))
+            .where(*clauses)
+            .order_by(desc("score"), F.ingested_at.desc(), F.file_id)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = (await self.db.execute(stmt)).all()
+        return [(row[0], float(row[1])) for row in rows], total or 0
 
-        # Query all matching records to aggregate facets
-        stmt = select(FileMetadata).where(*filter_clauses)
-        res = await self.db.execute(stmt)
-        files = list(res.scalars().all())
+    async def compute_facets(self, query="", filters=None):
+        clauses, _, _ = conditions(query, filters)
 
-        file_types_count: Dict[str, int] = {}
-        categories_count: Dict[str, int] = {}
-        datasets_count: Dict[str, int] = {}
-        ai_count: Dict[str, int] = {"AI-Generated": 0, "Human / Authentic": 0}
-        pii_count: Dict[str, int] = {"PII Detected": 0, "No PII (Safe)": 0}
-        tags_count: Dict[str, int] = {}
+        async def counts(column, labels=None):
+            rows = (
+                await self.db.execute(
+                    select(column, func.count())
+                    .where(*clauses)
+                    .group_by(column)
+                    .order_by(func.count().desc())
+                    .limit(100)
+                )
+            ).all()
+            return [
+                FacetCountItem(value=labels[v] if labels else str(v), count=n)
+                for v, n in rows
+                if v is not None
+            ]
 
-        for f in files:
-            file_types_count[f.file_type] = file_types_count.get(f.file_type, 0) + 1
-            categories_count[f.category] = categories_count.get(f.category, 0) + 1
-            datasets_count[f.dataset_name] = datasets_count.get(f.dataset_name, 0) + 1
-            
-            if f.ai_generated:
-                ai_count["AI-Generated"] += 1
-            else:
-                ai_count["Human / Authentic"] += 1
-                
-            if f.pii_detected:
-                pii_count["PII Detected"] += 1
-            else:
-                pii_count["No PII (Safe)"] += 1
-
-            if f.tags and isinstance(f.tags, list):
-                for tag in f.tags:
-                    tags_count[tag] = tags_count.get(tag, 0) + 1
-
-        top_tags_sorted = sorted(tags_count.items(), key=lambda x: x[1], reverse=True)[:15]
-
+        # JSON tag expansion stays in PostgreSQL; no file records are loaded.
+        sub = (
+            select(func.json_array_elements_text(F.tags).label("tag"))
+            .where(*clauses)
+            .subquery()
+        )
+        tag_rows = (
+            await self.db.execute(
+                select(sub.c.tag, func.count())
+                .group_by(sub.c.tag)
+                .order_by(func.count().desc())
+                .limit(15)
+            )
+        ).all()
         return FacetsResponse(
-            file_types=[FacetCountItem(value=k, count=v) for k, v in file_types_count.items()],
-            categories=[FacetCountItem(value=k, count=v) for k, v in sorted(categories_count.items(), key=lambda x: x[1], reverse=True)],
-            datasets=[FacetCountItem(value=k, count=v) for k, v in sorted(datasets_count.items(), key=lambda x: x[1], reverse=True)],
-            ai_generated=[FacetCountItem(value=k, count=v) for k, v in ai_count.items() if v > 0],
-            pii_detected=[FacetCountItem(value=k, count=v) for k, v in pii_count.items() if v > 0],
-            top_tags=[FacetCountItem(value=k, count=v) for k, v in top_tags_sorted],
-            total_matches=len(files)
+            file_types=await counts(F.file_type),
+            categories=await counts(F.category),
+            datasets=await counts(F.dataset_id),
+            ai_generated=await counts(F.ai_generated, {True: "true", False: "false"}),
+            pii_detected=await counts(F.pii_detected, {True: "true", False: "false"}),
+            top_tags=[FacetCountItem(value=t, count=n) for t, n in tag_rows],
+            total_matches=await self.db.scalar(
+                select(func.count()).select_from(F).where(*clauses)
+            ),
         )
 
-    async def increment_preview_count(self, file_id: str):
-        stmt = update(FileMetadata).where(FileMetadata.file_id == file_id).values(
-            file_preview_count=FileMetadata.file_preview_count + 1
+    async def increment_preview_count(self, file_id):
+        await self.db.execute(
+            update(F)
+            .where(F.file_id == file_id)
+            .values(file_preview_count=F.file_preview_count + 1)
         )
-        await self.db.execute(stmt)
         await self.db.commit()
 
-    async def increment_download_count(self, file_id: str):
-        stmt = update(FileMetadata).where(FileMetadata.file_id == file_id).values(
-            download_count=FileMetadata.download_count + 1
+    async def increment_download_count(self, file_id):
+        await self.db.execute(
+            update(F)
+            .where(F.file_id == file_id)
+            .values(download_count=F.download_count + 1)
         )
-        await self.db.execute(stmt)
         await self.db.commit()

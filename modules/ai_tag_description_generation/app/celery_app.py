@@ -64,8 +64,13 @@ def process_validated_file(
     unavailable PostgreSQL, ingestion source access, Redis, or model initialization.
     """
     try:
-        from modules.ai_tag_description_generation.app.event_schemas import IngestionDocumentEvent
-        from modules.ai_tag_description_generation.app.ingestion_client import document_from_event, get_document
+        from modules.ai_tag_description_generation.app.event_schemas import (
+            IngestionDocumentEvent,
+        )
+        from modules.ai_tag_description_generation.app.ingestion_client import (
+            document_from_event,
+            get_document,
+        )
 
         document = (
             document_from_event(IngestionDocumentEvent.model_validate(event_payload))
@@ -73,24 +78,36 @@ def process_validated_file(
             else get_document(document_id)
         )
         final_status = process_ingestion_document(document)
-        logger.info("[%s] Pipeline completed with status: %s", document_id, final_status)
+        logger.info(
+            "[%s] Pipeline completed with status: %s", document_id, final_status
+        )
         return {"document_id": document_id, "status": final_status}
 
     except Exception as exc:
-        logger.error("[%s] Unrecoverable pipeline failure: %s", document_id, exc, exc_info=True)
+        logger.error(
+            "[%s] Unrecoverable pipeline failure: %s", document_id, exc, exc_info=True
+        )
         # Use Celery's retry with exponential backoff for truly
         # unexpected failures (DB connection lost, import error, etc.)
         if self.request.retries >= settings.MAX_RETRIES:
             try:
-                from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import transition_status
-                transition_status(document_id, "failed_terminal", error_message=str(exc))
+                from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import (
+                    transition_status,
+                )
+
+                transition_status(
+                    document_id, "failed_terminal", error_message=str(exc)
+                )
             except Exception:
                 logger.exception("[%s] Could not persist terminal failure", document_id)
             raise
 
-        countdown = settings.RETRY_BACKOFF_BASE ** self.request.retries
+        countdown = settings.RETRY_BACKOFF_BASE**self.request.retries
         try:
-            from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import increment_retry_count
+            from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import (
+                increment_retry_count,
+            )
+
             increment_retry_count(document_id)
         except Exception:
             logger.exception("[%s] Could not persist Celery retry count", document_id)
@@ -99,9 +116,25 @@ def process_validated_file(
 
 def process_ingestion_document(document) -> str:
     """Process one validated ingestion snapshot; safe for Kafka redelivery."""
-    from modules.ai_tag_description_generation.app.ingestion_client import materialize_document
-    from modules.ai_tag_description_generation.worker.pipeline.orchestrator import run_enrichment_pipeline
+    from modules.ai_tag_description_generation.app.ingestion_client import (
+        materialize_document,
+    )
+    from modules.ai_tag_description_generation.worker.pipeline.orchestrator import (
+        run_enrichment_pipeline,
+    )
 
+    from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import (
+        dispatch_or_resume,
+    )
+
+    task, resume = dispatch_or_resume(document)
+    if resume is None:
+        return task.status
+    if document.mime_type.startswith(("image/", "video/")):
+        from pathlib import Path
+
+        if not Path(settings.RAM_CHECKPOINT_PATH).is_file():
+            raise FileNotFoundError("Required RAM++ checkpoint is not installed")
     with materialize_document(document) as local_path:
         return run_enrichment_pipeline(document=document, processing_path=local_path)
 

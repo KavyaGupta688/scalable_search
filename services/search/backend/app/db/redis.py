@@ -8,10 +8,13 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
 class InMemoryCache:
     def __init__(self):
-        self._store: dict[str, tuple[Any, float]] = {}  # key -> (value, expiry_timestamp)
-        self._zsets: dict[str, dict[str, float]] = {}   # key -> {member: score}
+        self._store: dict[
+            str, tuple[Any, float]
+        ] = {}  # key -> (value, expiry_timestamp)
+        self._zsets: dict[str, dict[str, float]] = {}  # key -> {member: score}
         self._counters: dict[str, int] = {}
 
     async def get(self, key: str) -> Optional[str]:
@@ -43,10 +46,14 @@ class InMemoryCache:
             self._zsets[name] = {}
         self._zsets[name][value] = self._zsets[name].get(value, 0.0) + amount
 
-    async def zrevrange(self, name: str, start: int, end: int, withscores: bool = False):
+    async def zrevrange(
+        self, name: str, start: int, end: int, withscores: bool = False
+    ):
         if name not in self._zsets:
             return []
-        sorted_items = sorted(self._zsets[name].items(), key=lambda x: x[1], reverse=True)
+        sorted_items = sorted(
+            self._zsets[name].items(), key=lambda x: x[1], reverse=True
+        )
         slice_items = sorted_items[start : (end + 1) if end != -1 else None]
         if withscores:
             return slice_items
@@ -58,8 +65,10 @@ class InMemoryCache:
             self._zsets.pop(k, None)
             self._counters.pop(k, None)
 
+
 _redis_client = None
 _in_memory_cache = InMemoryCache()
+
 
 async def get_cache_client():
     global _redis_client
@@ -73,12 +82,14 @@ async def get_cache_client():
                 port=settings.REDIS_PORT,
                 db=settings.REDIS_DB,
                 password=settings.REDIS_PASSWORD,
-                decode_responses=True
+                decode_responses=True,
             )
             await client.ping()
             _redis_client = client
             logger.info("Connected to Redis server successfully.")
         except Exception as e:
-            logger.warning(f"Could not connect to Redis ({e}). Falling back to InMemoryCache.")
-            _redis_client = _in_memory_cache
+            logger.warning(
+                f"Could not connect to Redis ({e}). Falling back to InMemoryCache."
+            )
+            raise RuntimeError("Redis is unavailable") from e
     return _redis_client

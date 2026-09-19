@@ -182,7 +182,29 @@ async def record_terminal_result(
     if not recorded:
         return False
 
+    from modules.shared.delivery import enqueue_async
+    import hashlib
 
+    event_id = "ingestion-" + hashlib.sha256(f"{job.run_id}:{job.source_ref}".encode()).hexdigest()
+    await enqueue_async(
+        session,
+        event_id,
+        "audit",
+        {
+            "event_id": event_id,
+            "action": "INGESTION_" + outcome.value.upper(),
+            "actor": "ingestion-worker",
+            "entity_type": "document",
+            "entity_id": str(stats.document_id or job.provisional_id),
+            "correlation_id": str(job.run_id),
+            "status": "FAILED" if error else "SUCCESS",
+            "metadata": {
+                "run_id": str(job.run_id),
+                "source_asset_id": str(stats.source_asset_id or ""),
+                "outcome": outcome.value,
+            },
+        },
+    )
     counter_name = {
         ProcessResult.SUCCESS: "succeeded_count",
         ProcessResult.DUPLICATE: "duplicate_count",
@@ -200,9 +222,7 @@ async def record_terminal_result(
     return True
 
 
-async def add_commit_duration(
-    session: AsyncSession, run_id: UUID | None, source_ref: str, seconds: float
-) -> None:
+async def add_commit_duration(session: AsyncSession, run_id: UUID | None, source_ref: str, seconds: float) -> None:
     if run_id is None:
         return
     item = await session.get(IngestionRunItem, (run_id, source_ref))

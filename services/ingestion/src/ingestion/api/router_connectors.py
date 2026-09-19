@@ -10,8 +10,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import Query, APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, select
+from ingestion.models.checkpoint import EnumerationCheckpoint
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ingestion.api.auth import RequirePermission, TokenPayload
@@ -92,9 +93,7 @@ async def create_connector_endpoint(
         signature_version=connector_in.s3.signature_version if connector_in.s3 else None,
         s3_auth_mode=connector_in.s3.auth_mode if connector_in.s3 else None,
         s3_role_arn=connector_in.s3.role_arn if connector_in.s3 else None,
-        s3_session_duration_seconds=(
-            connector_in.s3.session_duration_seconds if connector_in.s3 else None
-        ),
+        s3_session_duration_seconds=(connector_in.s3.session_duration_seconds if connector_in.s3 else None),
         s3_prefix=connector_in.s3.prefix if connector_in.s3 else None,
         enumeration_max_objects=(
             connector_in.s3.max_objects if connector_in.s3 else connector_in.nas.max_files if connector_in.nas else None
@@ -133,6 +132,9 @@ async def update_s3_enumeration_scope(
     if connector.source_type != SourceType.S3:
         raise HTTPException(status_code=400, detail="Enumeration scope is only supported for S3 connectors")
 
+    if connector.archived_at:
+        raise HTTPException(409, "Connector is archived")
+    await db.execute(delete(EnumerationCheckpoint).where(EnumerationCheckpoint.connector_id == connector_id))
     connector.s3_prefix = scope.prefix
     connector.enumeration_max_objects = scope.max_objects
     connector.enumeration_page_size = scope.page_size
@@ -167,12 +169,11 @@ async def update_s3_authentication(
         raise HTTPException(status_code=404, detail="Connector not found")
     if connector.source_type != SourceType.S3:
         raise HTTPException(status_code=400, detail="Authentication mode applies only to S3 connectors")
-    if (
-        authentication.auth_mode == "static_keys"
-        and not get_settings().source_access.allow_static_s3_credentials
-    ):
+    if authentication.auth_mode == "static_keys" and not get_settings().source_access.allow_static_s3_credentials:
         raise HTTPException(status_code=400, detail="Static S3 credentials are disabled")
 
+    if connector.archived_at:
+        raise HTTPException(409, "Connector is archived")
     credentials = (
         {"access_key": authentication.access_key, "secret_key": authentication.secret_key}
         if authentication.auth_mode == "static_keys"
@@ -197,11 +198,19 @@ async def update_s3_authentication(
 
 @router.get("/", response_model=list[ConnectorResponse])
 async def list_connectors(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
     db: AsyncSession = Depends(get_async_session),
 ):
     """List all configured connectors."""
-    result = await db.execute(select(Connector).order_by(Connector.name, Connector.id))
+    result = await db.execute(
+        select(Connector)
+        .order_by(Connector.name, Connector.id)
+        .limit(limit)
+        .offset(offset)
+        .order_by(Connector.name, Connector.id)
+    )
     connectors = result.scalars().all()
     return [ConnectorResponse.model_validate(c) for c in connectors]
 
@@ -238,6 +247,8 @@ async def test_connector(
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
 
+    if connector.archived_at:
+        raise HTTPException(409, "Connector is archived")
     now = datetime.now(UTC)
     try:
         # Load credentials from Vault
@@ -282,15 +293,13 @@ async def delete_connector(
     entitlement_exists = await db.scalar(
         select(SourceAsset.id).where(SourceAsset.source_connector_id == connector_id).limit(1)
     )
-    run_exists = await db.scalar(
-        select(IngestionRun.id).where(IngestionRun.connector_id == connector_id).limit(1)
-    )
+    run_exists = await db.scalar(select(IngestionRun.id).where(IngestionRun.connector_id == connector_id).limit(1))
     if entitlement_exists is not None or run_exists is not None:
         raise HTTPException(
             status_code=409,
             detail=(
                 "Connector has immutable licence/audit records and cannot be hard-deleted; "
-                "retain it for audit and revoke its source credentials instead"
+                "archive it to preserve licensed source access instead"
             ),
         )
 
@@ -305,3 +314,26 @@ async def delete_connector(
         f"Connector deleted: {connector_id}",
         extra={"connector_id": str(connector_id)},
     )
+
+
+@router.patch("/{connector_id}/archive", response_model=ConnectorResponse)
+async def archive_connector(
+    connector_id: UUID,
+    payload: TokenPayload = Depends(RequirePermission("ingestion:configure")),
+    db: AsyncSession = Depends(get_async_session),
+):
+    connector = await db.get(Connector, connector_id)
+    if connector is None:
+        raise HTTPException(404, "Connector not found")
+    active = await db.scalar(
+        select(IngestionRun.id)
+        .where(
+            IngestionRun.connector_id == connector_id, IngestionRun.status.in_(["queued", "enumerating", "processing"])
+        )
+        .limit(1)
+    )
+    if active:
+        raise HTTPException(409, "Wait for the active ingestion run to finish before archiving")
+    connector.archived_at = connector.archived_at or datetime.now(UTC)
+    await db.flush()
+    return ConnectorResponse.model_validate(connector)

@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   LayoutDashboard, Search, Database, Workflow, Sparkles, ClipboardList,
-  Users, LogOut,
+  Users, LogOut, Download,
 } from 'lucide-react';
 import { Brand } from '../DesignSystem';
 import { useDialog } from '../useDialog';
@@ -13,6 +13,7 @@ const items = [
   ['data-sources', 'Data Sources', Database],
   ['ingestion', 'Ingestion', Workflow],
   ['enrichment', 'AI Enrichment', Sparkles],
+  ['downloads', 'Downloads', Download],
   ['audit', 'Audit Log', ClipboardList],
   ['users', 'Users', Users],
 ];

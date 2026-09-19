@@ -93,9 +93,14 @@ async def test_zero_copy_worker_streams_once_without_spool_or_tika(monkeypatch):
 
     monkeypatch.setattr(processor, "run_metadata_pipeline", fake_metadata)
     monkeypatch.setattr(processor, "_uuid7", lambda: source_asset_id)
+    from unittest.mock import AsyncMock
+
+    enqueue_event = AsyncMock()
+    monkeypatch.setattr(processor, "publish_ai_processing_event", enqueue_event)
     result = await processor.process_job(job, FakeConnector(), FakeSession(), producer=None)
 
     assert result == ProcessResult.SUCCESS
+    assert enqueue_event.call_args.kwargs["session"] is not None
     assert metadata_calls[0]["source_asset_id"] == source_asset_id
     assert "content" not in metadata_calls[0]
 

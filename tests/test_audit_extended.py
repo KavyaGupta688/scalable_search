@@ -1,64 +1,49 @@
-from fastapi.testclient import TestClient
-from server import app
+"""Persistence regressions run against the isolated integration PostgreSQL instance."""
 
-client = TestClient(app)
+import os
+import uuid
+import pytest
+from modules.shared.audit import record, list_persisted
+from modules.shared.integration import database_engine
+from sqlalchemy import text
 
-def get_admin_token() -> str:
-    res = client.post("/auth/token", json={"email": "admin@example.com", "password": "prototype", "role": "admin"})
-    assert res.status_code == 200
-    return res.json()["access_token"]
+pytestmark = pytest.mark.skipif(
+    not os.getenv("DATABASE_URL_SYNC"), reason="Integration PostgreSQL is required"
+)
 
-def get_analyst_token() -> str:
-    res = client.post("/auth/token", json={"email": "analyst@example.com", "password": "prototype", "role": "analyst"})
-    assert res.status_code == 200
-    return res.json()["access_token"]
 
-def test_extended_audit_event_creation_and_filtering():
-    analyst_token = get_analyst_token()
-    admin_token = get_admin_token()
+def test_audit_idempotency_filter_and_correlation():
+    key = "test-" + uuid.uuid4().hex
+    for _ in range(2):
+        record(
+            "TEST_AUDIT",
+            "integration-test",
+            "document",
+            "canonical",
+            event_id=key,
+            correlation_id="test-correlation",
+            metadata={"value": "preserved"},
+        )
+    rows = list_persisted(action="TEST_AUDIT", actor="integration-test", limit=500)
+    matches = [r for r in rows if r["event_id"] == key]
+    assert len(matches) == 1 and matches[0]["correlation_id"] == "test-correlation"
+    assert matches[0]["metadata"] == {"value": "preserved"}
+    with database_engine("audit").begin() as conn:
+        conn.execute(text("DELETE FROM audit_events WHERE event_id=:id"), {"id": key})
 
-    # Post an extended event
-    payload = {
-        "action": "document.preview",
-        "entity_type": "document",
-        "entity_id": "doc-uuid-999",
-        "status": "SUCCESS",
-        "query": "circuit board",
-        "device": "workstation-01",
-        "location": "BLR-CAMPUS",
-        "client_ip": "192.168.1.100",
-        "correlation_id": "corr-uuid-12345",
-        "execution_time_ms": 42,
-        "metadata": {"zoom_level": 2, "viewport": "1920x1080"}
-    }
-    create_res = client.post("/downloads/events", json=payload, headers={"Authorization": f"Bearer {analyst_token}"})
-    assert create_res.status_code == 201
-    created = create_res.json()
-    assert created["action"] == "document.preview"
-    assert created["entity_id"] == "doc-uuid-999"
-    assert created["status"] == "SUCCESS"
-    assert created["correlation_id"] == "corr-uuid-12345"
-    assert created["execution_time_ms"] == 42
-    assert created["client_ip"] is not None  # Salted and hashed
 
-    # Filter by action and status
-    list_res = client.get(
-        "/downloads/audit/events?action=document.preview&status=SUCCESS",
-        headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    assert list_res.status_code == 200
-    events = list_res.json()["events"]
-    assert any(e["entity_id"] == "doc-uuid-999" for e in events)
+def test_outbox_transaction_and_deduplication():
+    from sqlalchemy.orm import Session
+    from modules.shared.delivery import Delivery, enqueue
 
-def test_audit_csv_export_extended_headers():
-    admin_token = get_admin_token()
-    csv_res = client.get("/downloads/audit/export.csv", headers={"Authorization": f"Bearer {admin_token}"})
-    assert csv_res.status_code == 200
-    assert csv_res.headers["content-type"].startswith("text/csv")
-    csv_text = csv_res.text
-    header_line = csv_text.splitlines()[0]
-    assert "user_role" in header_line
-    assert "status" in header_line
-    assert "client_ip" in header_line
-    assert "correlation_id" in header_line
-    assert "execution_time_ms" in header_line
+    key = "test:" + uuid.uuid4().hex
+    with Session(database_engine("ingestion")) as session:
+        enqueue(session, key, "audit", {"action": "rolled back"})
+        session.rollback()
+        assert session.get(Delivery, key) is None
+        enqueue(session, key, "audit", {"action": "committed"})
+        enqueue(session, key, "audit", {"action": "duplicate"})
+        session.commit()
+        assert session.get(Delivery, key).payload["action"] == "committed"
+        session.delete(session.get(Delivery, key))
+        session.commit()

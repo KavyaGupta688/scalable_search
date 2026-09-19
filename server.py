@@ -1,219 +1,270 @@
-"""SMSPRSM Platform API Server -- with Prometheus metrics + Audit Analytics.
+"""Authenticated platform gateway; only the redesigned application is served."""
 
-Search requests (/search/*) are reverse-proxied to the Production Search
-Service #2 running on SEARCH_SERVICE_URL (default http://localhost:8002).
-"""
 from __future__ import annotations
-import json
 import os
-from typing import Optional
-
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
 import httpx
-from fastapi import FastAPI, Depends, Request, Response
-from fastapi.responses import StreamingResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
+from modules.shared.auth.dependencies import get_current_user, require_admin
+from modules.shared.auth.routes import router as auth_router
+from modules.shared.audit_api import router as audit_router
+from modules.shared.integration import assertion
 
-# -- Prometheus Instrumentation
-from prometheus_fastapi_instrumentator import Instrumentator
-
-# -- Module Routers
-from modules.ai_tag_description_generation.api.routes import router as ai_router
-from modules.download_auditing.api.routes import router as download_router
-from modules.ingestion.api.routes import router as ingestion_router
-from modules.shared.api import router as auth_router
-from modules.shared.auth import require_roles
-
-# -- Production Search Service #2 config
-SEARCH_SERVICE_URL: str = os.getenv("SEARCH_SERVICE_URL", "http://localhost:8002")
-
-app = FastAPI(
-    title="SMSPRSM Platform API",
-    version="0.2.0",
-    description="Multimodal Data Platform with Enterprise Audit Intelligence",
-)
-
-# -- Prometheus: auto-instrument all routes, expose /metrics
-Instrumentator(
-    should_group_status_codes=False,
-    should_ignore_untemplated=True,
-    excluded_handlers=["/metrics", "/health"],
-).instrument(app).expose(app, endpoint="/metrics", tags=["observability"])
-
-# -- Application Routers
-app.include_router(ingestion_router, prefix="/ingestion", tags=["ingestion"])
-app.include_router(ai_router, prefix="/ai", tags=["ai-enrichment"])
-app.include_router(download_router, prefix="/downloads", tags=["downloads"])
-app.include_router(auth_router)
+SERVICES = {
+    name: os.getenv(name.upper() + "_SERVICE_URL", default)
+    for name, default in {
+        "ingestion": "http://localhost:8001",
+        "search": "http://localhost:8002",
+        "ai": "http://localhost:8003",
+        "download": "http://localhost:8004",
+    }.items()
+}
+HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+    "content-length",
+    "content-encoding",
+}
 
 
-# -- Search Reverse Proxy > Production Search Service #2 (port 8002)
-_search_client: Optional[httpx.AsyncClient] = None
-
-
-def _get_search_client() -> httpx.AsyncClient:
-    """Lazy-init a shared async HTTP client for search proxy requests."""
-    global _search_client
-    if _search_client is None or _search_client.is_closed:
-        _search_client = httpx.AsyncClient(
-            base_url=SEARCH_SERVICE_URL,
-            timeout=httpx.Timeout(30.0, connect=5.0),
-        )
-    return _search_client
-
-
-@app.api_route(
-    "/search/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    tags=["search"],
-    summary="Proxy to Production Search Service #2",
-    include_in_schema=True,
-)
-async def search_proxy(request: Request, path: str) -> Response:
-    """
-    Transparent reverse proxy for all /search/* endpoints.
-    Forwards to the Production Search Service #2 at SEARCH_SERVICE_URL (port 8002).
-
-    Endpoints available via this proxy:
-      POST /search               -- Hybrid RRF search (keyword + vector)
-      POST /search/text          -- Keyword / metadata search
-      POST /search/vector        -- Vector similarity search
-      GET  /search/similar/{id}  -- Similar file search
-      GET  /search/facets        -- Facet aggregations
-      GET  /search/trending      -- Trending queries
-      GET  /search/suggestions   -- Query autocomplete
-    """
-    client = _get_search_client()
-    url = f"/{path}"
-    if request.url.query:
-        url = f"{url}?{request.url.query}"
-
-    body = await request.body()
-    headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower() not in ("host", "content-length")
-    }
-
-    try:
-        upstream = await client.request(
-            method=request.method,
-            url=url,
-            headers=headers,
-            content=body,
-        )
-    except httpx.ConnectError:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "detail": (
-                    "Production Search Service #2 is unavailable. "
-                    f"Ensure the service is running on {SEARCH_SERVICE_URL}. "
-                    "Start it with: cd services/search/backend && uvicorn app.main:app --port 8002"
-                )
-            },
-        )
-    except httpx.TimeoutException:
-        return JSONResponse(
-            status_code=504,
-            content={"detail": "Production Search Service #2 timed out."},
-        )
-
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        headers=dict(upstream.headers),
-        media_type=upstream.headers.get("content-type"),
+@asynccontextmanager
+async def lifespan(app):
+    app.state.client = httpx.AsyncClient(
+        timeout=httpx.Timeout(60, connect=5), follow_redirects=False
     )
+    yield
+    await app.state.client.aclose()
 
 
-@app.get(
-    "/search",
-    tags=["search"],
-    include_in_schema=True,
-    summary="Proxy to Production Search Service #2 root",
-)
-async def search_root_proxy(request: Request) -> Response:
-    """Proxy GET /search to the search service root."""
-    return await search_proxy(request, "")
+app = FastAPI(title="SMSPRSM Integrated Platform", lifespan=lifespan)
+app.include_router(auth_router, prefix="/auth", tags=["authentication"])
+app.include_router(audit_router, tags=["audit"])
 
 
-# -- Health
-@app.get("/health", tags=["system"])
-def health() -> dict[str, str]:
+@app.get("/health")
+def health():
     return {"status": "ok"}
 
 
-# -- Audit Analytics API
-@app.get("/admin/audit/analytics", tags=["audit-intelligence"])
-def audit_analytics(
-    hours: int = 24,
-    user: dict[str, str] = Depends(require_roles("admin")),
-) -> JSONResponse:
-    """
-    Pre-aggregated audit analytics for the React AuditDashboardView.
-    Returns KPI summary, module breakdown, error trend, top actors,
-    peak usage by hour, and top search queries.
-    """
-    from modules.shared.audit_analytics import full_analytics
-    data = full_analytics(hours=hours)
-    return JSONResponse(content=data)
+@app.get("/ready")
+async def ready(request: Request):
+    import asyncio
 
-
-# -- Server Log Live Stream (SSE)
-LOG_FILE_PATH = os.getenv("SERVER_LOG_PATH", "server_operational.log")
-
-
-@app.get("/admin/server-logs/stream", tags=["audit-intelligence"])
-def server_log_stream(
-    lines: int = 100,
-    user: dict[str, str] = Depends(require_roles("admin")),
-) -> StreamingResponse:
-    """
-    SSE stream of the last N lines of server_operational.log.
-    Also parses metrics from each line and updates Prometheus gauges.
-    """
-    from modules.shared.metrics import record_server_log_metric
-
-    def _generate():
+    async def check(name, url):
         try:
-            with open(LOG_FILE_PATH, "r", encoding="utf-8") as f:
-                all_lines = f.readlines()
-            tail = all_lines[-lines:]
-            for raw_line in tail:
-                raw_line = raw_line.strip()
-                if not raw_line:
-                    continue
-                try:
-                    parsed = json.loads(raw_line)
-                    msg = parsed.get("message", {})
-                    if isinstance(msg, dict):
-                        record_server_log_metric(
-                            subsystem=msg.get("subsystem", "unknown"),
-                            event=msg.get("event", "UNKNOWN"),
-                            latency_ms=msg.get("latency_ms"),
-                            gpu_util_pct=msg.get("gpu_util_pct"),
-                            level=parsed.get("level", "INFO"),
-                        )
-                except Exception:
-                    pass
-                yield f"data: {raw_line}\n\n"
-        except FileNotFoundError:
-            yield f"data: {json.dumps({'error': 'Log file not found', 'path': LOG_FILE_PATH})}\n\n"
+            response = await request.app.state.client.get(url + "/ready", timeout=5)
+            return name, response.status_code == 200
+        except httpx.HTTPError:
+            return name, False
 
-    return StreamingResponse(
-        _generate(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+    checks = dict(await asyncio.gather(*(check(k, v) for k, v in SERVICES.items())))
+    return JSONResponse(
+        {"services": checks}, status_code=200 if all(checks.values()) else 503
     )
 
 
-# -- Frontend Static Files
-dist_dir = "frontend/dist" if os.path.exists("frontend/dist") else "frontend"
-app.mount("/", StaticFiles(directory=dist_dir, html=True), name="frontend")
+async def forward(request: Request, service: str, user):
+    path = request.url.path
+    if path in ("/admin/connectors", "/documents"):
+        path += "/"
+    headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower()
+        not in HOP_HEADERS
+        | {"authorization", "cookie", "x-user-id", "x-user-role", "x-user-name"}
+    }
+    headers["Authorization"] = "Bearer " + assertion(
+        user.id, str(user.role), service, email=user.email
+    )
+    headers["X-Correlation-ID"] = request.state.correlation_id
+    url = SERVICES[service] + path
+    if request.url.query:
+        url += "?" + request.url.query
+    try:
+        upstream = await request.app.state.client.send(
+            request.app.state.client.build_request(
+                request.method, url, headers=headers, content=request.stream()
+            ),
+            stream=True,
+        )
+    except httpx.TimeoutException:
+        raise HTTPException(504, "The service timed out. Please retry.") from None
+    except httpx.HTTPError:
+        raise HTTPException(503, "The service is unavailable. Please retry.") from None
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        status_code=upstream.status_code,
+        headers={
+            k: v for k, v in upstream.headers.items() if k.lower() not in HOP_HEADERS
+        },
+        background=BackgroundTask(upstream.aclose),
+    )
 
 
-def run() -> None:
+@app.api_route("/admin/connectors", methods=["GET", "POST"])
+@app.api_route(
+    "/admin/connectors/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"]
+)
+@app.api_route("/admin/ingestion/{path:path}", methods=["GET", "POST"])
+async def ingestion_admin(
+    request: Request, path: str = "", user=Depends(require_admin)
+):
+    return await forward(request, "ingestion", user)
+
+
+@app.api_route("/documents", methods=["GET"])
+@app.api_route("/documents/{path:path}", methods=["GET"])
+async def documents(request: Request, path: str = "", user=Depends(get_current_user)):
+    if user.role != "admin":
+        from modules.shared.catalog import require_downloadable
+
+        try:
+            document_id = str(uuid.UUID(path.split("/")[0]))
+        except ValueError:
+            raise HTTPException(403, "Administrator access required") from None
+        if path.split("/")[1:] not in ([], ["content"]):
+            raise HTTPException(403, "Use the protected content endpoint")
+        require_downloadable([document_id])
+    return await forward(request, "ingestion", user)
+
+
+@app.api_route("/ai/{path:path}", methods=["GET", "POST"])
+async def ai(request: Request, path: str, user=Depends(require_admin)):
+    return await forward(request, "ai", user)
+
+
+@app.api_route("/search", methods=["POST"])
+@app.api_route("/search/{path:path}", methods=["GET", "POST"])
+@app.api_route("/files/{path:path}", methods=["GET"])
+@app.api_route("/datasets/{path:path}", methods=["GET"])
+@app.api_route("/events/{path:path}", methods=["POST"])
+async def search(request: Request, path: str = "", user=Depends(get_current_user)):
+    return await forward(request, "search", user)
+
+
+@app.api_route("/downloads", methods=["GET"])
+@app.api_route("/downloads/{path:path}", methods=["GET", "POST"])
+async def downloads(request: Request, path: str = "", user=Depends(get_current_user)):
+    return await forward(request, "download", user)
+
+
+@app.get("/api/admin/overview")
+def overview(user=Depends(require_admin)):
+    from sqlalchemy import text
+    from modules.shared.integration import database_engine
+
+    with database_engine("ingestion").connect() as conn:
+        documents = conn.execute(text("SELECT count(*) FROM documents")).scalar_one()
+        sources = conn.execute(text("SELECT count(*) FROM connectors")).scalar_one()
+        jobs = conn.execute(
+            text("SELECT status,count(*) FROM ingestion_runs GROUP BY status")
+        ).all()
+        tasks = conn.execute(
+            text(
+                "SELECT status,count(*) FROM enrichment.enrichment_tasks GROUP BY status"
+            )
+        ).all()
+    return {
+        "documents": documents,
+        "sources": sources,
+        "ingestion": dict(jobs),
+        "enrichment": dict(tasks),
+    }
+
+
+@app.middleware("http")
+async def audit_requests(request: Request, call_next):
+    request.state.correlation_id = str(uuid.uuid4())
+    from modules.shared.auth.dependencies import get_auth_service
+
+    actor, role = "anonymous", "anonymous"
+    token = request.headers.get("authorization", "")
+    if token.startswith("Bearer "):
+        try:
+            claims = get_auth_service().decode_token(token[7:])
+            actor, role = claims["sub"], claims["role"]
+        except Exception:
+            pass
+    response = await call_next(request)
+    actor, role = getattr(request.state, "auth_actor", (actor, role))
+    response.headers["X-Correlation-ID"] = request.state.correlation_id
+    path = request.url.path
+    if path.startswith(
+        ("/auth/", "/admin/connectors", "/admin/ingestion", "/ai/")
+    ) or response.status_code in (401, 403):
+        from modules.shared.audit import record
+
+        if request.method != "GET" or response.status_code >= 400:
+            record(
+                request.method + " " + path,
+                actor,
+                "api",
+                path,
+                user_role=role,
+                status="SUCCESS"
+                if response.status_code < 400
+                else "DENIED"
+                if response.status_code in (401, 403)
+                else "FAILED",
+                correlation_id=request.state.correlation_id,
+                metadata={"http_status": response.status_code},
+            )
+    return response
+
+
+DIST = Path(__file__).parent / "frontend" / "dist"
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def frontend(path: str):
+    candidate = (DIST / path).resolve()
+    if not candidate.is_relative_to(DIST.resolve()):
+        raise HTTPException(404)
+    if candidate.is_file():
+        return FileResponse(candidate)
+    if path not in {
+        "admin",
+        "admin/overview",
+        "admin/search",
+        "admin/data-sources",
+        "admin/ingestion",
+        "admin/enrichment",
+        "admin/audit",
+        "admin/users",
+        "admin/downloads",
+    } and path.split("/")[0] in {
+        "api",
+        "internal",
+        "auth",
+        "admin",
+        "ai",
+        "search",
+        "files",
+        "documents",
+        "datasets",
+        "downloads",
+        "events",
+        "ingestion",
+    }:
+        raise HTTPException(404, "API route not found")
+    if not (DIST / "index.html").exists():
+        raise HTTPException(503, "Frontend build is missing")
+    return FileResponse(DIST / "index.html")
+
+
+def run():
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+
+    uvicorn.run("server:app", host="0.0.0.0", port=8000)

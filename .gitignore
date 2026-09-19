@@ -60,3 +60,10 @@ audit_logs_*.csv
 *.swo
 .DS_Store
 Thumbs.db
+
+# Integration local state and provisioned model artifacts
+/data/
+/.integration/
+!.env.docker.example
+modules/ai_tag_description_generation/checkpoints/
+*.pt

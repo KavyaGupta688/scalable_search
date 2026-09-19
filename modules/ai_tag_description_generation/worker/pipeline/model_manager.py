@@ -21,21 +21,21 @@ from pathlib import Path
 from modules.ai_tag_description_generation.app.config import settings
 
 MODEL_VERSIONS = {
-    'clip': 'ViT-B-32-openai',
-    'yolo': Path(settings.YOLO_MODEL_NAME).stem,
-    'blip': 'blip-image-captioning-base',
-    'whisper': 'whisper-large-v3',
-    'ram': 'ram-plus-swin-l-14m',
-    'paddleocr': 'paddleocr-v4',
-    'presidio': 'presidio-analyzer-2.2',
-    'nudenet': 'nudenet-v3',
-    'bart_mnli': 'bart-large-mnli',
-    'spacy': 'en_core_web_sm',
-    'keybert': 'keybert-base',
-    'summarizer': 'bart-large-cnn',
-    'face_detector': 'retinaface-resnet50',
-    'toxicity': 'detoxify-unbiased',
-    'ai_generated_detector': 'clip-zero-shot',
+    "clip": "ViT-B-32-openai-quickgelu",
+    "yolo": Path(settings.YOLO_MODEL_NAME).stem,
+    "blip": "blip-image-captioning-base",
+    "whisper": "whisper-large-v3",
+    "ram": "ram-plus-swin-l-14m",
+    "paddleocr": "paddleocr-v4",
+    "presidio": "presidio-analyzer-2.2",
+    "nudenet": "nudenet-v3",
+    "bart_mnli": "bart-large-mnli",
+    "spacy": "en_core_web_sm",
+    "keybert": "keybert-base",
+    "summarizer": "bart-large-cnn",
+    "face_detector": "retinaface-resnet50",
+    "toxicity": "detoxify-unbiased",
+    "ai_generated_detector": "clip-zero-shot",
 }
 
 
@@ -73,31 +73,48 @@ def get_model(name: str):
         model = _load_paddleocr()
     elif name == "presidio":
         from presidio_analyzer import AnalyzerEngine
+
         model = AnalyzerEngine()
     elif name == "nudenet":
         from nudenet import NudeDetector
+
         model = NudeDetector()
     elif name == "bart_mnli":
         from transformers import pipeline
-        model = pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=0 if DEVICE=="cuda" else -1)
+
+        model = pipeline(
+            "zero-shot-classification",
+            model="facebook/bart-large-mnli",
+            device=0 if DEVICE == "cuda" else -1,
+        )
     elif name == "spacy":
         import spacy
+
         model = spacy.load("en_core_web_sm")
     elif name == "keybert":
         from keybert import KeyBERT
+
         model = KeyBERT()
     elif name == "summarizer":
         from transformers import pipeline
-        model = pipeline("summarization", model="facebook/bart-large-cnn", device=0 if DEVICE=="cuda" else -1)
+
+        model = pipeline(
+            "summarization",
+            model="facebook/bart-large-cnn",
+            device=0 if DEVICE == "cuda" else -1,
+        )
     elif name == "face_detector":
         from retinaface import RetinaFace
+
         class FaceDetectorWrapper:
             def detect_faces(self, image):
                 return RetinaFace.detect_faces(image)
+
         model = FaceDetectorWrapper()
     elif name == "toxicity":
         from detoxify import Detoxify
-        model = Detoxify('unbiased', device=DEVICE)
+
+        model = Detoxify("unbiased", device=DEVICE)
     elif name == "ai_generated_detector":
         model = _build_ai_generated_detector()
     else:
@@ -108,14 +125,9 @@ def get_model(name: str):
 
 
 def _load_clip():
-    import open_clip
+    from modules.shared.embeddings import clip_bundle
 
-    model, _, preprocess = open_clip.create_model_and_transforms(
-        "ViT-B-32", pretrained="openai"
-    )
-    model = model.to(DEVICE).eval()
-    tokenizer = open_clip.get_tokenizer("ViT-B-32")
-    return {"model": model, "preprocess": preprocess, "tokenizer": tokenizer}
+    return clip_bundle()
 
 
 def _load_yolo():
@@ -128,9 +140,13 @@ def _load_blip():
     from transformers import BlipProcessor, BlipForConditionalGeneration
 
     processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-    model = BlipForConditionalGeneration.from_pretrained(
-        "Salesforce/blip-image-captioning-base"
-    ).to(DEVICE).eval()
+    model = (
+        BlipForConditionalGeneration.from_pretrained(
+            "Salesforce/blip-image-captioning-base"
+        )
+        .to(DEVICE)
+        .eval()
+    )
     return {"model": model, "processor": processor}
 
 
@@ -138,6 +154,7 @@ def _load_whisper():
     import whisper
 
     return whisper.load_model("large-v3", device=DEVICE)
+
 
 def _load_paddleocr():
     from paddleocr import PaddleOCR
@@ -154,6 +171,11 @@ def _load_ram():
     # ram_plus_swin_large_14m.pth checkpoint downloaded manually - see
     # setup notes. Not a standard PyPI package, so this import will fail
     # with a clear ModuleNotFoundError until that's done.
+    if not Path(settings.RAM_CHECKPOINT_PATH).is_file():
+        raise FileNotFoundError(
+            "Required RAM++ checkpoint is not installed: "
+            + settings.RAM_CHECKPOINT_PATH
+        )
     from ram.models import ram_plus
     from ram import get_transform
 
@@ -223,6 +245,7 @@ def _build_ai_generated_detector():
                 real_sim = (image_features @ self.real_centroid.T).item()
             # Softmax over the two similarities to get a probability
             import math
+
             exp_ai = math.exp(ai_sim * 100.0)
             exp_real = math.exp(real_sim * 100.0)
             return exp_ai / (exp_ai + exp_real)
@@ -237,14 +260,9 @@ _text_embedding_cache: dict[tuple[str, tuple[str, ...]], torch.Tensor] = {}
 
 
 def encode_text(labels: list[str]) -> torch.Tensor:
-    """Encode dynamic text without retaining document-specific tensors."""
-    clip_bundle = get_model("clip")
-    model, tokenizer = clip_bundle["model"], clip_bundle["tokenizer"]
-    text_inputs = tokenizer(labels).to(DEVICE)
-    with torch.no_grad():
-        text_features = model.encode_text(text_inputs)
-        text_features /= text_features.norm(dim=-1, keepdim=True)
-    return text_features
+    from modules.shared.embeddings import encode_text as shared_encode
+
+    return shared_encode(labels)
 
 
 def get_text_embeddings(label_set_name: str, labels: list):

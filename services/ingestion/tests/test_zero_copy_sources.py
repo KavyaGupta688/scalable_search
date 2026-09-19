@@ -78,7 +78,7 @@ class FakeProducer:
 
 
 @pytest.mark.asyncio
-async def test_ai_event_uses_source_asset_and_never_contains_credentials_or_copy_path():
+async def test_ai_event_uses_source_asset_and_never_contains_credentials_or_copy_path(monkeypatch):
     producer = FakeProducer()
     metadata = SimpleNamespace(
         id=uuid4(),
@@ -99,9 +99,15 @@ async def test_ai_event_uses_source_asset_and_never_contains_credentials_or_copy
     settings = SimpleNamespace(ai_processing_topic="ai-processing-events")
 
     run_id = uuid4()
-    await publish_ai_processing_event(producer, metadata, settings, run_id=run_id)
+    from unittest.mock import AsyncMock
 
-    payload = producer.message[2]
+    enqueue = AsyncMock()
+    monkeypatch.setattr("modules.shared.delivery.enqueue_async", enqueue)
+    transaction = object()
+    await publish_ai_processing_event(producer, metadata, settings, run_id=run_id, session=transaction)
+    assert producer.message is None  # No message can escape before database commit.
+    assert enqueue.call_args.args[0] is transaction
+    payload = enqueue.call_args.args[3]
     assert payload["source_asset_id"] == str(metadata.source_asset_id)
     assert payload["run_id"] == str(run_id)
     assert "storage_path" not in payload

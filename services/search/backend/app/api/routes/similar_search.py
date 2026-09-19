@@ -9,22 +9,27 @@ import time
 
 router = APIRouter()
 
-@router.post("", response_model=SearchResponse, summary="Find similar files to an existing file")
+
+@router.post(
+    "", response_model=SearchResponse, summary="Find similar files to an existing file"
+)
 async def find_similar_files(
     request: SimilarSearchRequest,
     similar_service: SimilarSearchService = Depends(get_similar_search_service),
     metadata_service: MetadataService = Depends(get_metadata_service),
-    user: UserContext = Depends(get_current_user_context)
+    user: UserContext = Depends(get_current_user_context),
 ):
     """
     Retrieves vector of the target file_id, executes cosine similarity search excluding the original, and returns similar files.
     """
+    from fastapi import HTTPException
+
+    if not await metadata_service.file_repo.get_by_id(request.file_id):
+        raise HTTPException(404, "File is not available")
     start_time = time.perf_counter()
-    
+
     ranked_items, total = await similar_service.find_similar(
-        file_id=request.file_id,
-        filters=request.filters,
-        limit=request.limit
+        file_id=request.file_id, filters=request.filters, limit=request.limit
     )
 
     fused_results = [
@@ -33,13 +38,23 @@ async def find_similar_files(
             rrf_score=r.raw_score,
             vector_rank=r.rank,
             vector_similarity=r.raw_score,
-            match_sources=["similarity_vector"]
-        ) for r in ranked_items
+            match_sources=["similarity_vector"],
+        )
+        for r in ranked_items
     ]
 
     hydrated = await metadata_service.hydrate_results(fused_results)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
+    from app.repositories.analytics_repository import AnalyticsRepository
+
+    await AnalyticsRepository(metadata_service.file_repo.db).log_event(
+        "SIMILAR_SEARCH",
+        user.user_id,
+        user.role,
+        file_id=request.file_id,
+        result_count=len(hydrated),
+    )
     return SearchResponse(
         query=f"similar_to:{request.file_id}",
         search_mode="similar",
@@ -48,5 +63,5 @@ async def find_similar_files(
         offset=0,
         execution_time_ms=round(elapsed_ms, 2),
         results=hydrated,
-        facets=None
+        facets=None,
     )

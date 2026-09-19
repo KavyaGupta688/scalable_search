@@ -8,6 +8,8 @@ Group settings by concern for clarity.
 from __future__ import annotations
 
 from functools import lru_cache
+import os
+from sqlalchemy.engine import URL
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,11 +41,25 @@ class DatabaseSettings(BaseSettings):
 
     @property
     def async_url(self) -> str:
-        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        return os.getenv("DATABASE_URL") or URL.create(
+            "postgresql+asyncpg",
+            username=self.user,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=self.name,
+        ).render_as_string(hide_password=False)
 
     @property
     def sync_url(self) -> str:
-        return f"postgresql+psycopg2://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        return os.getenv("DATABASE_URL_SYNC") or URL.create(
+            "postgresql+psycopg2",
+            username=self.user,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=self.name,
+        ).render_as_string(hide_password=False)
 
 
 class KafkaSettings(BaseSettings):

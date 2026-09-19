@@ -12,6 +12,7 @@ from app.utils.rrf import RankedItem
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
 class VectorSearchService:
     def __init__(self, qdrant_client: QdrantClient, embedding_client: EmbeddingClient):
         self.qdrant = qdrant_client
@@ -23,13 +24,19 @@ class VectorSearchService:
         query: str,
         filters: Optional[SearchFilters] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
     ) -> Tuple[List[RankedItem], int]:
         """
         Generates query embedding and searches Qdrant vector index with filters.
         """
-        query_vector = self.embedder.generate_text_embedding(query)
-        return await self.search_by_vector(query_vector, filters=filters, limit=limit, offset=offset)
+        from starlette.concurrency import run_in_threadpool
+
+        query_vector = await run_in_threadpool(
+            self.embedder.generate_text_embedding, query
+        )
+        return await self.search_by_vector(
+            query_vector, filters=filters, limit=limit, offset=offset
+        )
 
     async def search_by_vector(
         self,
@@ -37,16 +44,46 @@ class VectorSearchService:
         filters: Optional[SearchFilters] = None,
         limit: int = 50,
         offset: int = 0,
-        exclude_id: Optional[str] = None
+        exclude_id: Optional[str] = None,
     ) -> Tuple[List[RankedItem], int]:
         """
         Searches Qdrant with an explicit vector embedding and filters.
         """
+        from starlette.concurrency import run_in_threadpool
+        from sqlalchemy import select
+        from modules.shared.integration import database_engine
+        from app.models.file_metadata import FileMetadata
+        from app.utils.filters import build_sqlalchemy_filters
+
+        def allowed_ids():
+            with database_engine("search").connect() as conn:
+                stmt = select(FileMetadata.file_id).where(
+                    *build_sqlalchemy_filters(filters)
+                )
+                if exclude_id:
+                    stmt = stmt.where(FileMetadata.file_id != exclude_id)
+                ids = list(conn.execute(stmt.limit(100001)).scalars())
+                if len(ids) > 100000:
+                    from fastapi import HTTPException
+
+                    raise HTTPException(
+                        422, "Narrow the search filters; candidate limit exceeded"
+                    )
+                return ids
+
+        eligible = await run_in_threadpool(allowed_ids)
+        if not eligible:
+            return [], 0
         qdrant_filter = build_qdrant_filter(filters)
-        
+        qdrant_filter.must.append(qmodels.HasIdCondition(has_id=eligible))
+
         # If exclude_id is provided, exclude matching file_id in payload
         if exclude_id:
-            must_not = [qmodels.FieldCondition(key="file_id", match=qmodels.MatchValue(value=exclude_id))]
+            must_not = [
+                qmodels.FieldCondition(
+                    key="file_id", match=qmodels.MatchValue(value=exclude_id)
+                )
+            ]
             if qdrant_filter:
                 qdrant_filter.must_not = (qdrant_filter.must_not or []) + must_not
             else:
@@ -60,38 +97,41 @@ class VectorSearchService:
                     query=vector,
                     query_filter=qdrant_filter,
                     limit=limit + offset,
-                    with_payload=True
+                    with_payload=True,
                 )
-                search_result = response.points if hasattr(response, "points") else response
+                search_result = (
+                    response.points if hasattr(response, "points") else response
+                )
             else:
                 search_result = self.qdrant.search(
                     collection_name=self.collection_name,
                     query_vector=vector,
                     query_filter=qdrant_filter,
                     limit=limit + offset,
-                    with_payload=True
+                    with_payload=True,
                 )
-            
+
             # Apply offset
             sliced_results = search_result[offset : offset + limit]
             ranked_items: List[RankedItem] = []
-            
+
             for rank_idx, hit in enumerate(sliced_results, start=1):
                 payload = getattr(hit, "payload", {}) or {}
-                file_id = payload.get("file_id") if payload else str(getattr(hit, "id", ""))
+                file_id = (
+                    payload.get("file_id") if payload else str(getattr(hit, "id", ""))
+                )
                 score = float(getattr(hit, "score", 0.0))
                 ranked_items.append(
                     RankedItem(
-                        id=file_id,
-                        rank=rank_idx,
-                        raw_score=score,
-                        metadata=payload
+                        id=file_id, rank=rank_idx, raw_score=score, metadata=payload
                     )
                 )
 
-            total_hits = len(search_result)
+            total_hits = len(eligible)
             return ranked_items, total_hits
 
         except Exception as e:
             logger.error(f"Error querying Qdrant: {e}", exc_info=True)
-            return [], 0
+            from fastapi import HTTPException
+
+            raise HTTPException(503, "Vector search is unavailable") from e

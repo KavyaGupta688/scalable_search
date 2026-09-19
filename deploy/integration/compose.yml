@@ -1,0 +1,192 @@
+name: smsprsm-integration
+x-env: &env
+  DATABASE_URL: postgresql+asyncpg://platform:${POSTGRES_PASSWORD:?required}@postgres:5432/platform
+  DATABASE_URL_SYNC: postgresql+psycopg2://platform:${POSTGRES_PASSWORD:?required}@postgres:5432/platform
+  INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?required}
+  NEXUS_JWT_SECRET: ${NEXUS_JWT_SECRET:?required}
+  REDIS_URL: redis://redis:6379/0
+  QDRANT_URL: http://qdrant:6333
+  QDRANT_COLLECTION_NAME: multimodal_files
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  VAULT_URL: http://vault-persistent:8200
+  VAULT_TOKEN: ${VAULT_TOKEN:?required}
+  INGESTION_SERVICE_URL: http://ingestion:8000
+  INGESTION_API_BASE_URL: http://ingestion:8000
+  SEARCH_SERVICE_URL: http://search:8000
+  AI_SERVICE_URL: http://ai:8000
+  DOWNLOAD_SERVICE_URL: http://download:8000
+  SOURCE_DOCUMENT_SCHEMA: ingestion
+  WATERMARK_SECRET_KEY: ${WATERMARK_SECRET_KEY:?required}
+  DOWNLOAD_STAGING_DIR: /packages
+x-runtime: &runtime
+  image: smsprsm-integration-runtime:local
+  build:
+    context: ../..
+    dockerfile: deploy/integration/Dockerfile
+  environment: *env
+  restart: unless-stopped
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_DB: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:15432:5432"]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U platform -d platform"]
+      interval: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, "yes"]
+    volumes: [redis-data:/data]
+  kafka:
+    image: apache/kafka:3.8.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    volumes: [kafka-data:/var/lib/kafka/data]
+  vault-persistent:
+    image: hashicorp/vault:1.18
+    command: [server, -config=/etc/vault-local.hcl]
+    volumes:
+      - vault-data:/vault/file
+      - ./vault.hcl:/etc/vault-local.hcl:ro
+  vault-init:
+    <<: *runtime
+    command: [python, scripts/vault_bootstrap.py]
+    volumes: [vault-bootstrap:/vault-bootstrap]
+    depends_on:
+      vault-persistent: {condition: service_started}
+  qdrant:
+    image: qdrant/qdrant:v1.11.5
+    volumes: [qdrant-data:/qdrant/storage]
+  migrate:
+    <<: *runtime
+    command: [python, scripts/migrate_integration.py]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+      qdrant: {condition: service_started}
+  gateway:
+    <<: *runtime
+    environment:
+      <<: *env
+      NEXUS_DATA_DIR: /auth-data
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?required}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@platform.internal}
+    volumes: [auth-data:/auth-data]
+    ports: ["127.0.0.1:18000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  ingestion:
+    <<: *runtime
+    command: [uvicorn, ingestion.main:app, --host, 0.0.0.0, --port, "8000"]
+    environment:
+      <<: *env
+      DATABASE_SCHEMA: ingestion
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      kafka: {condition: service_started}
+      vault-persistent: {condition: service_started}
+  ingestion-worker:
+    <<: *runtime
+    command: [python, services/ingestion/scripts/run_worker.py]
+    environment:
+      <<: *env
+      DATABASE_SCHEMA: ingestion
+      WORKER_METRICS_PORT: 0
+  ingestion-outbox:
+    <<: *runtime
+    command: [python, -m, modules.shared.outbox_worker, ingestion]
+  search:
+    <<: *runtime
+    image: smsprsm-integration-search:local
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.search
+    working_dir: /app/services/search/backend
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000"]
+    environment:
+      <<: *env
+      DATABASE_SCHEMA: search
+      REDIS_HOST: redis
+      QDRANT_EMBEDDED: "false"
+      REDIS_FALLBACK_MEMORY: "false"
+    volumes: [models:/models]
+  search-outbox:
+    <<: *runtime
+    command: [python, -m, modules.shared.outbox_worker, search]
+  ai:
+    <<: *runtime
+    image: smsprsm-integration-ai:local
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.ai
+    command: [uvicorn, modules.ai_tag_description_generation.api.main:app, --host, 0.0.0.0, --port, "8000"]
+    environment:
+      <<: *env
+      DATABASE_SCHEMA: enrichment
+      RAM_CHECKPOINT_PATH: /models/ram_plus_swin_large_14m.pth
+    volumes: [models:/models]
+  ai-worker:
+    <<: *runtime
+    image: smsprsm-integration-ai:local
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.ai
+    command: [celery, -A, modules.ai_tag_description_generation.app.celery_app.celery_app, worker, --pool=solo, --concurrency=1, --loglevel=info]
+    environment:
+      <<: *env
+      DATABASE_SCHEMA: enrichment
+      RAM_CHECKPOINT_PATH: /models/ram_plus_swin_large_14m.pth
+    volumes: [models:/models]
+  ai-consumer:
+    <<: *runtime
+    image: smsprsm-integration-ai:local
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.ai
+    command: [python, -m, modules.ai_tag_description_generation.app.kafka_consumer]
+    environment:
+      <<: *env
+      DATABASE_SCHEMA: enrichment
+      RAM_CHECKPOINT_PATH: /models/ram_plus_swin_large_14m.pth
+    volumes: [models:/models]
+  indexer:
+    <<: *runtime
+    command: [python, -m, modules.shared.outbox_worker, enrichment]
+  download:
+    <<: *runtime
+    working_dir: /app/services/download
+    command: [uvicorn, integrated:app, --host, 0.0.0.0, --port, "8000"]
+    volumes: [packages:/packages]
+  download-worker:
+    <<: *runtime
+    working_dir: /app/services/download
+    command: [python, integrated.py]
+    volumes: [packages:/packages]
+  download-outbox:
+    <<: *runtime
+    command: [python, -m, modules.shared.outbox_worker, download]
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+  qdrant-data:
+  auth-data:
+  models:
+  packages:
+  vault-data:
+  vault-bootstrap:

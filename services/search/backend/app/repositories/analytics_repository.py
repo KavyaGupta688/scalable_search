@@ -4,6 +4,7 @@ from sqlalchemy import select, func, desc
 from datetime import datetime, timezone, timedelta
 from app.models.search_event import SearchEvent
 
+
 class AnalyticsRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -19,7 +20,7 @@ class AnalyticsRepository:
         normalized_query: Optional[str] = None,
         filters: Optional[Dict[str, Any]] = None,
         result_count: int = 0,
-        meta_info: Optional[Dict[str, Any]] = None
+        meta_info: Optional[Dict[str, Any]] = None,
     ) -> SearchEvent:
         event = SearchEvent(
             event_type=event_type,
@@ -31,26 +32,45 @@ class AnalyticsRepository:
             normalized_query=normalized_query,
             filters=filters,
             result_count=result_count,
-            meta_info=meta_info
+            meta_info=meta_info,
         )
         self.db.add(event)
+        await self.db.flush()
+        from modules.shared.delivery import enqueue_async
+
+        await enqueue_async(
+            self.db,
+            "audit:" + str(event.id),
+            "audit",
+            {
+                "event_id": "search-" + str(event.id),
+                "action": event_type,
+                "actor": user_id,
+                "user_role": user_role,
+                "entity_type": "search",
+                "entity_id": file_id or dataset_id or "query",
+                "metadata": {"query": query, "result_count": result_count},
+            },
+        )
         await self.db.commit()
         await self.db.refresh(event)
         return event
 
-    async def get_trending_queries(self, hours: int = 24, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_trending_queries(
+        self, hours: int = 24, limit: int = 10
+    ) -> List[Dict[str, Any]]:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-        
+
         stmt = (
             select(
                 SearchEvent.normalized_query,
-                func.count(SearchEvent.id).label("search_count")
+                func.count(SearchEvent.id).label("search_count"),
             )
             .where(
                 SearchEvent.event_type == "SEARCH",
                 SearchEvent.created_at >= cutoff,
                 SearchEvent.normalized_query.isnot(None),
-                func.length(SearchEvent.normalized_query) > 2
+                func.length(SearchEvent.normalized_query) > 2,
             )
             .group_by(SearchEvent.normalized_query)
             .order_by(desc("search_count"))

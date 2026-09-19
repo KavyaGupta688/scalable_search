@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
+
 class DatasetSummary(BaseModel):
     id: str
     name: str
@@ -17,7 +18,8 @@ class DatasetSummary(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class PopularDatasetsResponse(BaseModel):
     datasets: List[DatasetSummary]
     total: int
-    formula_info: str = "Popularity Score = Views_7d + (2 * Downloads_7d) + (0.5 * Previews_7d)"
+    formula_info: str = "Cumulative recorded views + 2 × recorded downloads"

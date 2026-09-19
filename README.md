@@ -1,3 +1,5 @@
+> **Feature/Integration:** use [the isolated integration setup](deploy/integration/README.md) and [validation report](INTEGRATION_REPORT.md). The older setup notes below describe the pre-integration prototype and are retained for history.
+
 # SMSPRSM 2026 - Multimodal Data Platform & Ingestion Engine
 
 Unified multimodal data platform combining production-grade ingestion (S3, NAS SMB/NFS), AI tagging and description enrichment, vector & keyword search, selective forensic download, and cross-cutting audit logging.

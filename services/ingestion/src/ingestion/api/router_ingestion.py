@@ -56,6 +56,8 @@ async def trigger_ingestion(
     if not connector:
         raise HTTPException(status_code=404, detail="Connector not found")
 
+    if connector.archived_at:
+        raise HTTPException(409, "Connector is archived")
     if connector.status != ConnectorStatus.VERIFIED:
         raise HTTPException(
             status_code=400,

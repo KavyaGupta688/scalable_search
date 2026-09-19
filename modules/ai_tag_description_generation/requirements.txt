@@ -1,5 +1,5 @@
 # --- Core framework ---
-fastapi==0.115.0
+fastapi>=0.118,<1
 python-multipart>=0.0.9,<1.0
 uvicorn[standard]==0.30.6
 celery==5.4.0
@@ -18,7 +18,9 @@ kafka-python-ng==2.2.3
 # --- ML / AI models ---
 torch>=2.1.0
 Pillow>=10.0.0
-numpy>=1.24.0
+numpy==1.26.4
+opencv-python<4.12
+opencv-python-headless<4.12
 # TensorFlow 2.21 accepts this release and it remains compatible with NumPy 1.x.
 ml-dtypes==0.5.4
 librosa>=0.10.0
@@ -28,7 +30,7 @@ python-docx>=1.0.0
 pandas>=2.0.0
 
 # --- Vision models ---
-open_clip_torch>=2.24.0
+open_clip_torch==2.29.0
 ultralytics>=8.0.0
 # Supports BLIP while retaining the Transformers API required by RAM++.
 transformers==4.28.1

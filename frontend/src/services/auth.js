@@ -131,3 +131,8 @@ export const logout = () => {
   localStorage.removeItem(ROLE_KEY);
   localStorage.removeItem(USER_KEY);
 };
+
+export const createUser = async (email, password, role, displayName = '') => {
+ const { request } = await import('./http.js');
+ return request('/auth/users', {method:'POST',body:{email,password,role,display_name:displayName}});
+};

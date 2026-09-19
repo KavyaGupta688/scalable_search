@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base
 import logging
 from app.core.config import get_settings
+from modules.shared.integration import connection_args, schema_name
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -9,6 +10,9 @@ settings = get_settings()
 # Engine creation
 engine = create_async_engine(
     settings.DATABASE_URL,
+    connect_args=connection_args(
+        settings.DATABASE_URL, schema_name("search"), asynchronous=True
+    ),
     echo=False,
     future=True,
 )
@@ -23,6 +27,7 @@ AsyncSessionLocal = async_sessionmaker(
 
 Base = declarative_base()
 
+
 async def get_db_session():
     async with AsyncSessionLocal() as session:
         try:
@@ -32,6 +37,7 @@ async def get_db_session():
             raise
         finally:
             await session.close()
+
 
 async def init_db():
     async with engine.begin() as conn:

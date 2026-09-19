@@ -104,15 +104,7 @@ export const AdminLoginView = ({ showToast }) => {
 
           {/* Links / Navigation */}
           <div className="flex flex-col gap-2.5 text-center text-sm text-nexus-textMuted border-t border-nexus-borderSubtle pt-4">
-            <div className="flex items-center justify-center gap-3">
-              <span>Don't have an account?</span>
-              <button
-                onClick={() => navigate('/register?role=admin')}
-                className="text-nexus-brandText hover:underline font-semibold"
-              >
-                Register New Account
-              </button>
-            </div>
+            <p>Ask an existing administrator to create an administrator account.</p>
             <div>
               Not an administrator?{' '}
               <button

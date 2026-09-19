@@ -53,9 +53,6 @@ def _create_entitlement_clock_trigger(*, include_legacy_columns: bool) -> None:
 def upgrade() -> None:
     # These tables have no model, API, worker, or migration in this module.
     # No CASCADE: unknown cross-module dependencies must fail visibly.
-    op.execute("DROP TABLE IF EXISTS async_download_jobs")
-    op.execute("DROP TABLE IF EXISTS refresh_sessions")
-    op.execute("DROP TABLE IF EXISTS users")
 
     op.drop_index("idx_documents_created_at", table_name="documents")
     op.drop_column("documents", "created_by")
@@ -67,14 +64,11 @@ def upgrade() -> None:
 
     # Source location remains on documents. The entitlement keeps only its
     # immutable opaque license_subject_id, avoiding duplicate source columns.
-    op.execute(
-        "DROP TRIGGER IF EXISTS entitlements_immutable_clock ON license_entitlements"
-    )
+    op.execute("DROP TRIGGER IF EXISTS entitlements_immutable_clock ON license_entitlements")
     op.execute("DROP FUNCTION IF EXISTS protect_entitlement_clock()")
     op.drop_index("idx_entitlements_source_asset", table_name="license_entitlements")
     op.execute(
-        "ALTER TABLE license_entitlements DROP CONSTRAINT IF EXISTS "
-        "license_entitlements_source_connector_id_fkey"
+        "ALTER TABLE license_entitlements DROP CONSTRAINT IF EXISTS license_entitlements_source_connector_id_fkey"
     )
     op.drop_column("license_entitlements", "source_connector_id")
     op.drop_column("license_entitlements", "source_asset_id")
@@ -86,14 +80,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "DROP TRIGGER IF EXISTS entitlements_immutable_clock ON license_entitlements"
-    )
+    op.execute("DROP TRIGGER IF EXISTS entitlements_immutable_clock ON license_entitlements")
     op.execute("DROP FUNCTION IF EXISTS protect_entitlement_clock()")
 
-    op.add_column(
-        "retention_events", sa.Column("actor_id", sa.Text(), nullable=True)
-    )
+    op.add_column("retention_events", sa.Column("actor_id", sa.Text(), nullable=True))
     op.add_column(
         "retention_events",
         sa.Column("correlation_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -103,9 +93,7 @@ def downgrade() -> None:
         "license_entitlements",
         sa.Column("source_connector_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
-    op.add_column(
-        "license_entitlements", sa.Column("source_asset_id", sa.Text(), nullable=True)
-    )
+    op.add_column("license_entitlements", sa.Column("source_asset_id", sa.Text(), nullable=True))
     op.add_column(
         "license_entitlements",
         sa.Column("approved_by", postgresql.UUID(as_uuid=True), nullable=True),

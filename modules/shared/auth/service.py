@@ -23,7 +23,7 @@ from modules.shared.auth.models import (
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("NEXUS_JWT_SECRET", "nexus-enterprise-secure-jwt-token-secret-key-2026-auth")
+JWT_SECRET = os.getenv("NEXUS_JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 24
 
@@ -53,6 +53,8 @@ class AuthService:
         users_file: Path = USERS_FILE,
         auth_db_file: Path = AUTH_DB_FILE,
     ) -> None:
+        if len(JWT_SECRET) < 32:
+            raise RuntimeError("NEXUS_JWT_SECRET must contain at least 32 characters")
         self._users_file = users_file
         self._auth_db_file = auth_db_file
         self._users: dict[str, UserInDB] = {}
@@ -285,10 +287,13 @@ class AuthService:
                 for uid, data in raw.items():
                     self._users[uid] = UserInDB(**data)
                 return
-            except (json.JSONDecodeError, Exception):
-                pass  # Fall through to seeding
+            except (ValueError, TypeError) as exc:
+                raise RuntimeError(
+                    "User store is invalid; refusing to replace it"
+                ) from exc
 
-        self._seed_initial_accounts()
+        if os.getenv("BOOTSTRAP_ADMIN_PASSWORD"):
+            self._seed_initial_accounts()
 
     def _seed_initial_accounts(self) -> None:
         """Create initial admin and user accounts for local installation."""
@@ -296,29 +301,18 @@ class AuthService:
 
         admin = UserInDB(
             id="usr-seed-admin-01",
-            email="admin@platform.internal",
+            email=os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@platform.internal"),
             role=UserRole.ADMIN,
             display_name="Administrator",
-            hashed_password=_hash_password("admin123"),
-            created_at=now,
-        )
-        user = UserInDB(
-            id="usr-seed-user-01",
-            email="user@platform.internal",
-            role=UserRole.USER,
-            display_name="Standard User",
-            hashed_password=_hash_password("user123"),
+            hashed_password=_hash_password(os.environ["BOOTSTRAP_ADMIN_PASSWORD"]),
             created_at=now,
         )
         self._users[admin.id] = admin
-        self._users[user.id] = user
         self._save()
 
     def _save(self) -> None:
         """Persist the user store to disk as JSON."""
-        serialized = {
-            uid: u.model_dump(mode="json") for uid, u in self._users.items()
-        }
+        serialized = {uid: u.model_dump(mode="json") for uid, u in self._users.items()}
         self._users_file.parent.mkdir(parents=True, exist_ok=True)
         self._users_file.write_text(
             json.dumps(serialized, indent=2, default=str),

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from uuid import UUID
+import os
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+from ingestion.services.source_access import open_source_stream, require_active_entitlement
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
@@ -25,6 +29,84 @@ from ingestion.services.vault import VaultService
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
+@router.get("/{document_id}/content")
+async def content(
+    document_id: UUID,
+    request: Request,
+    identity=Depends(RequirePermission("data:download")),
+    db: AsyncSession = Depends(get_async_session),
+    vault: VaultService = Depends(get_vault_service),
+):
+    asset = await db.scalar(
+        select(SourceAsset)
+        .where(SourceAsset.document_id == document_id, SourceAsset.availability_status == "available")
+        .order_by(SourceAsset.last_verified_at.desc().nullslast())
+        .limit(1)
+    )
+    if asset is None:
+        raise HTTPException(404, "No available source")
+    try:
+        await require_active_entitlement(db, asset)
+    except SourceAccessDeniedError:
+        raise HTTPException(403, "Source access is expired or inactive") from None
+    document = await db.get(Document, document_id)
+    maximum = int(os.getenv("MAX_SOURCE_BYTES", str(5 * 1024**3)))
+    if document.size_bytes > maximum:
+        raise HTTPException(413, "Source exceeds processing limit")
+    import redis.asyncio as redis
+
+    limiter = redis.from_url(os.environ["REDIS_URL"])
+    try:
+        count = await limiter.eval(
+            "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],60) end; return n",
+            1,
+            "content-rate:" + identity.sub,
+        )
+        if count > int(os.getenv("SOURCE_REQUESTS_PER_MINUTE", "120")):
+            raise HTTPException(429, "Too many source requests", headers={"Retry-After": "60"})
+    finally:
+        await limiter.aclose()
+    source = open_source_stream(db, asset, vault)
+    # Open the source before committing response headers so authorization and I/O
+    # failures are real HTTP errors, not successful but empty downloads.
+    try:
+        first = await anext(source, b"")
+    except SourceAccessDeniedError:
+        raise HTTPException(403, "Source access denied") from None
+    except Exception:
+        raise HTTPException(502, "Could not open source") from None
+    if len(first) > min(maximum, document.size_bytes):
+        await source.aclose()
+        raise HTTPException(502, "Source size changed")
+
+    async def chunks():
+        seen = len(first)
+        try:
+            if first:
+                yield first
+            async for chunk in source:
+                if await request.is_disconnected():
+                    break
+                seen += len(chunk)
+                if seen > maximum or seen > document.size_bytes:
+                    raise RuntimeError("Source changed or exceeded its declared size")
+                yield chunk
+            if not await request.is_disconnected() and seen != document.size_bytes:
+                raise RuntimeError("Source size changed")
+        finally:
+            await source.aclose()
+
+    return StreamingResponse(
+        chunks(),
+        media_type=document.mime_type,
+        headers={
+            "Content-Length": str(document.size_bytes),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 def _document_response(
     doc: Document,
     entitlement: LicenseEntitlement,
@@ -46,9 +128,11 @@ async def search_documents(
     params: DocumentSearchParams = Depends(),
     db: AsyncSession = Depends(get_async_session),
 ):
-    query = select(Document, LicenseEntitlement).join(
-        LicenseEntitlement, Document.entitlement_id == LicenseEntitlement.id
-    ).options(selectinload(Document.structured_metadata))
+    query = (
+        select(Document, LicenseEntitlement)
+        .join(LicenseEntitlement, Document.entitlement_id == LicenseEntitlement.id)
+        .options(selectinload(Document.structured_metadata))
+    )
     if params.mime_type:
         query = query.where(Document.mime_type == params.mime_type)
     if params.source_connector_id:
@@ -145,9 +229,7 @@ async def resolve_document_source(
 
     expires_in = get_settings().source_access.presigned_url_seconds
     try:
-        access_url, actual_expires_in = await generate_source_url(
-            db, asset, vault, expires_in=expires_in
-        )
+        access_url, actual_expires_in = await generate_source_url(db, asset, vault, expires_in=expires_in)
     except SourceAccessDeniedError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except Exception as exc:

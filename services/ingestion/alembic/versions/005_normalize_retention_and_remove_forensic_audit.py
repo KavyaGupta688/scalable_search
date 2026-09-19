@@ -1,4 +1,4 @@
-"""Normalize retention state and remove the unrelated forensic audit table.
+"""Normalize retention state; preserve forensic tables owned by Download.
 
 Revision ID: 005
 Revises: 004
@@ -43,10 +43,7 @@ def _create_normalized_identity_trigger() -> None:
 
 
 def upgrade() -> None:
-    # This table is not defined or consumed by the ingestion module. Do not use
-    # CASCADE: if another module has created dependencies, fail visibly instead
-    # of deleting that module's objects too.
-    op.execute("DROP TABLE IF EXISTS forensic_audit_logs")
+    # Foreign forensic/identity tables belong to other modules and remain untouched.
 
     op.execute("DROP TRIGGER IF EXISTS documents_immutable_retention ON documents")
     op.execute("DROP FUNCTION IF EXISTS protect_document_retention_identity()")
@@ -75,12 +72,8 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS protect_document_retention_identity()")
     op.drop_index("idx_documents_retention_entitlement", table_name="documents")
 
-    op.add_column(
-        "documents", sa.Column("first_successful_ingested_at", sa.DateTime(timezone=True))
-    )
-    op.add_column(
-        "documents", sa.Column("effective_expiry_at", sa.DateTime(timezone=True))
-    )
+    op.add_column("documents", sa.Column("first_successful_ingested_at", sa.DateTime(timezone=True)))
+    op.add_column("documents", sa.Column("effective_expiry_at", sa.DateTime(timezone=True)))
     op.add_column("documents", sa.Column("last_uploaded_at", sa.DateTime(timezone=True)))
     op.add_column("documents", sa.Column("deletion_method", sa.String(length=64)))
     op.add_column("documents", sa.Column("last_error_code", sa.String(length=64)))

@@ -69,6 +69,7 @@ export const App = () => {
             <Route path="ingestion" element={<IngestionView showToast={showToast} />} />
             <Route path="enrichment" element={<EnrichmentView showToast={showToast} />} />
             <Route path="audit" element={<AuditView showToast={showToast} />} />
+            <Route path="downloads" element={<UserDownloadsView showToast={showToast} />} />
             <Route path="users" element={<UserManagementView showToast={showToast} />} />
           </Route>
 

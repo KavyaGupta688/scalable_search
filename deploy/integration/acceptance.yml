@@ -1,0 +1,11 @@
+services:
+  s3-test:
+    image: smsprsm-integration-s3-test:local
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.acceptance
+    profiles: [acceptance]
+  ingestion:
+    volumes: ["../../.integration/nas:/fixtures/nas:ro"]
+  ingestion-worker:
+    volumes: ["../../.integration/nas:/fixtures/nas:ro"]

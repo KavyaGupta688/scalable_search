@@ -2,7 +2,7 @@ import { Presence } from '../components/Motion';
 import { DialogBackdrop } from '../components/DialogBackdrop';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { listUsers } from '../services/auth';
+import { listUsers, createUser } from '../services/auth';
 import {
   Users as UsersIcon,
   Plus,
@@ -18,7 +18,7 @@ import {
  * UserManagementView — Admin-only view for creating and listing user accounts.
  */
 export const UserManagementView = ({ showToast }) => {
-  const { register } = useAuth();
+  const register = createUser;
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

@@ -3,6 +3,7 @@ Layer 1 - Configuration Management
 Centralizes all settings from environment variables.
 Using Pydantic for validation ensures the application fails fast if required configurations are missing.
 """
+
 from pathlib import Path
 
 from pydantic import field_validator, model_validator
@@ -10,6 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 MODULE_ROOT = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -59,13 +61,13 @@ class Settings(BaseSettings):
 
     # Ingestion-owned canonical document table. Used only for foreign keys;
     # document/source reads go through the ingestion API.
-    SOURCE_DOCUMENT_SCHEMA: str = "public"
+    SOURCE_DOCUMENT_SCHEMA: str = "ingestion"
     SOURCE_DOCUMENT_TABLE: str = "documents"
     SOURCE_DOCUMENT_ID_COLUMN: str = "id"
 
     # Enrichment specifics
     ENRICHMENT_VERSION: str = "1.0.0"
-    QDRANT_COLLECTION_NAME: str = "file_embeddings"
+    QDRANT_COLLECTION_NAME: str = "multimodal_files"
     QDRANT_VECTOR_SIZE: int = 512
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_BASE: float = 2.0
@@ -93,6 +95,7 @@ class Settings(BaseSettings):
         if not self.EVENT_REDIS_URL:
             self.EVENT_REDIS_URL = self.REDIS_URL
         return self
+
 
 settings = Settings()
 

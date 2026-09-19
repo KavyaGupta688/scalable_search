@@ -17,10 +17,12 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from ingestion.config import get_settings
+from modules.shared.integration import connection_args, schema_name
 
 
 class Base(AsyncAttrs, DeclarativeBase):
     """Declarative base for all ORM models."""
+
     pass
 
 
@@ -35,7 +37,11 @@ def create_engine():
         pool_recycle=settings.database.pool_recycle,
         pool_timeout=30,
         pool_pre_ping=True,
-        connect_args={"timeout": 10, "command_timeout": 120},
+        connect_args={
+            "timeout": 10,
+            "command_timeout": 120,
+            **connection_args(settings.database.async_url, schema_name("ingestion"), asynchronous=True),
+        },
     )
 
 

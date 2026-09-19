@@ -7,25 +7,34 @@ These endpoints are the only public interface downstream modules
 this module's internals directly.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Query
+from modules.shared.integration import internal_user
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, desc
 from uuid import UUID
 
 from modules.ai_tag_description_generation.app.db import get_async_session
-from modules.ai_tag_description_generation.app.models import EnrichmentTask, DocumentEnrichmentMetadata
+from modules.ai_tag_description_generation.app.models import (
+    EnrichmentTask,
+    DocumentEnrichmentMetadata,
+)
 from modules.ai_tag_description_generation.app.celery_app import process_validated_file
 from modules.ai_tag_description_generation.app.event_schemas import EnrichmentRequest
-from modules.ai_tag_description_generation.app.ingestion_client import IngestionAccessError, get_document
+from modules.ai_tag_description_generation.app.ingestion_client import (
+    IngestionAccessError,
+    get_document,
+)
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(internal_user("ai", "ai:manage"))])
 
 
 @router.get("/health/queue")
 def queue_health() -> dict:
     """Verify the Redis connections used by Celery and event publication."""
-    from modules.ai_tag_description_generation.app.redis_client import check_redis_connections
+    from modules.ai_tag_description_generation.app.redis_client import (
+        check_redis_connections,
+    )
 
     try:
         status = check_redis_connections()
@@ -36,7 +45,9 @@ def queue_health() -> dict:
         ) from exc
 
     if not status.healthy:
-        raise HTTPException(status_code=503, detail="One or more Redis roles are unavailable")
+        raise HTTPException(
+            status_code=503, detail="One or more Redis roles are unavailable"
+        )
     return {
         "status": "ok",
         "broker": "connected",
@@ -60,7 +71,9 @@ async def start_enrichment(request: EnrichmentRequest) -> dict:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     async with get_async_session() as session:
-        result = await session.execute(select(EnrichmentTask).filter_by(document_id=document_id))
+        result = await session.execute(
+            select(EnrichmentTask).filter_by(document_id=document_id)
+        )
         task_record = result.scalars().first()
         if task_record is None:
             task_record = EnrichmentTask(
@@ -87,13 +100,19 @@ async def start_enrichment(request: EnrichmentRequest) -> dict:
         task = await run_in_threadpool(process_validated_file.delay, document_id)
     except Exception as exc:
         async with get_async_session() as session:
-            result = await session.execute(select(EnrichmentTask).filter_by(document_id=document_id))
+            result = await session.execute(
+                select(EnrichmentTask).filter_by(document_id=document_id)
+            )
             task_record = result.scalars().first()
             if task_record:
                 task_record.status = "queue_failed"
-                task_record.error_message = f"Queue dispatch failed: {type(exc).__name__}"
+                task_record.error_message = (
+                    f"Queue dispatch failed: {type(exc).__name__}"
+                )
                 await session.commit()
-        raise HTTPException(status_code=503, detail="Unable to queue enrichment task") from exc
+        raise HTTPException(
+            status_code=503, detail="Unable to queue enrichment task"
+        ) from exc
     return {
         "task_id": task.id,
         "document_id": document_id,
@@ -142,7 +161,9 @@ async def get_metadata(document_id: UUID) -> dict:
     return {
         "id": metadata_record.id,
         "document_id": str(metadata_record.document_id),
-        "source_asset_id": str(metadata_record.source_asset_id) if metadata_record.source_asset_id else None,
+        "source_asset_id": str(metadata_record.source_asset_id)
+        if metadata_record.source_asset_id
+        else None,
         "run_id": str(metadata_record.run_id) if metadata_record.run_id else None,
         "model_version": metadata_record.model_version,
         "enrichment_version": metadata_record.enrichment_version,
@@ -160,7 +181,9 @@ async def get_metadata(document_id: UUID) -> dict:
         "restricted_metadata": metadata_record.restricted_metadata,
         "model_versions": metadata_record.model_versions,
         "status": metadata_record.status,
-        "created_at": str(metadata_record.created_at) if metadata_record.created_at else None,
+        "created_at": str(metadata_record.created_at)
+        if metadata_record.created_at
+        else None,
     }
 
 
@@ -183,7 +206,12 @@ async def retry_task(document_id: UUID) -> dict:
         if not task_record:
             raise HTTPException(status_code=404, detail="Enrichment task not found")
 
-        if task_record.status not in ("failed_terminal", "needs_review", "partial", "queue_failed"):
+        if task_record.status not in (
+            "failed_terminal",
+            "needs_review",
+            "partial",
+            "queue_failed",
+        ):
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -202,16 +230,53 @@ async def retry_task(document_id: UUID) -> dict:
         celery_task = await run_in_threadpool(process_validated_file.delay, document_id)
     except Exception as exc:
         async with get_async_session() as session:
-            result = await session.execute(select(EnrichmentTask).filter_by(document_id=document_id))
+            result = await session.execute(
+                select(EnrichmentTask).filter_by(document_id=document_id)
+            )
             task_record = result.scalars().first()
             if task_record:
                 task_record.status = "queue_failed"
-                task_record.error_message = f"Queue dispatch failed: {type(exc).__name__}"
+                task_record.error_message = (
+                    f"Queue dispatch failed: {type(exc).__name__}"
+                )
                 await session.commit()
-        raise HTTPException(status_code=503, detail="Unable to queue enrichment retry") from exc
+        raise HTTPException(
+            status_code=503, detail="Unable to queue enrichment retry"
+        ) from exc
 
     return {
         "document_id": document_id,
         "status": "queued",
         "task_id": celery_task.id,
     }
+
+
+@router.get("/tasks")
+async def tasks(limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0)):
+    from sqlalchemy import func
+
+    async with get_async_session() as session:
+        total = await session.scalar(select(func.count()).select_from(EnrichmentTask))
+        rows = (
+            await session.scalars(
+                select(EnrichmentTask)
+                .order_by(EnrichmentTask.updated_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        ).all()
+        return {
+            "total": total,
+            "tasks": [
+                {
+                    "document_id": r.document_id,
+                    "status": r.status,
+                    "stage": r.current_stage,
+                    "error": r.error_message,
+                    "updated_at": r.updated_at,
+                    "mime_type": r.mime_type,
+                    "run_id": r.run_id,
+                }
+                for r in rows
+            ],
+        }

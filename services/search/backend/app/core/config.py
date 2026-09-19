@@ -3,6 +3,7 @@ from typing import Optional
 from functools import lru_cache
 import os
 
+
 class Settings(BaseSettings):
     APP_NAME: str = "Multimodal Search API"
     APP_ENV: str = "development"
@@ -19,7 +20,7 @@ class Settings(BaseSettings):
     QDRANT_GRPC_PORT: int = 6334
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str = "multimodal_files"
-    QDRANT_EMBEDDED: bool = True
+    QDRANT_EMBEDDED: bool = False
     QDRANT_STORAGE_PATH: str = "./qdrant_storage"
 
     # Redis Cache
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: Optional[str] = None
-    REDIS_FALLBACK_MEMORY: bool = True
+    REDIS_FALLBACK_MEMORY: bool = False
 
     # Search & RRF Algorithm settings
     RRF_K: int = 60
@@ -45,10 +46,9 @@ class Settings(BaseSettings):
     AUTH_SECRET_KEY: str = "multimodal-search-secure-jwt-secret-key-2025"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+
 
 @lru_cache()
 def get_settings() -> Settings:

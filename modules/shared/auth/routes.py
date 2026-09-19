@@ -1,6 +1,6 @@
 """Auth API routes — login, register, profile, and user listing."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from modules.shared.auth.dependencies import (
     get_auth_service,
@@ -25,11 +25,15 @@ router = APIRouter()
 @router.post("/login", response_model=LoginResponse)
 def login(
     request: LoginRequest,
+    http_request: Request,
     auth: AuthService = Depends(get_auth_service),
 ) -> LoginResponse:
     """Authenticate a user and return a signed JWT."""
     try:
-        return auth.authenticate(request.email, request.password, request.role)
+        result = auth.authenticate(request.email, request.password, request.role)
+        claims = auth.decode_token(result.access_token)
+        http_request.state.auth_actor = (claims["sub"], claims["role"])
+        return result
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,6 +73,10 @@ def register(
     auth: AuthService = Depends(get_auth_service),
 ) -> UserResponse:
     """Create a new user account."""
+    if request.role != "user":
+        raise HTTPException(
+            403, "Administrator accounts must be created by an administrator"
+        )
     try:
         return auth.register(request)
     except ValueError as exc:
@@ -98,3 +106,15 @@ def list_users(
     """List all registered users (admin only)."""
     users = auth.list_users()
     return UsersListResponse(users=users, total=len(users))
+
+
+@router.post("/users", response_model=UserResponse)
+def create_user(
+    request: RegisterRequest,
+    _admin: UserInDB = Depends(require_admin),
+    auth: AuthService = Depends(get_auth_service),
+):
+    try:
+        return auth.register(request)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc

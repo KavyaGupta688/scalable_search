@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from ingestion.config import get_settings
+from modules.shared.integration import connection_args, schema_name
 from ingestion.models import Base
 
 config = context.config
@@ -16,7 +17,7 @@ if config.config_file_name is not None:
 
 # Dynamically set the database URL from settings
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database.async_url)
+config.set_main_option("sqlalchemy.url", settings.database.async_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
@@ -45,6 +46,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connection_args(settings.database.async_url, schema_name("ingestion"), asynchronous=True),
     )
 
     async with connectable.connect() as connection:

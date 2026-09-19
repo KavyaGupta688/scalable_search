@@ -5,10 +5,12 @@ Loads DATABASE_URL_SYNC from the .env file and configures Alembic to use
 the AI module's SQLAlchemy metadata. The ingestion source table is external
 and is referenced only by revision 002's database-level foreign key.
 """
+
 import os
 from logging.config import fileConfig
 
 from alembic import context
+from modules.shared.integration import connection_args, schema_name
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
@@ -68,6 +70,7 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connection_args(database_url, schema_name("enrichment")),
     )
 
     with connectable.connect() as connection:

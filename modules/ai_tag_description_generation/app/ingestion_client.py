@@ -38,10 +38,9 @@ class IngestionDocument:
 
 
 def _headers() -> dict[str, str]:
-    headers = {"Accept": "application/json"}
-    if settings.INGESTION_API_TOKEN:
-        headers["Authorization"] = f"Bearer {settings.INGESTION_API_TOKEN}"
-    return headers
+    from modules.shared.integration import service_headers
+
+    return service_headers("ingestion", ["data:read", "data:download"], "ai-worker")
 
 
 def _url(path: str) -> str:
@@ -54,24 +53,34 @@ def _raise_for_status(response: httpx.Response, action: str) -> None:
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status in (401, 403, 410):
-            raise IngestionAccessError(f"Ingestion denied {action} (HTTP {status})") from exc
-        raise IngestionAccessError(f"Ingestion could not {action} (HTTP {status})") from exc
+            raise IngestionAccessError(
+                f"Ingestion denied {action} (HTTP {status})"
+            ) from exc
+        raise IngestionAccessError(
+            f"Ingestion could not {action} (HTTP {status})"
+        ) from exc
 
 
-def _metadata_from_document(payload: dict[str, Any], source_asset_id: str | None) -> dict[str, Any]:
+def _metadata_from_document(
+    payload: dict[str, Any], source_asset_id: str | None
+) -> dict[str, Any]:
     candidates = payload.get("metadata") or payload.get("document_metadata") or []
     if isinstance(candidates, dict):
         return candidates
     if isinstance(candidates, list):
         for item in candidates:
-            if isinstance(item, dict) and str(item.get("source_asset_id")) == str(source_asset_id):
+            if isinstance(item, dict) and str(item.get("source_asset_id")) == str(
+                source_asset_id
+            ):
                 return item
         if candidates and isinstance(candidates[0], dict):
             return candidates[0]
     return {}
 
 
-def get_document(document_id: str, *, source_asset_id: str | None = None) -> IngestionDocument:
+def get_document(
+    document_id: str, *, source_asset_id: str | None = None
+) -> IngestionDocument:
     """Read current canonical metadata without querying ingestion-owned tables."""
     normalized = str(UUID(document_id))
     with httpx.Client(timeout=settings.INGESTION_REQUEST_TIMEOUT_SECONDS) as client:
@@ -79,6 +88,9 @@ def get_document(document_id: str, *, source_asset_id: str | None = None) -> Ing
     _raise_for_status(response, "read document metadata")
     payload = response.json()
     entitlement = payload.get("entitlement") or {}
+    candidates = payload.get("metadata") or []
+    if not source_asset_id and isinstance(candidates, list) and candidates:
+        source_asset_id = candidates[0].get("source_asset_id")
     source = payload.get("source_asset") or {}
     return IngestionDocument(
         document_id=normalized,
@@ -88,7 +100,7 @@ def get_document(document_id: str, *, source_asset_id: str | None = None) -> Ing
         source_asset_id=source_asset_id or source.get("id"),
         entitlement_id=payload.get("entitlement_id") or entitlement.get("id"),
         source_type=source.get("source_type"),
-        source_ref=source.get("source_ref"),
+        source_ref=source.get("source_ref") or payload.get("source_ref"),
         metadata=_metadata_from_document(payload, source_asset_id),
     )
 
@@ -110,12 +122,16 @@ def document_from_event(event: Any) -> IngestionDocument:
     )
 
 
-def _download_url(source: dict[str, Any], document_id: str) -> tuple[str, dict[str, str]]:
+def _download_url(
+    source: dict[str, Any], document_id: str
+) -> tuple[str, dict[str, str]]:
     mode = source.get("access_mode")
     if mode == "presigned_url":
         access_url = source.get("access_url")
         if not access_url:
-            raise IngestionAccessError("Ingestion returned presigned_url without access_url")
+            raise IngestionAccessError(
+                "Ingestion returned presigned_url without access_url"
+            )
         return str(access_url), {}
     if mode == "connector_stream":
         path = settings.INGESTION_CONTENT_PATH_TEMPLATE.format(document_id=document_id)
@@ -137,7 +153,9 @@ def materialize_document(document: IngestionDocument) -> Iterator[str]:
             headers=_headers(),
         )
     _raise_for_status(response, "resolve document source")
-    download_url, download_headers = _download_url(response.json(), document.document_id)
+    download_url, download_headers = _download_url(
+        response.json(), document.document_id
+    )
 
     suffix = Path(document.source_ref or "").suffix
     temporary_file = NamedTemporaryFile(suffix=suffix, delete=False)
@@ -154,7 +172,9 @@ def materialize_document(document: IngestionDocument) -> Iterator[str]:
                     for chunk in stream.iter_bytes():
                         observed_size += len(chunk)
                         if observed_size > settings.MAX_SOURCE_BYTES:
-                            raise SourceIntegrityError("Source exceeded MAX_SOURCE_BYTES while streaming")
+                            raise SourceIntegrityError(
+                                "Source exceeded MAX_SOURCE_BYTES while streaming"
+                            )
                         digest.update(chunk)
                         destination.write(chunk)
 
@@ -162,8 +182,13 @@ def materialize_document(document: IngestionDocument) -> Iterator[str]:
             raise SourceIntegrityError(
                 f"Source size mismatch: expected {document.size_bytes}, received {observed_size}"
             )
-        if document.checksum_sha256 and digest.hexdigest().lower() != document.checksum_sha256.lower():
-            raise SourceIntegrityError("Source SHA-256 does not match the ingestion record")
+        if (
+            document.checksum_sha256
+            and digest.hexdigest().lower() != document.checksum_sha256.lower()
+        ):
+            raise SourceIntegrityError(
+                "Source SHA-256 does not match the ingestion record"
+            )
         yield str(temporary_path)
     finally:
         temporary_path.unlink(missing_ok=True)

@@ -9,12 +9,7 @@ router = APIRouter(tags=["Health"])
 
 @router.get("/health")
 async def health_check():
-    checks = {"postgres": "ok", "source_connectors": "configured", "vault": "ok", "kafka": "ok"}
-
-    is_healthy = all(v == "ok" for v in checks.values())
-    status = "healthy" if is_healthy else "degraded"
-
-    return {"status": status, "checks": checks}
+    return {"status": "ok"}
 
 
 @router.get("/metrics", response_class=PlainTextResponse)

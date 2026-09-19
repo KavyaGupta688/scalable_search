@@ -73,8 +73,7 @@ class S3ConnectorFields(BaseModel):
                 raise ValueError("role_arn is required for aws_assume_role")
             if self.access_key or self.secret_key:
                 raise ValueError(
-                    "Do not send vendor access keys with aws_assume_role; "
-                    "use the workload's AWS credential chain"
+                    "Do not send vendor access keys with aws_assume_role; use the workload's AWS credential chain"
                 )
         return self
 
@@ -115,12 +114,8 @@ class S3AuthenticationUpdate(BaseModel):
 class NASConnectorFields(BaseModel):
     """NAS-specific connector configuration fields."""
 
-    protocol: Literal["SMB", "NFS"] = Field(
-        ..., description="NAS protocol: SMB or NFS"
-    )
-    mount_path: str = Field(
-        ..., description="Share path (e.g., '\\\\server\\share' for SMB, 'server:/path' for NFS)"
-    )
+    protocol: Literal["SMB", "NFS"] = Field(..., description="NAS protocol: SMB or NFS")
+    mount_path: str = Field(..., description="Share path (e.g., '\\\\server\\share' for SMB, 'server:/path' for NFS)")
     username: Optional[str] = Field(None, description="NAS username")
     password: Optional[str] = Field(None, description="NAS password")
     domain: Optional[str] = Field(None, description="SMB domain (optional)")
@@ -140,19 +135,13 @@ class ConnectorCreate(BaseModel):
         max_length=255,
         description="Human-readable connector name",
     )
-    source_type: Literal["S3", "NAS_SMB", "NAS_NFS"] = Field(
-        ..., description="Source type"
-    )
+    source_type: Literal["S3", "NAS_SMB", "NAS_NFS"] = Field(..., description="Source type")
 
     # S3 fields (required when source_type == 'S3')
-    s3: Optional[S3ConnectorFields] = Field(
-        None, description="S3-specific configuration"
-    )
+    s3: Optional[S3ConnectorFields] = Field(None, description="S3-specific configuration")
 
     # NAS fields (required when source_type in ('NAS_SMB', 'NAS_NFS'))
-    nas: Optional[NASConnectorFields] = Field(
-        None, description="NAS-specific configuration"
-    )
+    nas: Optional[NASConnectorFields] = Field(None, description="NAS-specific configuration")
 
     @model_validator(mode="after")
     def validate_source_configuration(self):
@@ -160,22 +149,19 @@ class ConnectorCreate(BaseModel):
         if self.source_type == "S3" and self.s3 is None:
             raise ValueError("S3 configuration is required when source_type is 'S3'")
         if self.source_type in ("NAS_SMB", "NAS_NFS") and self.nas is None:
-            raise ValueError(
-                "NAS configuration is required when source_type is 'NAS_SMB' or 'NAS_NFS'"
-            )
+            raise ValueError("NAS configuration is required when source_type is 'NAS_SMB' or 'NAS_NFS'")
         if self.source_type == "S3" and self.nas is not None:
             raise ValueError("NAS configuration cannot be supplied for an S3 connector")
         if self.source_type != "S3" and self.s3 is not None:
             raise ValueError("S3 configuration cannot be supplied for a NAS connector")
         expected_protocol = {"NAS_SMB": "SMB", "NAS_NFS": "NFS"}.get(self.source_type)
         if self.nas is not None and expected_protocol and self.nas.protocol != expected_protocol:
-            raise ValueError(
-                f"nas.protocol must be '{expected_protocol}' when source_type is '{self.source_type}'"
-            )
+            raise ValueError(f"nas.protocol must be '{expected_protocol}' when source_type is '{self.source_type}'")
         return self
 
 
 class ConnectorResponse(BaseModel):
+    archived_at: datetime | None = None
     """Response schema for connector details. Never includes raw secrets."""
 
     model_config = ConfigDict(from_attributes=True)

@@ -16,12 +16,12 @@ export const SearchResultCard = ({
 }) => {
   const reduced = useReducedMotion();
   const fileId = result.file_id || result.id || '';
-  const filename = result.name || result.filename || 'Untitled';
-  const modality = result.content_type || result.modality || 'document';
+  const filename = result.title || result.file_name || result.name || result.filename || 'Untitled';
+  const modality = result.file_type || result.content_type || result.modality || 'document';
   const description = result.description || result.aiDescription || '';
   const PreviewIcon = ({image:FileImage,video:FileVideo,audio:FileAudio,document:FileText,tabular:Table2})[modality] || FileText;
   const tags = result.tags || [];
-  const score = result.score != null ? Math.round(result.score * 100) : null;
+  const score = result.score_info?.rrf_score?.toFixed(4) ?? null;
 
   return (
     <m.div
@@ -44,7 +44,7 @@ export const SearchResultCard = ({
         <div className="flex items-center gap-2">
           {score != null && (
             <span className="text-sm font-mono font-bold text-nexus-brandText bg-nexus-brandSubtle border border-nexus-border px-1.5 py-0.5 rounded-xs">
-              {score}% match
+              Relevance {score}
             </span>
           )}
 

@@ -8,9 +8,10 @@ Credentials are NEVER stored here — only a Vault path reference.
 from __future__ import annotations
 
 import enum
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import BigInteger, CheckConstraint, Enum, Integer, String, Text
+from sqlalchemy import DateTime, BigInteger, CheckConstraint, Enum, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +43,7 @@ class Connector(Base):
     """
 
     __tablename__ = "connectors"
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -64,30 +66,18 @@ class Connector(Base):
     # S3-specific fields (nullable for NAS connectors)
     endpoint_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     bucket: Mapped[str | None] = mapped_column(Text, nullable=True)
-    addressing_style: Mapped[str | None] = mapped_column(
-        String(10), nullable=True
-    )  # 'path' or 'virtual'
-    signature_version: Mapped[str | None] = mapped_column(
-        String(10), nullable=True
-    )  # 's3v4' or 's3' (SigV2)
-    s3_auth_mode: Mapped[str | None] = mapped_column(
-        String(32), nullable=True, default="static_keys"
-    )
+    addressing_style: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'path' or 'virtual'
+    signature_version: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 's3v4' or 's3' (SigV2)
+    s3_auth_mode: Mapped[str | None] = mapped_column(String(32), nullable=True, default="static_keys")
     s3_role_arn: Mapped[str | None] = mapped_column(Text, nullable=True)
-    s3_session_duration_seconds: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, default=3600
-    )
+    s3_session_duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True, default=3600)
     # Enumeration scope.  A prefix and maximum object count make it possible
     # to run a bounded test without accidentally walking an entire bucket.
     # ``max_objects=None`` means the connector is allowed to scan the whole
     # configured prefix (the production default).
     s3_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
-    enumeration_max_objects: Mapped[int | None] = mapped_column(
-        BigInteger, nullable=True
-    )
-    enumeration_page_size: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )
+    enumeration_max_objects: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    enumeration_page_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # NAS-specific fields (nullable for S3 connectors)
     mount_path: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -125,14 +115,10 @@ class Connector(Base):
             name="ck_connectors_s3_auth_mode",
         ),
         CheckConstraint(
-            "s3_session_duration_seconds IS NULL OR "
-            "s3_session_duration_seconds BETWEEN 900 AND 43200",
+            "s3_session_duration_seconds IS NULL OR s3_session_duration_seconds BETWEEN 900 AND 43200",
             name="ck_connectors_s3_session_duration",
         ),
     )
 
     def __repr__(self) -> str:
-        return (
-            f"<Connector(id={self.id}, name='{self.name}', "
-            f"type={self.source_type}, status={self.status})>"
-        )
+        return f"<Connector(id={self.id}, name='{self.name}', type={self.source_type}, status={self.status})>"

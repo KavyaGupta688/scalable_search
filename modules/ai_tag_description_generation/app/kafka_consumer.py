@@ -9,8 +9,12 @@ from typing import Any
 from pydantic import ValidationError
 
 from modules.ai_tag_description_generation.app.config import settings
-from modules.ai_tag_description_generation.app.event_schemas import IngestionDocumentEvent
-from modules.ai_tag_description_generation.app.ingestion_client import document_from_event
+from modules.ai_tag_description_generation.app.event_schemas import (
+    IngestionDocumentEvent,
+)
+from modules.ai_tag_description_generation.app.ingestion_client import (
+    document_from_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +44,22 @@ def _event_payload(value: Any) -> dict[str, Any]:
 def run() -> None:
     """Process one partition message at a time and commit only after DB success."""
     from kafka import KafkaConsumer, KafkaProducer
-    from modules.ai_tag_description_generation.app.celery_app import process_ingestion_document
+    from modules.ai_tag_description_generation.app.celery_app import (
+        process_ingestion_document,
+    )
 
-    bootstrap_servers = [item.strip() for item in settings.KAFKA_BOOTSTRAP_SERVERS.split(",") if item.strip()]
+    bootstrap_servers = [
+        item.strip()
+        for item in settings.KAFKA_BOOTSTRAP_SERVERS.split(",")
+        if item.strip()
+    ]
     consumer = KafkaConsumer(
         settings.KAFKA_AI_TOPIC,
         bootstrap_servers=bootstrap_servers,
         group_id=settings.KAFKA_AI_GROUP_ID,
         enable_auto_commit=False,
         auto_offset_reset="earliest",
-        value_deserializer=lambda raw: json.loads(raw.decode("utf-8")),
+        value_deserializer=lambda raw: raw,
         max_poll_records=1,
         max_poll_interval_ms=settings.KAFKA_MAX_POLL_INTERVAL_MS,
         **_kafka_security(),
@@ -67,10 +77,21 @@ def run() -> None:
     )
     for message in consumer:
         try:
-            raw_payload = _event_payload(message.value)
+            raw_payload = _event_payload(json.loads(message.value.decode("utf-8")))
             event = IngestionDocumentEvent.model_validate(raw_payload)
-        except (ValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            logger.error("Rejecting invalid ingestion event at %s:%s: %s", message.partition, message.offset, exc)
+        except (
+            ValidationError,
+            ValueError,
+            TypeError,
+            json.JSONDecodeError,
+            UnicodeDecodeError,
+        ) as exc:
+            logger.error(
+                "Rejecting invalid ingestion event at %s:%s: %s",
+                message.partition,
+                message.offset,
+                exc,
+            )
             producer.send(
                 settings.KAFKA_AI_DLQ_TOPIC,
                 {
@@ -87,7 +108,12 @@ def run() -> None:
         document = document_from_event(event)
         try:
             status = process_ingestion_document(document)
-            if status == "skipped":
+            if status not in (
+                "completed",
+                "partial",
+                "needs_review",
+                "failed_terminal",
+            ):
                 raise RuntimeError("Document is locked by another worker")
             consumer.commit()
             logger.info(
@@ -96,6 +122,36 @@ def run() -> None:
                 status,
             )
         except Exception:
+            from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import (
+                increment_retry_count,
+                transition_status,
+            )
+            from modules.ai_tag_description_generation.app.db import get_sync_session
+            from modules.ai_tag_description_generation.app.models import EnrichmentTask
+
+            increment_retry_count(document.document_id)
+            with get_sync_session() as session:
+                task = session.get(EnrichmentTask, document.document_id)
+                exhausted = (
+                    task is not None and task.retry_count >= settings.MAX_RETRIES
+                )
+            if exhausted:
+                transition_status(
+                    document.document_id,
+                    "failed_terminal",
+                    error_message="Kafka processing retry limit reached",
+                )
+                producer.send(
+                    settings.KAFKA_AI_DLQ_TOPIC,
+                    {
+                        "reason": "processing_retry_exhausted",
+                        "document_id": document.document_id,
+                        "source_partition": message.partition,
+                        "source_offset": message.offset,
+                    },
+                ).get(timeout=30)
+                consumer.commit()
+                continue
             logger.exception(
                 "Processing failed for document %s; Kafka offset remains uncommitted",
                 document.document_id,

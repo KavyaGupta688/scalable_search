@@ -5,11 +5,15 @@ import { ArrowRight, Download, Eye, FileText, Image, Music, Search, Table2, Vide
 import { Brand, Button } from '../components/DesignSystem';
 import { DialogBackdrop } from '../components/DialogBackdrop';
 import { useAuth } from '../contexts/AuthContext';
-import { initialMockData } from '../services/mockData';
-
 const modalityIcons = { image: Image, video: Video, document: FileText, audio: Music, tabular: Table2 };
-const heroRecords = ['image', 'document', 'tabular', 'video', 'audio'].map((type) => initialMockData.documents.find((doc) => doc.modality === type));
-const popularRecords = [...heroRecords.slice(3), ...heroRecords.slice(0, 3), initialMockData.documents.find((doc) => doc.modality === 'image' && doc.id !== heroRecords[0].id)].filter(Boolean);
+const heroRecords = [
+ ['image','Images','Discover visual content with semantic descriptions.'],
+ ['document','Documents','Find text, summaries and extracted information.'],
+ ['tabular','Tables','Explore structured CSV data from connected sources.'],
+ ['video','Video','Search enriched video content.'],
+ ['audio','Audio','Discover audio through transcriptions and descriptions.'],
+].map(([modality,filename,description])=>({id:modality,modality,filename,canonicalCaption:description,aiDescription:description,tags:[],fileSize:'Supported content'}));
+const popularRecords = heroRecords;
 
 function RotatingDatasets({ records, compact = false, onPreview, suspended }) {
   const [offset, setOffset] = useState(0);
@@ -21,7 +25,7 @@ function RotatingDatasets({ records, compact = false, onPreview, suspended }) {
   const cardAnimationsRef = useRef([]);
   const [layout, setLayout] = useState({ step: 0, visible: 3 });
   const [reducedMotion, setReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const label = compact ? 'sample' : 'popular';
+  const label = 'supported content';
 
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -114,8 +118,8 @@ function DatasetCard({ doc, onPreview, compact = false }) {
         <p className="dataset-meta"><span>{doc.modality === 'tabular' ? 'Table' : doc.modality}</span><span aria-hidden="true">·</span>{doc.fileSize}</p>
         {!compact && <p className="dataset-description">{doc.canonicalCaption}</p>}
       </div>
-      <button type="button" className="dataset-preview-link" onClick={() => onPreview(doc)} aria-label={`Preview ${doc.filename}`} title={`Preview ${doc.filename}`}>
-        <Eye size={17} aria-hidden="true" /><span>Preview</span>
+      <button type="button" className="dataset-preview-link" onClick={() => onPreview(doc)} aria-label={`About ${doc.filename}`} title={`About ${doc.filename}`}>
+        <Eye size={17} aria-hidden="true" /><span>Learn more</span>
       </button>
     </article>
   );
@@ -127,7 +131,7 @@ function DatasetPreview({ doc, onClose }) {
   return (
     <DialogBackdrop onClose={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="nx-panel landing-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="dataset-preview-title" tabIndex={-1}>
-        <header><span className="panel-title">Dataset preview</span><button type="button" className="icon-button" onClick={onClose} aria-label="Close preview"><X size={20} /></button></header>
+        <header><span className="panel-title">Supported content</span><button type="button" className="icon-button" onClick={onClose} aria-label="Close preview"><X size={20} /></button></header>
         <div className="preview-file-heading">
           <span className={`dataset-file-icon dataset-file-icon--${doc.modality}`}><Icon size={30} aria-hidden="true" /></span>
           <h2 id="dataset-preview-title">{doc.filename}</h2>
@@ -176,7 +180,7 @@ export const LandingView = () => {
         </Reveal>
 
         <Reveal id="popular-datasets" className="landing-popular" aria-labelledby="popular-title">
-          <div className="landing-section-heading"><h2 id="popular-title">Popular datasets</h2><Link to={searchPath}>Browse catalog <ArrowRight size={17} aria-hidden="true" /></Link></div>
+          <div className="landing-section-heading"><h2 id="popular-title">Explore content types</h2><Link to={searchPath}>Browse catalog <ArrowRight size={17} aria-hidden="true" /></Link></div>
           <RotatingDatasets records={popularRecords} onPreview={setPreviewDoc} suspended={Boolean(previewDoc)} />
         </Reveal>
 

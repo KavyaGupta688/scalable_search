@@ -1,14 +1,12 @@
 """
-Publish AI processing events to Kafka for downstream consumers.
+Enqueue AI processing events in the document transaction.
 
-After a document is successfully ingested, an event is published to the
-ai-processing-events topic so downstream AI tagging/embedding pipelines
-can pick it up.
+A separate outbox worker publishes committed records to Kafka. A rollback
+therefore cannot expose unfinished documents to downstream processing.
 """
 
 from __future__ import annotations
 
-import json
 from uuid import UUID
 
 from ingestion.config import KafkaSettings
@@ -25,13 +23,13 @@ async def publish_ai_processing_event(
     settings: KafkaSettings,
     structured_metadata: StructuredSourceMetadata | None = None,
     run_id: UUID | None = None,
+    session=None,
 ) -> None:
     """
-    Publish an AI processing event for a newly ingested document.
+    Persist an AI event atomically with the newly ingested document.
 
-    Uses confluent-kafka Producer.produce() (not kafka-python's send_and_wait).
+    The producer argument remains for worker-call compatibility; it is not used.
     """
-    topic = settings.ai_processing_topic
 
     event = {
         "run_id": str(run_id) if run_id else None,
@@ -55,23 +53,8 @@ async def publish_ai_processing_event(
         "metadata": structured_metadata.to_event_dict() if structured_metadata else None,
     }
 
-    try:
-        producer.produce(
-            topic,
-            key=str(metadata.id).encode("utf-8"),
-            value=json.dumps(event).encode("utf-8"),
-        )
-        producer.poll(0)  # Trigger delivery callbacks
-        logger.info(
-            f"Published AI processing event for document {metadata.id}",
-            extra={
-                "document_id": str(metadata.id),
-                "topic": topic,
-            },
-        )
-    except Exception as e:
-        logger.error(
-            f"Failed to publish AI processing event: {e}",
-            extra={"document_id": str(metadata.id)},
-        )
-        raise
+    if session is None:
+        raise RuntimeError("AI events require the ingestion transaction")
+    from modules.shared.delivery import enqueue_async
+
+    await enqueue_async(session, "ingested:" + str(metadata.id), "ai-processing", event)

@@ -125,9 +125,7 @@ async def process_job(
 
     def record_stage(stage: str, seconds: float) -> None:
         stage_seconds[stage] = stage_seconds.get(stage, 0.0) + seconds
-        METRICS.PROCESSING_DURATION_SECONDS.labels(
-            source_type=job.source_type, stage=stage
-        ).observe(seconds)
+        METRICS.PROCESSING_DURATION_SECONDS.labels(source_type=job.source_type, stage=stage).observe(seconds)
 
     settings = get_settings()
     now = datetime.now(UTC)
@@ -233,9 +231,7 @@ async def process_job(
         if locked_asset is not None:
             current_asset = locked_asset
         existing_entitlement = await find_entitlement(session, checksum)
-        existing_doc = await session.scalar(
-            select(Document).where(Document.checksum_sha256 == checksum)
-        )
+        existing_doc = await session.scalar(select(Document).where(Document.checksum_sha256 == checksum))
         record_stage("postgresql_read", time.perf_counter() - db_started)
 
         if current_asset is not None:
@@ -316,14 +312,14 @@ async def process_job(
         await session.flush()
         record_stage("postgresql_write", time.perf_counter() - write_started)
 
-        if producer:
-            await publish_ai_processing_event(
-                producer,
-                document_metadata,
-                settings.kafka,
-                structured_metadata=structured_metadata,
-                run_id=job.run_id,
-            )
+        await publish_ai_processing_event(
+            producer,
+            document_metadata,
+            settings.kafka,
+            structured_metadata=structured_metadata,
+            run_id=job.run_id,
+            session=session,
+        )
 
         duration = time.perf_counter() - started
         record_stage("total", duration)
@@ -338,9 +334,7 @@ async def process_job(
                     "run_id": str(job.run_id) if job.run_id else None,
                     "document_id": str(document.id),
                     "source_asset_id": str(source_asset_id),
-                    "stage_seconds": {
-                        key: round(value, 6) for key, value in stage_seconds.items()
-                    },
+                    "stage_seconds": {key: round(value, 6) for key, value in stage_seconds.items()},
                     "total_seconds": round(duration, 6),
                 },
             },

@@ -3,6 +3,7 @@ Configuration module for the Download & Metadata Watermarking Gateway.
 Supports environment variables, AWS S3, AWS RDS PostgreSQL / Aurora,
 Celery/Redis background task queuing, and PostgreSQL enterprise database integration.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -22,20 +23,31 @@ if env_file.exists():
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 key, val = line.split("=", 1)
-                os.environ[key.strip()] = val.strip().strip("'\"")
+                os.environ.setdefault(key.strip(), val.strip().strip("'\""))
 
 # Cryptographic Secret for HMAC-SHA256 Signatures
-HMAC_SECRET_KEY = os.getenv("WATERMARK_SECRET_KEY", "ENTERPRISE_SECURE_HMAC_KEY_2026_AGY")
+HMAC_SECRET_KEY = os.getenv(
+    "WATERMARK_SECRET_KEY", "ENTERPRISE_SECURE_HMAC_KEY_2026_AGY"
+)
 
 # Explicit opt-in: native JPEG coefficient watermark plus existing metadata.
 # Other formats retain their existing metadata behavior.
 JPEG_CODEC_WATERMARK = os.getenv("JPEG_CODEC_WATERMARK", "false").lower() == "true"
-LOSSLESS_SIGNAL_WATERMARK = os.getenv("LOSSLESS_SIGNAL_WATERMARK", "false").lower() == "true"
+LOSSLESS_SIGNAL_WATERMARK = (
+    os.getenv("LOSSLESS_SIGNAL_WATERMARK", "false").lower() == "true"
+)
 NATIVE_AUDIO_WATERMARK = os.getenv("NATIVE_AUDIO_WATERMARK", "false").lower() == "true"
 NATIVE_VIDEO_WATERMARK = os.getenv("NATIVE_VIDEO_WATERMARK", "false").lower() == "true"
 CODEC_WATERMARK_SECRET = os.getenv("CODEC_WATERMARK_SECRET", "")
-if (JPEG_CODEC_WATERMARK or LOSSLESS_SIGNAL_WATERMARK or NATIVE_AUDIO_WATERMARK or NATIVE_VIDEO_WATERMARK) and len(CODEC_WATERMARK_SECRET.encode()) < 32:
-    raise ValueError("Signal watermarking requires CODEC_WATERMARK_SECRET of at least 32 bytes")
+if (
+    JPEG_CODEC_WATERMARK
+    or LOSSLESS_SIGNAL_WATERMARK
+    or NATIVE_AUDIO_WATERMARK
+    or NATIVE_VIDEO_WATERMARK
+) and len(CODEC_WATERMARK_SECRET.encode()) < 32:
+    raise ValueError(
+        "Signal watermarking requires CODEC_WATERMARK_SECRET of at least 32 bytes"
+    )
 
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
@@ -55,9 +67,13 @@ ASYNC_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 AWS_RDS_HOST = os.getenv("AWS_RDS_HOST", os.getenv("POSTGRES_HOST", "localhost"))
 AWS_RDS_PORT = os.getenv("AWS_RDS_PORT", os.getenv("POSTGRES_PORT", "5432"))
 AWS_RDS_USER = os.getenv("AWS_RDS_USER", os.getenv("POSTGRES_USER", "postgres"))
-AWS_RDS_PASSWORD = os.getenv("AWS_RDS_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres"))
+AWS_RDS_PASSWORD = os.getenv(
+    "AWS_RDS_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
+)
 AWS_RDS_DB = os.getenv("AWS_RDS_DB", os.getenv("POSTGRES_DB", "watermark_db"))
-AWS_RDS_SSLMODE = os.getenv("AWS_RDS_SSLMODE", "require" if "rds.amazonaws.com" in AWS_RDS_HOST else "prefer")
+AWS_RDS_SSLMODE = os.getenv(
+    "AWS_RDS_SSLMODE", "require" if "rds.amazonaws.com" in AWS_RDS_HOST else "prefer"
+)
 
 DEFAULT_PG_URL = f"postgresql://{AWS_RDS_USER}:{AWS_RDS_PASSWORD}@{AWS_RDS_HOST}:{AWS_RDS_PORT}/{AWS_RDS_DB}"
 if "rds.amazonaws.com" in AWS_RDS_HOST and "?" not in DEFAULT_PG_URL:

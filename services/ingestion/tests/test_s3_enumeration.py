@@ -20,9 +20,7 @@ class FakeS3Client:
 
 def page(keys: list[str], next_token: str | None = None) -> dict:
     result = {
-        "Contents": [
-            {"Key": key, "Size": 100, "ETag": f'"etag-{key}"'} for key in keys
-        ],
+        "Contents": [{"Key": key, "Size": 100, "ETag": f'"etag-{key}"'} for key in keys],
         "IsTruncated": next_token is not None,
     }
     if next_token:
@@ -42,10 +40,8 @@ async def test_s3_enumeration_yields_after_first_page_without_materialising_all_
         page_size=2,
     )
     connector.checkpoint_interval = 1
-    fake_client = FakeS3Client(
-        [page(["dataset/a.jpg", "dataset/b.jpg"], "page-2"), page(["dataset/c.jpg"])]
-    )
-    connector.client = fake_client
+    fake_client = FakeS3Client([page(["dataset/a.jpg", "dataset/b.jpg"], "page-2"), page(["dataset/c.jpg"])])
+    connector._s3_client = fake_client
 
     iterator = connector.enumerate().__aiter__()
     first_job, first_checkpoint = await iterator.__anext__()
@@ -78,10 +74,8 @@ async def test_s3_max_objects_is_a_hard_cap_and_does_not_scan_next_page():
         max_objects=3,
         page_size=1000,
     )
-    fake_client = FakeS3Client(
-        [page(["a.jpg", "b.jpg", "c.jpg", "d.jpg"], "page-2"), page(["e.jpg"])]
-    )
-    connector.client = fake_client
+    fake_client = FakeS3Client([page(["a.jpg", "b.jpg", "c.jpg", "d.jpg"], "page-2"), page(["e.jpg"])])
+    connector._s3_client = fake_client
 
     rows = [item async for item in connector.enumerate()]
 
