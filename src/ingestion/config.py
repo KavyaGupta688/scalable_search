@@ -117,6 +117,15 @@ class RetentionSettings(BaseSettings):
     metrics_port: int = Field(9200, ge=0, le=65535)
 
 
+class SourceAccessSettings(BaseSettings):
+    """Credential-mode and short-lived source-access policy."""
+
+    model_config = SettingsConfigDict(env_prefix="SOURCE_ACCESS_")
+
+    allow_static_s3_credentials: bool = True
+    presigned_url_seconds: int = Field(3600, ge=1, le=43200)
+
+
 class JWTSettings(BaseSettings):
     """JWT authentication settings."""
 
@@ -214,6 +223,7 @@ class AppSettings(BaseSettings):
     vault: VaultSettings = Field(default_factory=VaultSettings)
     external_metadata: ExternalMetadataSettings = Field(default_factory=ExternalMetadataSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
+    source_access: SourceAccessSettings = Field(default_factory=SourceAccessSettings)
     jwt: JWTSettings = Field(default_factory=JWTSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     worker: WorkerSettings = Field(default_factory=WorkerSettings)

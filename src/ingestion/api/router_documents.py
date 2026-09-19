@@ -9,7 +9,9 @@ from sqlalchemy.orm import selectinload
 
 from ingestion.api.auth import RequirePermission
 from ingestion.api.deps import get_async_session, get_vault_service
+from ingestion.config import get_settings
 from ingestion.models.document import Document, SourceAsset
+from ingestion.models.ingestion_run import IngestionRunItem
 from ingestion.models.retention import LicenseEntitlement
 from ingestion.schemas.document import (
     DocumentResponse,
@@ -17,7 +19,7 @@ from ingestion.schemas.document import (
     DocumentSourceResponse,
     SourceAssetResponse,
 )
-from ingestion.services.source_access import generate_source_url
+from ingestion.services.source_access import SourceAccessDeniedError, generate_source_url
 from ingestion.services.vault import VaultService
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -53,6 +55,15 @@ async def search_documents(
         query = query.where(
             Document.id.in_(
                 select(SourceAsset.document_id).where(SourceAsset.source_connector_id == params.source_connector_id)
+            )
+        )
+    if params.run_id:
+        query = query.where(
+            Document.id.in_(
+                select(IngestionRunItem.document_id).where(
+                    IngestionRunItem.run_id == params.run_id,
+                    IngestionRunItem.document_id.is_not(None),
+                )
             )
         )
     if params.checksum:
@@ -132,9 +143,13 @@ async def resolve_document_source(
     if asset is None:
         raise HTTPException(status_code=404, detail="No available source location")
 
-    expires_in = 3600
+    expires_in = get_settings().source_access.presigned_url_seconds
     try:
-        access_url = await generate_source_url(db, asset, vault, expires_in=expires_in)
+        access_url, actual_expires_in = await generate_source_url(
+            db, asset, vault, expires_in=expires_in
+        )
+    except SourceAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Source access resolution failed") from exc
 
@@ -143,5 +158,5 @@ async def resolve_document_source(
         source_asset=SourceAssetResponse.model_validate(asset),
         access_mode="presigned_url" if access_url else "connector_stream",
         access_url=access_url,
-        expires_in_seconds=expires_in if access_url else None,
+        expires_in_seconds=actual_expires_in if access_url else None,
     )

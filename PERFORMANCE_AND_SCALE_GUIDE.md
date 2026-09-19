@@ -9,18 +9,20 @@ existing 12-partition job topic. The worker remains sequential within each
 process so Kafka offset ordering stays simple and correct.
 
 Before every stage, confirm the exact prefix byte/object totals, zero consumer
-lag and healthy Prometheus targets. Run
-`scripts/benchmark_ingestion.ps1`; its returned `run_id` is added to job logs,
-and its JSON report contains wall time, failure count, MiB/s, objects/s,
-projected 1-TiB time, queue delay, source metadata reads, source read, hashing,
-validation, PostgreSQL, and total worker timings.
+lag and healthy Prometheus targets. Migration `012` persists the trigger in
+`ingestion_runs` and every source outcome in `ingestion_run_items`; retry counts
+and transferred bytes include failed attempts, while stage timings describe the
+terminal attempt without adding a shared hot-row write. Use
+`scripts/get_ingestion_run.ps1` after completion for
+the authoritative JSON report. Prometheus remains an aggregate operational
+view and structured logs carry the same `run_id` for investigation.
 
 | Stage | Proceed only when |
 | --- | --- |
 | 10 GB | No data loss; zero unresolved failures; at least 6 MiB/s for a sub-48-hour 1-TiB projection |
 | 50 GB | Throughput is at least 80% of the 10-GB result; queue lag drains and source access remains healthy |
 | 100 GB | No growing memory/disk pressure; no RDS connection exhaustion; projected duration is acceptable |
-| 1 TiB | At least 1.25 TiB destination headroom; prior stage is stable; AWS egress and runtime budget approved |
+| 1 TiB | Vendor-source capacity is confirmed; prior stage is stable; AWS egress and runtime budget approved |
 
 For a 12-hour 1-TiB target, sustained end-to-end throughput must be about
 24.3 MiB/s. For 24 hours it must be about 12.1 MiB/s; for 48 hours, about
@@ -51,7 +53,7 @@ work and invalidate a fresh-throughput comparison. Use a separate test-only
 source prefix if needed; do not delete existing RDS catalogue data just to make
 a benchmark look clean.
 
-1. Apply migration `002` to RDS using your existing global Alembic setup, then
+1. Apply migration `012` to RDS using your existing global Alembic setup, then
    rebuild the two changed images:
 
    ```powershell

@@ -51,7 +51,7 @@ docker compose up -d retention-reconciler
 docker compose run --rm ingestion-api alembic upgrade head
 ```
 
-The current schema head is `011`.
+The current schema head is `012`.
 
 ## Core tables
 
@@ -64,6 +64,9 @@ The current schema head is `011`.
 - `license_entitlements`: immutable calendar-year licence clock keyed by SHA-256.
 - `connectors`: non-secret source configuration and Vault reference.
 - `enumeration_checkpoints`: resumable listing state.
+- `ingestion_runs`: authoritative per-trigger counters, timings and terminal status.
+- `ingestion_run_items`: idempotent per-source outcomes, stage timings and links
+  to the resulting document/source asset.
 
 Exact duplicate content creates one `documents` row and multiple
 `source_assets` rows. Vendor files are never removed as part of deduplication.
@@ -80,17 +83,66 @@ checksum and source fingerprint. Stored credentials are never included.
 
 The legacy `/documents/{id}/download` route aliases the new source resolver.
 
+### S3 credential modes
+
+Existing development connectors continue to use `auth_mode=static_keys`; their
+keys are stored in Vault and never PostgreSQL. Production connectors should use
+`auth_mode=aws_assume_role`, a vendor role ARN and an External ID. The External
+ID is stored in Vault. The worker's normal AWS credential chain supplies the
+base identity and STS issues refreshable temporary sessions.
+
+Set `SOURCE_ACCESS_ALLOW_STATIC_S3_CREDENTIALS=false` in production after
+migration. Short-lived source URLs are capped at both
+`SOURCE_ACCESS_PRESIGNED_URL_SECONDS` and the document entitlement expiry.
+Expired or inactive entitlements receive HTTP 403 and no URL is generated.
+`PATCH /admin/connectors/{connector_id}/s3-auth` replaces an existing
+connector's Vault secret and authentication mode, marks it `unverified`, and
+requires a successful connector test before its next trigger.
+
+For optional local AssumeRole testing, sign in with the selected AWS CLI or
+IAM Identity Center profile, set `AWS_CONFIG_DIR` and `AWS_PROFILE`, then add
+the read-only profile override:
+
+```powershell
+docker compose `
+  -f docker-compose.yml `
+  -f docker-compose.override.yml `
+  -f docker-compose.aws-dev.yml `
+  up -d --build ingestion-api ingestion-worker
+```
+
+Do not use this override for the existing `static_keys` development mode.
+
 ## Licence expiry
 
 The clock starts after source metadata parsing, hashing, validation and successful
 catalogue persistence. Expiry is the same UTC calendar date three years later;
 February 29 maps to February 28 in a non-leap target year.
 
-The reconciler marks the entitlement `expired`. It does not delete vendor data,
-manage vendor-side revocation, or store local retention events; audit history is
-the responsibility of the separate audit module.
+The reconciler marks the entitlement `expired`. It does not delete vendor data
+or manage vendor-side revocation. The API independently checks status and expiry
+on every source-URL request, so access is denied even before reconciliation has
+updated a stale `active` status. Audit history remains the responsibility of the
+separate audit module.
 Re-ingestion of identical bytes resolves to the existing SHA-256 entitlement,
 so it cannot create a fresh licence clock.
+
+## Per-run statistics
+
+`POST /admin/ingestion/trigger/{connector_id}` creates an `ingestion_runs` row
+before enumeration starts. Workers upsert one `ingestion_run_items` row per
+source reference; Kafka replay therefore cannot double-count a terminal result.
+
+- `GET /admin/ingestion/runs?connector_id=<uuid>` lists recent runs.
+- `GET /admin/ingestion/runs/{run_id}` returns exact end-to-end and stage stats.
+- `GET /admin/ingestion/runs/{run_id}/items` returns paginated object outcomes.
+- `GET /documents/?run_id=<uuid>` returns document metadata created or observed
+  in that run.
+
+Prometheus intentionally exposes only bounded aggregate run status/duration
+metrics. Structured logs include `run_id`; PostgreSQL is the authoritative
+source for per-run history and avoids unbounded Prometheus label cardinality.
+Use `scripts/get_ingestion_run.ps1` to save a completed run report.
 
 ## Tests
 

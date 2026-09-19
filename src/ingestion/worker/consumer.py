@@ -21,9 +21,14 @@ from ingestion.connectors import SourceConnector, create_connector
 from ingestion.models.connector import Connector
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
-from ingestion.schemas.job import JobDescriptor, ProcessResult
+from ingestion.schemas.job import JobDescriptor, ProcessResult, ProcessingStats
 from ingestion.services.database import get_raw_session
 from ingestion.services.kafka import create_consumer, create_producer, publish_to_dead_letter
+from ingestion.services.run_tracking import (
+    add_commit_duration,
+    record_terminal_result,
+    record_transient_retry,
+)
 from ingestion.services.vault import VaultService
 from ingestion.worker.processor import process_job
 from ingestion.worker.validator import PermanentProcessingError, TransientProcessingError
@@ -43,6 +48,26 @@ async def _retry_current_message(consumer, msg, delay_seconds: float = 2.0) -> N
     """Seek back before retrying so a later commit cannot skip this record."""
     consumer.seek(TopicPartition(msg.topic(), msg.partition(), msg.offset()))
     await asyncio.sleep(delay_seconds)
+
+
+async def _save_commit_duration(job: JobDescriptor, seconds: float) -> None:
+    """Best-effort post-commit timing update; never reprocess a successful object."""
+
+    if job.run_id is None:
+        return
+    timing_session = await get_raw_session()
+    try:
+        await add_commit_duration(timing_session, job.run_id, job.source_ref, seconds)
+        await timing_session.commit()
+    except Exception as exc:
+        await _safe_rollback(timing_session)
+        logger.warning(
+            "Could not persist PostgreSQL commit timing: %s",
+            exc,
+            extra={"run_id": str(job.run_id), "source_ref": job.source_ref},
+        )
+    finally:
+        await timing_session.close()
 
 
 # Global shutdown flag
@@ -116,6 +141,7 @@ async def run_consumer():
                 consumer.commit(message=msg, asynchronous=False)
                 continue
 
+            queue_wait = 0.0
             if job.enumerated_at is not None:
                 queue_wait = max(
                     0.0,
@@ -156,21 +182,28 @@ async def run_consumer():
 
             # Process the job
             session = await get_raw_session()
+            processing_stats = ProcessingStats()
+            if queue_wait:
+                processing_stats.stage_seconds["queue_wait"] = queue_wait
             try:
                 result = await process_job(
                     job=job,
                     connector=connector,
                     session=session,
                     producer=dlq_producer,
+                    processing_stats=processing_stats,
                 )
 
                 if result in (ProcessResult.SUCCESS, ProcessResult.DUPLICATE, ProcessResult.SKIPPED):
+                    await record_terminal_result(session, job, result, processing_stats)
                     commit_started = time.perf_counter()
                     await session.commit()
+                    commit_seconds = time.perf_counter() - commit_started
                     METRICS.PROCESSING_DURATION_SECONDS.labels(
                         source_type=job.source_type, stage="postgresql_commit"
-                    ).observe(time.perf_counter() - commit_started)
+                    ).observe(commit_seconds)
                     consumer.commit(message=msg, asynchronous=False)
+                    await _save_commit_duration(job, commit_seconds)
                     METRICS.FILES_PROCESSED_TOTAL.labels(source_type=job.source_type, outcome=result.value).inc()
                     logger.info(
                         f"Job completed: {result.value}",
@@ -183,11 +216,16 @@ async def run_consumer():
                         },
                     )
                 elif result == ProcessResult.REJECTED:
+                    await record_terminal_result(
+                        session, job, ProcessResult.REJECTED, processing_stats,
+                        error="MIME type rejected",
+                    )
                     commit_started = time.perf_counter()
                     await session.commit()
+                    commit_seconds = time.perf_counter() - commit_started
                     METRICS.PROCESSING_DURATION_SECONDS.labels(
                         source_type=job.source_type, stage="postgresql_commit"
-                    ).observe(time.perf_counter() - commit_started)
+                    ).observe(commit_seconds)
                     publish_to_dead_letter(
                         dlq_producer,
                         settings.kafka.dead_letter_topic,
@@ -195,10 +233,15 @@ async def run_consumer():
                         PermanentProcessingError(f"MIME type rejected for {job.source_ref}"),
                     )
                     consumer.commit(message=msg, asynchronous=False)
+                    await _save_commit_duration(job, commit_seconds)
                     METRICS.FILES_FAILED_TOTAL.labels(source_type=job.source_type, failure_type="mime_rejected").inc()
 
             except PermanentProcessingError as e:
                 await _safe_rollback(session)
+                await record_terminal_result(
+                    session, job, ProcessResult.PERMANENT_ERROR, processing_stats, error=e
+                )
+                await session.commit()
                 logger.error(
                     f"Permanent error processing job: {e}",
                     extra={
@@ -214,6 +257,8 @@ async def run_consumer():
 
             except TransientProcessingError as e:
                 await _safe_rollback(session)
+                await record_transient_retry(session, job, processing_stats, e)
+                await session.commit()
                 logger.warning(
                     f"Transient error, will retry: {e}",
                     extra={
@@ -228,6 +273,8 @@ async def run_consumer():
 
             except Exception as e:
                 await _safe_rollback(session)
+                await record_transient_retry(session, job, processing_stats, e)
+                await session.commit()
                 logger.error(
                     f"Unexpected error processing job: {e}",
                     extra={"job_id": job.provisional_id},

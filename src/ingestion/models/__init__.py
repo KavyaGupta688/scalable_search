@@ -3,6 +3,7 @@
 from ingestion.models.checkpoint import EnumerationCheckpoint
 from ingestion.models.connector import Connector
 from ingestion.models.document import Document, DocumentSourceMetadata, SourceAsset
+from ingestion.models.ingestion_run import IngestionRun, IngestionRunItem
 from ingestion.models.retention import LicenseEntitlement
 from ingestion.services.database import Base
 
@@ -12,6 +13,8 @@ __all__ = [
     "Document",
     "DocumentSourceMetadata",
     "SourceAsset",
+    "IngestionRun",
+    "IngestionRunItem",
     "LicenseEntitlement",
     "EnumerationCheckpoint",
 ]

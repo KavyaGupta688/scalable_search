@@ -42,6 +42,18 @@ class MetricsNamespace:
 
     QUEUE_DEPTH = Gauge("ingestion_queue_depth", "Kafka consumer lag or current queue depth")
 
+    RUNS_TOTAL = Counter(
+        "ingestion_runs_total",
+        "Completed ingestion runs by bounded terminal status",
+        ["source_type", "status"],
+    )
+
+    RUN_DURATION_SECONDS = Histogram(
+        "ingestion_run_duration_seconds",
+        "End-to-end ingestion run wall-clock duration",
+        ["source_type"],
+    )
+
     DB_QUERY_DURATION_SECONDS = Histogram("ingestion_db_query_duration_seconds", "Time taken for database queries")
 
     RETENTION_RECONCILIATION_RUNS_TOTAL = Counter(

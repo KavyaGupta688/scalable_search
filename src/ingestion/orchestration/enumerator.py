@@ -26,6 +26,11 @@ from ingestion.orchestration.checkpointing import load_checkpoint, save_checkpoi
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
 from ingestion.storage.source_metadata import is_metadata_control_file
+from ingestion.services.run_tracking import (
+    mark_enumeration_completed,
+    mark_enumeration_started,
+    mark_run_failed,
+)
 
 try:  # ``resource`` is available in the Linux worker container, not Windows.
     import resource
@@ -58,7 +63,12 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
 
         if not connector_model:
             logger.error(f"Connector {connector_id} not found")
+            if run_id is not None:
+                await mark_run_failed(session, run_id, "Connector not found")
             return
+
+        if run_id is not None:
+            await mark_enumeration_started(session, run_id)
 
         # Load credentials from Vault
         vault_service = VaultService()
@@ -170,6 +180,16 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
             peak_memory_bytes = None
 
         enumeration_stats = getattr(connector_instance, "last_enumeration_stats", {})
+        if run_id is not None:
+            await mark_enumeration_completed(
+                session,
+                run_id,
+                enumerated_count=files_enumerated,
+                metadata_files_skipped=metadata_files_skipped,
+                duration_seconds=duration,
+                peak_memory_bytes=peak_memory_bytes,
+                enumeration_stats=enumeration_stats,
+            )
         logger.info(
             f"Enumeration completed for connector {connector_id}",
             extra={
@@ -186,11 +206,17 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
         )
 
     except PermanentConnectorError as e:
+        await session.rollback()
+        if run_id is not None:
+            await mark_run_failed(session, run_id, e)
         logger.error(
             f"Permanent error during enumeration for connector {connector_id}: {e}",
             extra={"connector_id": str(connector_id)},
         )
     except Exception as e:
+        await session.rollback()
+        if run_id is not None:
+            await mark_run_failed(session, run_id, e)
         logger.error(
             f"Unexpected error during enumeration for connector {connector_id}: {e}",
             extra={"connector_id": str(connector_id)},

@@ -9,6 +9,7 @@ can pick it up.
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from ingestion.config import KafkaSettings
 from ingestion.monitoring.logging import get_logger
@@ -23,6 +24,7 @@ async def publish_ai_processing_event(
     metadata: DocumentMetadata,
     settings: KafkaSettings,
     structured_metadata: StructuredSourceMetadata | None = None,
+    run_id: UUID | None = None,
 ) -> None:
     """
     Publish an AI processing event for a newly ingested document.
@@ -32,6 +34,7 @@ async def publish_ai_processing_event(
     topic = settings.ai_processing_topic
 
     event = {
+        "run_id": str(run_id) if run_id else None,
         "document_id": str(metadata.id),
         "source_asset_id": str(metadata.source_asset_id),
         "mime_type": metadata.mime_type,

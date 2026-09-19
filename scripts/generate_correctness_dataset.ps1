@@ -160,7 +160,10 @@ if ($LASTEXITCODE -ne 0) { throw "MOV generation failed" }
 
 $files = Get-ChildItem -LiteralPath $OutputRoot -File -Recurse
 $hashGroups = $files | Get-FileHash -Algorithm SHA256 | Group-Object Hash
-$duplicateGroups = $hashGroups | Where-Object Count -gt 1
+# Force an array even when exactly one duplicate group is returned. Without
+# @(...), PowerShell unwraps the single GroupInfo object and `.Count` below
+# reports the number of files in that group instead of the number of groups.
+$duplicateGroups = @($hashGroups | Where-Object Count -gt 1)
 
 if ($files.Count -ne 19) {
     throw "Expected exactly 19 files, but generated $($files.Count)"

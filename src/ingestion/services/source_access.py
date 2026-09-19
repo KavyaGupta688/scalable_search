@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,9 +12,42 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ingestion.connectors import SourceConnector, create_connector
 from ingestion.connectors.s3 import S3Connector
 from ingestion.models.connector import Connector, SourceType
-from ingestion.models.document import SourceAsset
+from ingestion.models.document import Document, SourceAsset
+from ingestion.models.retention import LicenseEntitlement
 from ingestion.schemas.job import JobDescriptor
 from ingestion.services.vault import VaultService
+
+
+class SourceAccessDeniedError(PermissionError):
+    """The document licence does not currently permit source access."""
+
+
+def entitlement_url_lifetime(
+    expires_at: datetime, requested_seconds: int, *, now: datetime | None = None
+) -> int:
+    """Cap a source URL at the legal entitlement boundary."""
+
+    current = now or datetime.now(UTC)
+    remaining_seconds = int((expires_at - current).total_seconds())
+    if remaining_seconds < 1:
+        raise SourceAccessDeniedError("Document licence entitlement has expired")
+    return min(requested_seconds, remaining_seconds)
+
+
+async def require_active_entitlement(
+    session: AsyncSession, asset: SourceAsset
+) -> LicenseEntitlement:
+    entitlement = await session.scalar(
+        select(LicenseEntitlement)
+        .join(Document, Document.entitlement_id == LicenseEntitlement.id)
+        .where(Document.id == asset.document_id)
+    )
+    now = datetime.now(UTC)
+    if entitlement is None:
+        raise SourceAccessDeniedError("Document has no licence entitlement")
+    if entitlement.status != "active" or entitlement.expires_at <= now:
+        raise SourceAccessDeniedError("Document licence entitlement has expired or is inactive")
+    return entitlement
 
 
 async def load_source_connector(
@@ -68,6 +102,7 @@ def source_asset_job(asset: SourceAsset, connector: Connector) -> JobDescriptor:
 async def open_source_stream(
     session: AsyncSession, asset: SourceAsset, vault: VaultService
 ) -> AsyncGenerator[bytes, None]:
+    await require_active_entitlement(session, asset)
     connector_model, connector = await load_source_connector(session, asset, vault)
     job = source_asset_job(asset, connector_model)
     async for chunk in connector.open_stream(job):
@@ -80,17 +115,35 @@ async def generate_source_url(
     vault: VaultService,
     *,
     expires_in: int = 3600,
-) -> str | None:
+) -> tuple[str | None, int | None]:
+    entitlement = await require_active_entitlement(session, asset)
+    remaining_entitlement_seconds = int(
+        (entitlement.expires_at - datetime.now(UTC)).total_seconds()
+    )
+    expires_in = entitlement_url_lifetime(entitlement.expires_at, expires_in)
     connector_model, connector = await load_source_connector(session, asset, vault)
     if not isinstance(connector, S3Connector):
-        return None
+        return None, None
     job = source_asset_job(asset, connector_model)
     params = {"Bucket": job.bucket, "Key": job.object_key}
     if asset.source_version_id:
         params["VersionId"] = asset.source_version_id
-    return await asyncio.to_thread(
-        connector.client.generate_presigned_url,
-        "get_object",
-        Params=params,
-        ExpiresIn=expires_in,
-    )
+    def create_url() -> tuple[str, int]:
+        try:
+            client = connector.client_for_entitlement(remaining_entitlement_seconds)
+        except PermissionError as exc:
+            raise SourceAccessDeniedError(str(exc)) from exc
+        actual_expires_in = expires_in
+        if connector._credentials_expire_at is not None:
+            credential_seconds = int(
+                (connector._credentials_expire_at - datetime.now(UTC)).total_seconds()
+            )
+            actual_expires_in = min(actual_expires_in, max(1, credential_seconds))
+        return (
+            client.generate_presigned_url(
+                "get_object", Params=params, ExpiresIn=actual_expires_in
+            ),
+            actual_expires_in,
+        )
+
+    return await asyncio.to_thread(create_url)

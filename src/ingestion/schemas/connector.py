@@ -19,8 +19,23 @@ class S3ConnectorFields(BaseModel):
 
     endpoint_url: str = Field(..., description="S3-compatible endpoint URL")
     bucket: str = Field(..., description="Source bucket name")
-    access_key: str = Field(..., description="AWS access key ID")
-    secret_key: str = Field(..., description="AWS secret access key")
+    auth_mode: Literal["static_keys", "aws_assume_role"] = Field(
+        "static_keys",
+        description="Development static keys or production AWS STS AssumeRole",
+    )
+    access_key: Optional[str] = Field(None, description="AWS access key ID (static_keys only)")
+    secret_key: Optional[str] = Field(None, description="AWS secret access key (static_keys only)")
+    role_arn: Optional[str] = Field(None, description="Vendor IAM role ARN (aws_assume_role only)")
+    external_id: Optional[str] = Field(
+        None,
+        description="Cross-account External ID stored only in Vault",
+    )
+    session_duration_seconds: int = Field(
+        3600,
+        ge=900,
+        le=43200,
+        description="Requested STS session duration, subject to the role maximum",
+    )
     addressing_style: Literal["path", "virtual"] = Field(
         "path",
         description="S3 addressing style: 'path' or 'virtual'",
@@ -46,6 +61,23 @@ class S3ConnectorFields(BaseModel):
         description="S3 ListObjectsV2 keys per request. 1000 minimizes list requests.",
     )
 
+    @model_validator(mode="after")
+    def validate_authentication(self):
+        if self.auth_mode == "static_keys":
+            if not self.access_key or not self.secret_key:
+                raise ValueError("access_key and secret_key are required for static_keys")
+            if self.role_arn:
+                raise ValueError("role_arn is only valid for aws_assume_role")
+        else:
+            if not self.role_arn:
+                raise ValueError("role_arn is required for aws_assume_role")
+            if self.access_key or self.secret_key:
+                raise ValueError(
+                    "Do not send vendor access keys with aws_assume_role; "
+                    "use the workload's AWS credential chain"
+                )
+        return self
+
 
 class S3EnumerationScopeUpdate(BaseModel):
     """Change S3 enumeration scope without re-entering credentials."""
@@ -53,6 +85,31 @@ class S3EnumerationScopeUpdate(BaseModel):
     prefix: str = Field("", max_length=1024)
     max_objects: Optional[int] = Field(None, ge=1)
     page_size: int = Field(1000, ge=1, le=1000)
+
+
+class S3AuthenticationUpdate(BaseModel):
+    """Replace one connector's S3 authentication without exposing old secrets."""
+
+    auth_mode: Literal["static_keys", "aws_assume_role"]
+    access_key: Optional[str] = None
+    secret_key: Optional[str] = None
+    role_arn: Optional[str] = None
+    external_id: Optional[str] = None
+    session_duration_seconds: int = Field(3600, ge=900, le=43200)
+
+    @model_validator(mode="after")
+    def validate_authentication(self):
+        if self.auth_mode == "static_keys":
+            if not self.access_key or not self.secret_key:
+                raise ValueError("access_key and secret_key are required for static_keys")
+            if self.role_arn:
+                raise ValueError("role_arn is only valid for aws_assume_role")
+        else:
+            if not self.role_arn:
+                raise ValueError("role_arn is required for aws_assume_role")
+            if self.access_key or self.secret_key:
+                raise ValueError("Static keys cannot be supplied with aws_assume_role")
+        return self
 
 
 class NASConnectorFields(BaseModel):
@@ -131,6 +188,9 @@ class ConnectorResponse(BaseModel):
     mount_path: Optional[str] = None
     addressing_style: Optional[str] = None
     signature_version: Optional[str] = None
+    s3_auth_mode: Optional[str] = None
+    s3_role_arn: Optional[str] = None
+    s3_session_duration_seconds: Optional[int] = None
     s3_prefix: Optional[str] = None
     enumeration_max_objects: Optional[int] = None
     enumeration_page_size: Optional[int] = None

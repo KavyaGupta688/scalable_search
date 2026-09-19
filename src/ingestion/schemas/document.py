@@ -41,6 +41,7 @@ class DocumentSearchParams(BaseModel):
 
     mime_type: str | None = Field(None, description="Filter by MIME type")
     source_connector_id: UUID | None = Field(None, description="Filter by source connector")
+    run_id: UUID | None = Field(None, description="Filter by ingestion run")
     date_from: datetime | None = Field(None, description="Filter by creation date (from)")
     date_to: datetime | None = Field(None, description="Filter by creation date (to)")
     checksum: str | None = Field(None, description="Search by exact SHA-256 checksum")

@@ -8,7 +8,8 @@ Both S3 and NAS jobs use the same schema — differentiated by source_type field
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -60,3 +61,14 @@ class ProcessResult(str, enum.Enum):
     REJECTED = "rejected"  # MIME type validation failure
     TRANSIENT_ERROR = "transient_error"
     PERMANENT_ERROR = "permanent_error"
+
+
+@dataclass
+class ProcessingStats:
+    """Mutable timing/result detail populated during one worker attempt."""
+
+    processing_started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    bytes_processed: int = 0
+    stage_seconds: dict[str, float] = field(default_factory=dict)
+    document_id: UUID | None = None
+    source_asset_id: UUID | None = None

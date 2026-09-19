@@ -18,7 +18,7 @@ from ingestion.models.retention import LicenseEntitlement
 from ingestion.monitoring.logging import get_logger
 from ingestion.monitoring.metrics import METRICS
 from ingestion.retention.entitlements import find_entitlement, get_or_create_entitlement
-from ingestion.schemas.job import JobDescriptor, ProcessResult
+from ingestion.schemas.job import JobDescriptor, ProcessResult, ProcessingStats
 from ingestion.schemas.metadata import DocumentMetadata
 from ingestion.schemas.source_metadata import StructuredSourceMetadata
 from ingestion.storage.event_publisher import publish_ai_processing_event
@@ -115,11 +115,13 @@ async def process_job(
     connector: SourceConnector,
     session: AsyncSession,
     producer=None,
+    processing_stats: ProcessingStats | None = None,
 ) -> ProcessResult:
     """Catalogue one source object without copying it to destination storage."""
 
     started = time.perf_counter()
-    stage_seconds: dict[str, float] = {}
+    processing_stats = processing_stats or ProcessingStats()
+    stage_seconds = processing_stats.stage_seconds
 
     def record_stage(stage: str, seconds: float) -> None:
         stage_seconds[stage] = stage_seconds.get(stage, 0.0) + seconds
@@ -152,6 +154,8 @@ async def process_job(
         )
         record_stage("postgresql_read", time.perf_counter() - db_started)
         if current_asset is not None and _same_enumerated_source(current_asset, job):
+            processing_stats.document_id = current_asset.document_id
+            processing_stats.source_asset_id = current_asset.id
             current_asset.last_verified_at = now
             await _store_structured_metadata(
                 session,
@@ -187,6 +191,7 @@ async def process_job(
                 hasher.update(chunk)
                 record_stage("hashing", time.perf_counter() - hashing_started)
                 total_bytes += len(chunk)
+                processing_stats.bytes_processed = total_bytes
         except PermanentProcessingError:
             raise
         except Exception as exc:
@@ -214,6 +219,8 @@ async def process_job(
             )
         )
         if locked_asset is not None and _same_enumerated_source(locked_asset, job):
+            processing_stats.document_id = locked_asset.document_id
+            processing_stats.source_asset_id = locked_asset.id
             locked_asset.last_verified_at = now
             await _store_structured_metadata(
                 session,
@@ -237,6 +244,8 @@ async def process_job(
 
         source_asset_id = _uuid7()
         if existing_doc is not None:
+            processing_stats.document_id = existing_doc.id
+            processing_stats.source_asset_id = source_asset_id
             session.add(
                 SourceAsset(
                     id=source_asset_id,
@@ -281,6 +290,8 @@ async def process_job(
             existing_entitlement=existing_entitlement,
         )
         document = Document(**document_metadata.to_orm_dict())
+        processing_stats.document_id = document.id
+        processing_stats.source_asset_id = source_asset_id
         source_asset = SourceAsset(
             id=source_asset_id,
             document_id=document.id,
@@ -311,6 +322,7 @@ async def process_job(
                 document_metadata,
                 settings.kafka,
                 structured_metadata=structured_metadata,
+                run_id=job.run_id,
             )
 
         duration = time.perf_counter() - started

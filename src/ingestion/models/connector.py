@@ -70,6 +70,13 @@ class Connector(Base):
     signature_version: Mapped[str | None] = mapped_column(
         String(10), nullable=True
     )  # 's3v4' or 's3' (SigV2)
+    s3_auth_mode: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, default="static_keys"
+    )
+    s3_role_arn: Mapped[str | None] = mapped_column(Text, nullable=True)
+    s3_session_duration_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=3600
+    )
     # Enumeration scope.  A prefix and maximum object count make it possible
     # to run a bounded test without accidentally walking an entire bucket.
     # ``max_objects=None`` means the connector is allowed to scan the whole
@@ -112,6 +119,15 @@ class Connector(Base):
         CheckConstraint(
             "status IN ('verified', 'unverified', 'failed')",
             name="ck_connectors_status",
+        ),
+        CheckConstraint(
+            "s3_auth_mode IS NULL OR s3_auth_mode IN ('static_keys', 'aws_assume_role')",
+            name="ck_connectors_s3_auth_mode",
+        ),
+        CheckConstraint(
+            "s3_session_duration_seconds IS NULL OR "
+            "s3_session_duration_seconds BETWEEN 900 AND 43200",
+            name="ck_connectors_s3_session_duration",
         ),
     )
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 import time
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import boto3
@@ -32,6 +34,10 @@ class S3Connector(SourceConnector):
         bucket: str,
         access_key: str,
         secret_key: str,
+        auth_mode: str = "static_keys",
+        role_arn: str | None = None,
+        external_id: str | None = None,
+        session_duration_seconds: int = 3600,
         addressing_style: str = "path",
         signature_version: str = "s3v4",
         chunk_size: int | None = None,
@@ -42,10 +48,16 @@ class S3Connector(SourceConnector):
     ):
         self.bucket = bucket
         self.connector_id = connector_id
+        self.auth_mode = auth_mode
+        self.role_arn = role_arn
+        self.external_id = external_id
+        self.session_duration_seconds = session_duration_seconds
         self.prefix = prefix
         self.max_objects = max_objects
         self.page_size = page_size
         settings = get_settings()
+        if auth_mode == "static_keys" and not settings.source_access.allow_static_s3_credentials:
+            raise ValueError("Static S3 credentials are disabled by configuration")
         self.chunk_size = chunk_size or settings.worker.chunk_size_bytes
         self.checkpoint_interval = settings.worker.checkpoint_interval_pages
 
@@ -59,7 +71,7 @@ class S3Connector(SourceConnector):
             if match:
                 region_name = match.group(1)
 
-        boto_config = Config(
+        self.boto_config = Config(
             s3={"addressing_style": addressing_style},
             signature_version=signature_version,
             retries={"max_attempts": 8, "mode": "adaptive"},
@@ -69,14 +81,23 @@ class S3Connector(SourceConnector):
             tcp_keepalive=True,
         )
 
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region_name,
-            config=boto_config,
-        )
+        self.endpoint_url = endpoint_url
+        self.region_name = region_name
+        self._client_lock = threading.Lock()
+        self._credentials_expire_at: datetime | None = None
+        self._s3_client = None
+
+        if auth_mode == "static_keys":
+            if not access_key or not secret_key:
+                raise ValueError("Static S3 authentication requires access_key and secret_key")
+            self._s3_client = self._create_s3_client(access_key, secret_key)
+        elif auth_mode == "aws_assume_role":
+            if not role_arn:
+                raise ValueError("AWS AssumeRole authentication requires role_arn")
+            # Credentials are requested lazily so connector construction does
+            # not create an STS session unless the connector is actually used.
+        else:
+            raise ValueError(f"Unsupported S3 auth_mode: {auth_mode}")
         # Exposed for structured completion logging by the orchestration layer.
         self.last_enumeration_stats: dict[str, float | int | bool] = {
             "pages": 0,
@@ -85,6 +106,77 @@ class S3Connector(SourceConnector):
             "first_page_seconds": 0.0,
             "limit_reached": False,
         }
+
+    def _create_s3_client(
+        self,
+        access_key: str,
+        secret_key: str,
+        session_token: str | None = None,
+    ):
+        return boto3.client(
+            "s3",
+            endpoint_url=self.endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=session_token,
+            region_name=self.region_name,
+            config=self.boto_config,
+        )
+
+    def _assume_role(self, duration_seconds: int | None = None) -> None:
+        """Create a refreshable-in-practice S3 client from temporary STS credentials."""
+
+        sts = boto3.client("sts", region_name=self.region_name)
+        session_name_suffix = str(self.connector_id or "connector").replace("-", "")[:24]
+        request = {
+            "RoleArn": self.role_arn,
+            "RoleSessionName": f"ingestion-{session_name_suffix}",
+            "DurationSeconds": duration_seconds or self.session_duration_seconds,
+        }
+        if self.external_id:
+            request["ExternalId"] = self.external_id
+        response = sts.assume_role(**request)
+        credentials = response["Credentials"]
+        expiration = credentials["Expiration"]
+        if expiration.tzinfo is None:
+            expiration = expiration.replace(tzinfo=UTC)
+        self._s3_client = self._create_s3_client(
+            credentials["AccessKeyId"],
+            credentials["SecretAccessKey"],
+            credentials["SessionToken"],
+        )
+        self._credentials_expire_at = expiration.astimezone(UTC)
+
+    def client_for_entitlement(self, remaining_entitlement_seconds: int):
+        """Issue a session that cannot extend beyond the entitlement clock."""
+
+        if self.auth_mode == "static_keys":
+            return self.client
+        duration = min(self.session_duration_seconds, remaining_entitlement_seconds)
+        if duration < 900:
+            raise PermissionError(
+                "Less than the AWS STS minimum session duration remains on the entitlement"
+            )
+        with self._client_lock:
+            self._assume_role(duration_seconds=duration)
+        return self._s3_client
+
+    @property
+    def client(self):
+        """Return an S3 client, refreshing AssumeRole credentials before expiry."""
+
+        if self.auth_mode == "static_keys":
+            return self._s3_client
+        refresh_at = datetime.now(UTC) + timedelta(minutes=5)
+        if self._s3_client is None or not self._credentials_expire_at or self._credentials_expire_at <= refresh_at:
+            with self._client_lock:
+                if (
+                    self._s3_client is None
+                    or not self._credentials_expire_at
+                    or self._credentials_expire_at <= refresh_at
+                ):
+                    self._assume_role()
+        return self._s3_client
 
     def _handle_error(self, e: Exception) -> Exception:
         """Map boto3 exceptions to ConnectorError."""
@@ -109,7 +201,9 @@ class S3Connector(SourceConnector):
     async def test_connection(self) -> bool:
         """Test connectivity to the source. Returns True on success."""
         try:
-            await asyncio.to_thread(self.client.list_objects_v2, Bucket=self.bucket, MaxKeys=1)
+            await asyncio.to_thread(
+                lambda: self.client.list_objects_v2(Bucket=self.bucket, MaxKeys=1)
+            )
             return True
         except Exception as e:
             raise self._handle_error(e)
@@ -154,7 +248,7 @@ class S3Connector(SourceConnector):
 
             request_started_at = time.perf_counter()
             try:
-                page = await asyncio.to_thread(self.client.list_objects_v2, **kwargs)
+                page = await asyncio.to_thread(lambda: self.client.list_objects_v2(**kwargs))
             except Exception as e:
                 raise self._handle_error(e)
             request_seconds = time.perf_counter() - request_started_at
@@ -239,27 +333,39 @@ class S3Connector(SourceConnector):
             await asyncio.to_thread(body.close)
 
     async def open_stream(self, job: JobDescriptor) -> AsyncGenerator[bytes, None]:
-        """Yield byte chunks (8MB each) from the source file."""
-        key = job.source_ref.split("/", 1)[1]
-        try:
-            params = {"Bucket": self.bucket, "Key": key}
-            if job.version_id:
-                params["VersionId"] = job.version_id
-            response = await asyncio.to_thread(self.client.get_object, **params)
-            async for chunk in self._read_stream(response["Body"], self.chunk_size):
-                yield chunk
-        except Exception as e:
-            raise self._handle_error(e)
+        """Yield chunks and resume with Range after transient/session failures."""
+        async for chunk in self._stream_with_resume(job, offset=0):
+            yield chunk
 
     async def open_stream_from_offset(self, job: JobDescriptor, offset: int) -> AsyncGenerator[bytes, None]:
         """Resume streaming from a byte offset (for retry with Range requests)."""
+        async for chunk in self._stream_with_resume(job, offset=offset):
+            yield chunk
+
+    async def _stream_with_resume(
+        self, job: JobDescriptor, offset: int
+    ) -> AsyncGenerator[bytes, None]:
         key = job.source_ref.split("/", 1)[1]
-        try:
+        attempts = 0
+        while True:
             params = {"Bucket": self.bucket, "Key": key, "Range": f"bytes={offset}-"}
+            if offset == 0:
+                params.pop("Range")
             if job.version_id:
                 params["VersionId"] = job.version_id
-            response = await asyncio.to_thread(self.client.get_object, **params)
-            async for chunk in self._read_stream(response["Body"], self.chunk_size):
-                yield chunk
-        except Exception as e:
-            raise self._handle_error(e)
+            try:
+                response = await asyncio.to_thread(lambda: self.client.get_object(**params))
+                async for chunk in self._read_stream(response["Body"], self.chunk_size):
+                    offset += len(chunk)
+                    yield chunk
+                return
+            except Exception as exc:
+                mapped = self._handle_error(exc)
+                if isinstance(mapped, PermanentConnectorError) or attempts >= 5:
+                    raise mapped
+                attempts += 1
+                if self.auth_mode == "aws_assume_role":
+                    # Force STS refresh before the Range retry. The already
+                    # yielded bytes stay in the worker's active hash state.
+                    self._credentials_expire_at = None
+                await asyncio.sleep(min(2**attempts, 30))
