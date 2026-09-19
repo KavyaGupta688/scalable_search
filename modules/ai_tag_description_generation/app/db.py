@@ -7,7 +7,7 @@ from typing import AsyncGenerator, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, declarative_base
-from app.config import settings
+from modules.ai_tag_description_generation.app.config import settings
 
 # Async engine for non-blocking I/O in API or async worker contexts
 async_engine = create_async_engine(
@@ -41,6 +41,9 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
         try:
             yield session
+        except Exception:
+            await session.rollback()
+            raise
         finally:
             await session.close()
 
@@ -50,6 +53,9 @@ def get_sync_session() -> Generator:
     session = sync_session_factory()
     try:
         yield session
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 

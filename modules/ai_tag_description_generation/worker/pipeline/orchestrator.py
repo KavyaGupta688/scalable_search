@@ -9,27 +9,29 @@ collects whatever outputs succeed and assigns a final status accordingly.
 """
 
 import logging
+import json
 import time
 import uuid
 import traceback
 from datetime import datetime, timezone
 from typing import Any
 
-from worker.pipeline import task_dispatcher
-from worker.pipeline.retry_handler import TransientError, DataQualityError, with_retry
-from worker.pipeline.preprocessing_engine import preprocess, PreprocessingResult
-from worker.pipeline.media_router import Modality
-from worker.pipeline import ocr_stt
-from worker.pipeline import tagging as tagging_module
-from worker.pipeline import captioning as captioning_module
-from worker.pipeline import quality_safety
-from worker.pipeline import metadata_fusion
-from worker.pipeline import confidence_validator
-from worker.pipeline import metadata_persistence
-from worker.pipeline.model_manager import get_model_version_string, MODEL_VERSIONS
-from app.config import settings
-from app.event_publisher import publish_enrichment_event
-from app.event_schemas import (
+from modules.ai_tag_description_generation.worker.pipeline import task_dispatcher
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError, DataQualityError
+from modules.ai_tag_description_generation.worker.pipeline.preprocessing_engine import preprocess, PreprocessingResult
+from modules.ai_tag_description_generation.worker.pipeline.media_router import Modality
+from modules.ai_tag_description_generation.worker.pipeline import ocr_stt
+from modules.ai_tag_description_generation.worker.pipeline import tagging as tagging_module
+from modules.ai_tag_description_generation.worker.pipeline import captioning as captioning_module
+from modules.ai_tag_description_generation.worker.pipeline import quality_safety
+from modules.ai_tag_description_generation.worker.pipeline import metadata_fusion
+from modules.ai_tag_description_generation.worker.pipeline import confidence_validator
+from modules.ai_tag_description_generation.worker.pipeline import metadata_persistence
+from modules.ai_tag_description_generation.worker.pipeline.model_manager import get_model_version_string, MODEL_VERSIONS
+from modules.ai_tag_description_generation.app.config import settings
+from modules.ai_tag_description_generation.app.ingestion_client import IngestionDocument
+from modules.ai_tag_description_generation.app.event_publisher import publish_enrichment_event
+from modules.ai_tag_description_generation.app.event_schemas import (
     EnrichmentCompletedEvent, EnrichmentPartialEvent,
     NeedsReviewEvent, EnrichmentFailedEvent, ProcessingSummary,
 )
@@ -40,18 +42,18 @@ PIPELINE_STAGES = task_dispatcher.PIPELINE_STAGES
 
 
 def run_enrichment_pipeline(
-    file_id: str,
-    storage_path: str,
-    file_type: str,
-    checksum: str,
-    source_metadata: dict | None = None,
+    document: IngestionDocument,
+    processing_path: str,
 ) -> str:
     """Execute the full enrichment pipeline for a single file. Returns final status."""
 
+    file_id = document.document_id
+    storage_path = document.source_ref or document.document_id
+    file_type = document.mime_type
+    source_metadata = document.metadata
+
     # --- Stage 1: Task Dispatch ---
-    task, resume_stage = task_dispatcher.dispatch_or_resume(
-        file_id, storage_path, file_type, checksum, source_metadata
-    )
+    task, resume_stage = task_dispatcher.dispatch_or_resume(document)
 
     if resume_stage is None:
         # Task is already completed or terminally failed — nothing to do.
@@ -60,7 +62,7 @@ def run_enrichment_pipeline(
 
     # --- Acquire lock to prevent duplicate processing ---
     worker_id = f"worker-{uuid.uuid4().hex[:8]}"
-    if not task_dispatcher.acquire_lock(file_id, worker_id):
+    if not task_dispatcher.acquire_lock(file_id, worker_id, settings.TASK_LOCK_TTL_SECONDS):
         logger.warning(f"[{file_id}] Could not acquire lock — another worker is processing this file")
         return "skipped"
 
@@ -76,18 +78,24 @@ def run_enrichment_pipeline(
             "storage_path": storage_path,
             "file_type": file_type,
             "source_metadata": source_metadata,
+            "source_asset_id": document.source_asset_id,
+            "run_id": document.run_id,
+            "entitlement_id": document.entitlement_id,
         }
 
         start_idx = PIPELINE_STAGES.index(resume_stage) if resume_stage in PIPELINE_STAGES else 0
         stages_completed: list[str] = []
         stages_failed: list[str] = []
 
+        local_path = processing_path
         for stage_name in PIPELINE_STAGES[start_idx:]:
+            if not task_dispatcher.acquire_lock(file_id, worker_id, settings.TASK_LOCK_TTL_SECONDS):
+                raise RuntimeError("Processing lock was lost")
             task_dispatcher.update_stage(file_id, stage_name, "started")
             stage_start = time.time()
 
             try:
-                _execute_stage(stage_name, file_id, storage_path, file_type, ctx)
+                _execute_stage(stage_name, file_id, local_path, file_type, ctx)
                 duration_ms = int((time.time() - stage_start) * 1000)
                 task_dispatcher.update_stage(file_id, stage_name, "completed", duration_ms=duration_ms)
                 stages_completed.append(stage_name)
@@ -101,11 +109,13 @@ def run_enrichment_pipeline(
                 logger.warning(f"[{file_id}] Stage '{stage_name}' data-quality failure: {exc}")
 
             except TransientError as exc:
-                # Transient failures get retried with exponential backoff.
+                # Persist the failed checkpoint, then let Celery retry the
+                # whole task with backoff.
                 duration_ms = int((time.time() - stage_start) * 1000)
                 task_dispatcher.update_stage(file_id, stage_name, "failed", error=str(exc), duration_ms=duration_ms)
                 stages_failed.append(stage_name)
                 logger.error(f"[{file_id}] Stage '{stage_name}' transient failure after retries: {exc}")
+                raise
 
             except Exception as exc:
                 duration_ms = int((time.time() - stage_start) * 1000)
@@ -172,15 +182,16 @@ def _run_ocr_extraction(file_id: str, storage_path: str, file_type: str, ctx: di
     # Build the dict that ocr_stt.extract_text_for_modality expects
     preprocessing_dict: dict[str, Any] = {}
     if modality == Modality.IMAGE:
-        preprocessing_dict["images"] = [data.image]
+        preprocessing_dict["images"] = [data.original_image]
     elif modality == Modality.VIDEO:
         preprocessing_dict["keyframes"] = data.keyframes
-        preprocessing_dict["audio_waveform"] = None  # audio extracted separately
+        preprocessing_dict["audio_waveform"] = data.audio_waveform
     elif modality == Modality.AUDIO:
         preprocessing_dict["audio_waveform"] = data.waveform
     elif modality == Modality.DOCUMENT:
         preprocessing_dict["text"] = data.full_text
         preprocessing_dict["needs_ocr"] = data.needs_ocr
+        preprocessing_dict["pages_as_images"] = data.pages_as_images
     elif modality == Modality.CSV:
         col_names = [c.name for c in data.columns]
         sample_str = str(data.sample_rows[:3]) if data.sample_rows else ""
@@ -189,6 +200,30 @@ def _run_ocr_extraction(file_id: str, storage_path: str, file_type: str, ctx: di
 
     extracted = ocr_stt.extract_text_for_modality(preprocessing_dict, modality.value.upper())
     ctx["extracted_text"] = extracted
+
+
+def _vendor_context_text(metadata: dict, limit: int = 16_000) -> str:
+    """Bound vendor-supplied context and keep provenance separate from AI output."""
+    if not isinstance(metadata, dict):
+        return ""
+    fields = (
+        "title",
+        "description",
+        "primary_category",
+        "tags",
+        "categories",
+        "brand",
+        "contributor_id",
+        "additional_metadata",
+    )
+    parts: list[str] = []
+    for name in fields:
+        value = metadata.get(name)
+        if value in (None, "", [], {}):
+            continue
+        rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+        parts.append(f"Vendor {name}: {rendered}")
+    return "\n".join(parts)[:limit]
 
 
 def _run_tagging(file_id: str, storage_path: str, file_type: str, ctx: dict) -> None:
@@ -203,12 +238,15 @@ def _run_tagging(file_id: str, storage_path: str, file_type: str, ctx: dict) -> 
         if result is not None and result.text:
             text_pieces.append(result.text)
     combined_text = " ".join(text_pieces) if text_pieces else None
+    vendor_context = _vendor_context_text(ctx.get("source_metadata") or {})
+    if vendor_context:
+        combined_text = " ".join(part for part in (vendor_context, combined_text) if part)
 
     # Gather images for vision-based tagging
     images: list = []
     if prep and prep.data:
         if modality == Modality.IMAGE:
-            images = [prep.data.image]
+            images = [prep.data.original_image]
         elif modality == Modality.VIDEO:
             images = prep.data.keyframes
 
@@ -226,33 +264,39 @@ def _run_captioning(file_id: str, storage_path: str, file_type: str, ctx: dict) 
     extracted = ctx.get("extracted_text", {})
     modality = ctx.get("modality", Modality.UNKNOWN)
 
-    # Build a simple text dict for the captioning module
-    text_dict: dict[str, str] = {}
+    # Combine OCR and speech instead of discarding everything after the first
+    # non-empty extraction result.
+    text_pieces: list[str] = []
     for key in ("ocr_text", "transcribed_text", "native_document_text"):
         result = extracted.get(key)
         if result is not None and result.text:
-            text_dict["text"] = result.text
-            break
+            text_pieces.append(result.text)
+    supporting_text = " ".join(text_pieces)
+    vendor_context = _vendor_context_text(ctx.get("source_metadata") or {})
+    supporting_text = " ".join(part for part in (vendor_context, supporting_text) if part)
 
     # Route to the right captioning function based on modality
-    if modality in (Modality.IMAGE, Modality.VIDEO):
-        if modality == Modality.IMAGE and prep and prep.data:
-            image = prep.data.image
-        elif modality == Modality.VIDEO and prep and prep.data and prep.data.keyframes:
-            image = prep.data.thumbnail
+    if modality == Modality.VIDEO and prep and prep.data and prep.data.keyframes:
+        caption = captioning_module.generate_video_caption(
+            prep.data.keyframes,
+            tags,
+            supporting_text,
+            prep.data.duration_seconds,
+        )
+    elif modality == Modality.IMAGE:
+        if prep and prep.data:
+            image = prep.data.original_image
         else:
             image = None
 
         if image is not None:
-            ocr_text = text_dict.get("text", "")
+            ocr_text = supporting_text
             caption = captioning_module.generate_caption(image, tags, ocr_text)
         else:
-            caption = captioning_module.generate_text_description(
-                text_dict.get("text", ""), tags, modality.value
-            )
+            caption = captioning_module.generate_text_description(supporting_text, tags, modality.value)
     else:
         caption = captioning_module.generate_text_description(
-            text_dict.get("text", ""), tags, modality.value
+            supporting_text, tags, modality.value
         )
 
     ctx["caption"] = caption
@@ -267,11 +311,13 @@ def _run_quality_safety(file_id: str, storage_path: str, file_type: str, ctx: di
     preprocessing_dict: dict[str, Any] = {}
     if prep and prep.data:
         if modality == Modality.IMAGE:
-            preprocessing_dict["images"] = [prep.data.image]
+            preprocessing_dict["images"] = [prep.data.original_image]
         elif modality == Modality.VIDEO:
             preprocessing_dict["keyframes"] = prep.data.keyframes
         elif modality == Modality.AUDIO:
             preprocessing_dict["audio_waveform"] = prep.data.waveform
+        elif modality == Modality.DOCUMENT:
+            preprocessing_dict["images"] = prep.data.pages_as_images
 
     q_labels, s_labels = quality_safety.run_quality_safety_pipeline(
         preprocessing_dict, extracted, modality.value.upper()
@@ -303,11 +349,14 @@ def _run_metadata_fusion(file_id: str, storage_path: str, file_type: str, ctx: d
             "alt": caption.accessibility_description,
         }
 
-    from worker.pipeline.quality_safety import QualityLabels, PrivacySafetyLabels
+    from modules.ai_tag_description_generation.worker.pipeline.quality_safety import QualityLabels, PrivacySafetyLabels
     if q_labels is None:
         q_labels = QualityLabels(blur_score=1.0, is_blurry=False, low_light=False, noisy_audio=False, overall_quality="good")
     if s_labels is None:
-        s_labels = PrivacySafetyLabels()
+        s_labels = PrivacySafetyLabels(
+            analysis_incomplete=True,
+            analysis_errors=["Quality and safety stage did not complete"],
+        )
 
     fused = metadata_fusion.fuse_metadata(
         tags=tag_dicts,
@@ -339,18 +388,27 @@ def _run_persistence(file_id: str, storage_path: str, file_type: str, ctx: dict)
     model_version = get_model_version_string()
     enrichment_version = settings.ENRICHMENT_VERSION
 
-    # Build the flat dict matching GeneratedMetadata columns
+    # Flatten the fused payload into DocumentEnrichmentMetadata columns.
+    # Keep OCR, transcription, and native document text distinct so callers
+    # can retrieve the appropriate source without parsing a JSON envelope.
+    extracted_text = fused.get("extracted_text", {})
     persist_dict = {
+        "source_asset_id": ctx.get("source_asset_id"),
+        "run_id": ctx.get("run_id"),
+        "correlation_id": ctx.get("run_id"),
         "generated_tags": fused.get("generated_tags"),
         "short_description": fused.get("descriptions", {}).get("short_description", ""),
         "long_description": fused.get("descriptions", {}).get("long_description", ""),
         "search_description": fused.get("descriptions", {}).get("search_optimized", ""),
         "accessibility_description": fused.get("descriptions", {}).get("accessibility_alt", ""),
-        "extracted_text": fused.get("extracted_text"),
+        "ocr_text": (extracted_text.get("ocr_text") or {}).get("text"),
+        "transcribed_text": (extracted_text.get("transcribed_text") or {}).get("text"),
+        "native_document_text": (extracted_text.get("native_document_text") or {}).get("text"),
         "privacy_safety_labels": fused.get("safety_labels"),
+        "restricted_metadata": fused.get("restricted_metadata"),
         "quality_labels": fused.get("quality_labels"),
         "confidence_scores": fused.get("confidence_scores"),
-        "raw_model_outputs": fused.get("raw_model_outputs"),
+        "model_versions": fused.get("models_used"),
         "status": ctx.get("final_status", "completed"),
     }
 
@@ -359,14 +417,8 @@ def _run_persistence(file_id: str, storage_path: str, file_type: str, ctx: dict)
     )
     ctx["persisted_record_id"] = record_id
 
-    # Forward for Qdrant embedding — non-blocking, failure is logged but doesn't crash
+    # Qdrant is part of persistence; a failure must be retried.
     metadata_persistence.forward_for_embedding(file_id, persist_dict)
-
-
-def _run_event_publication(file_id: str, storage_path: str, file_type: str, ctx: dict) -> None:
-    # Event publication is handled in the main loop's finally block via _publish_result_event.
-    # This stage is a no-op placeholder so the stage list stays consistent.
-    pass
 
 
 STAGE_FUNCTIONS = {
@@ -378,7 +430,6 @@ STAGE_FUNCTIONS = {
     "metadata_fusion": _run_metadata_fusion,
     "confidence_validation": _run_confidence_validation,
     "persistence": _run_persistence,
-    "event_publication": _run_event_publication,
 }
 
 
@@ -421,7 +472,9 @@ def _publish_result_event(
     )
 
     common = dict(
-        file_id=file_id,
+        document_id=file_id,
+        source_asset_id=ctx.get("source_asset_id"),
+        run_id=ctx.get("run_id"),
         metadata_version="1.0",
         model_version=get_model_version_string(),
         enrichment_version=settings.ENRICHMENT_VERSION,
@@ -457,11 +510,4 @@ def _publish_result_event(
 
 
 if __name__ == "__main__":
-    # Quick test with a fake file
-    status = run_enrichment_pipeline(
-        file_id="test-001",
-        storage_path="sample.jpg",
-        file_type="jpg",
-        checksum="abc123",
-    )
-    print(f"Pipeline result: {status}")
+    raise SystemExit("Run through the API, Celery worker, or Kafka consumer")

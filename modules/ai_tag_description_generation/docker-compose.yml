@@ -1,25 +1,75 @@
 services:
   redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    ports: ["6379:6379"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: modules/ai_tag_description_generation/dockerfile
+    command: alembic -c modules/ai_tag_description_generation/alembic.ini upgrade head
+    env_file: .env.docker
 
   api:
-    build: .
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    env_file: .env
+    build:
+      context: ../..
+      dockerfile: modules/ai_tag_description_generation/dockerfile
+    command: uvicorn modules.ai_tag_description_generation.api.main:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    env_file: .env.docker
     depends_on:
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    init: true
 
   worker:
-    build: .
-    command: celery -A app.celery_app worker --loglevel=info
+    build:
+      context: ../..
+      dockerfile: modules/ai_tag_description_generation/dockerfile
+    command: celery -A modules.ai_tag_description_generation.app.celery_app:celery_app worker --loglevel=info --pool=solo --concurrency=1
+    env_file: .env.docker
     volumes:
-      - .:/app
-    env_file: .env
+      - ./checkpoints:/app/modules/ai_tag_description_generation/checkpoints:ro
+      - model_cache:/home/appuser/.cache
     depends_on:
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 10m
+    init: true
+
+  kafka-consumer:
+    build:
+      context: ../..
+      dockerfile: modules/ai_tag_description_generation/dockerfile
+    command: python -m modules.ai_tag_description_generation.app.kafka_consumer
+    env_file: .env.docker
+    volumes:
+      - ./checkpoints:/app/modules/ai_tag_description_generation/checkpoints:ro
+      - model_cache:/home/appuser/.cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 10m
+    init: true
+
+volumes:
+  redis_data:
+  model_cache:

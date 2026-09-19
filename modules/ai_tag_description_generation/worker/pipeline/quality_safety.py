@@ -5,7 +5,10 @@ from typing import List, Dict, Tuple, Any
 import numpy as np
 from PIL import Image
 
-from worker.pipeline import model_manager
+from modules.ai_tag_description_generation.worker.pipeline import model_manager
+from modules.ai_tag_description_generation.worker.pipeline.ocr_stt import extract_ocr_lines
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError
+from modules.ai_tag_description_generation.app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,8 @@ class PrivacySafetyLabels:
     ai_generated_score: float = 0.0
     ai_generated_flagged: bool = False
     toxicity_score: float = 0.0
+    analysis_incomplete: bool = False
+    analysis_errors: List[str] = field(default_factory=list)
 
 def assess_image_quality(image: Image.Image) -> QualityLabels:
     """
@@ -58,6 +63,29 @@ def assess_image_quality(image: Image.Image) -> QualityLabels:
         low_light=low_light,
         noisy_audio=False,
         overall_quality=overall
+    )
+
+
+def assess_video_quality(images: List[Image.Image]) -> QualityLabels:
+    """Aggregate quality across the sampled timeline, not only frame zero."""
+    if not images:
+        return QualityLabels(0.0, False, False, False, 'poor')
+    samples = [assess_image_quality(image) for image in images]
+    blurry_count = sum(sample.is_blurry for sample in samples)
+    low_light_count = sum(sample.low_light for sample in samples)
+    issue_count = sum(sample.is_blurry or sample.low_light for sample in samples)
+    if issue_count == len(samples):
+        overall = 'poor'
+    elif issue_count:
+        overall = 'acceptable'
+    else:
+        overall = 'good'
+    return QualityLabels(
+        blur_score=float(np.mean([sample.blur_score for sample in samples])),
+        is_blurry=blurry_count > len(samples) / 2,
+        low_light=low_light_count > len(samples) / 2,
+        noisy_audio=False,
+        overall_quality=overall,
     )
 
 def assess_audio_quality(rms_energy: np.ndarray, duration: float) -> QualityLabels:
@@ -120,6 +148,8 @@ def detect_pii_in_text(text: str) -> PrivacySafetyLabels:
             })
     except Exception as e:
         logger.warning(f"Presidio analysis failed, falling back to regex only: {e}")
+        labels.analysis_incomplete = True
+        labels.analysis_errors.append(f"Presidio unavailable: {type(e).__name__}")
 
     # --- Regex fallback for types Presidio doesn't natively cover ---
     supplemental_patterns = {
@@ -181,6 +211,8 @@ def detect_pii_in_images(images: List[Image.Image]) -> PrivacySafetyLabels:
             })
     except Exception as e:
         logger.warning(f"Failed to load face detector model, skipping face detection: {e}")
+        labels.analysis_incomplete = True
+        labels.analysis_errors.append(f"Face detection unavailable: {type(e).__name__}")
 
     # --- Text-visible PII via OCR → Presidio/regex ---
     try:
@@ -189,11 +221,7 @@ def detect_pii_in_images(images: List[Image.Image]) -> PrivacySafetyLabels:
         for img in images:
             try:
                 img_np = np.array(img)
-                result = ocr_model.ocr(img_np, cls=True)
-                if result and result[0]:
-                    for line in result[0]:
-                        text, _conf = line[1]
-                        ocr_texts.append(text)
+                ocr_texts.extend(text for text, _conf in extract_ocr_lines(ocr_model, img_np))
             except Exception as e:
                 logger.warning(f"OCR failed for an image during PII scan: {e}")
                 continue
@@ -212,6 +240,8 @@ def detect_pii_in_images(images: List[Image.Image]) -> PrivacySafetyLabels:
                 labels.pii_details.extend(text_pii.pii_details)
     except Exception as e:
         logger.warning(f"Failed to load OCR model for image PII scan: {e}")
+        labels.analysis_incomplete = True
+        labels.analysis_errors.append(f"Image OCR unavailable: {type(e).__name__}")
 
     return labels
 
@@ -226,10 +256,10 @@ def assess_nsfw(images: List[Image.Image]) -> float:
     try:
         nudenet = model_manager.get_model('nudenet')
     except Exception as e:
-        logger.warning(f"Failed to load NudeNet model, skipping NSFW detection: {e}")
-        return 0.0
+        raise TransientError(f"Failed to load NudeNet model: {e}") from e
 
     max_unsafe = 0.0
+    failures = 0
     for img in images:
         try:
             img_np = np.array(img)
@@ -242,7 +272,10 @@ def assess_nsfw(images: List[Image.Image]) -> float:
                     max_unsafe = score
         except Exception as e:
             logger.warning(f"NSFW detection failed for an image: {e}")
-            continue
+            failures += 1
+
+    if failures == len(images):
+        raise TransientError("NSFW detection failed for every image")
 
     return max_unsafe
 
@@ -257,10 +290,10 @@ def assess_ai_generated(images: List[Image.Image]) -> float:
     try:
         detector = model_manager.get_model('ai_generated_detector')
     except Exception as e:
-        logger.warning(f"Failed to load AI-generated detector, skipping: {e}")
-        return 0.0
+        raise TransientError(f"Failed to load AI-generated detector: {e}") from e
 
     max_score = 0.0
+    failures = 0
     for img in images:
         try:
             score = detector.score(img)
@@ -268,7 +301,10 @@ def assess_ai_generated(images: List[Image.Image]) -> float:
                 max_score = score
         except Exception as e:
             logger.warning(f"AI-generated detection failed for an image: {e}")
-            continue
+            failures += 1
+
+    if failures == len(images):
+        raise TransientError("AI-generated detection failed for every image")
 
     return max_score
 
@@ -284,8 +320,7 @@ def assess_toxicity(text: str) -> float:
     try:
         toxicity_model = model_manager.get_model('toxicity')
     except Exception as e:
-        logger.warning(f"Failed to load toxicity model, skipping: {e}")
-        return 0.0
+        raise TransientError(f"Failed to load toxicity model: {e}") from e
 
     try:
         results = toxicity_model.predict(text)
@@ -294,8 +329,7 @@ def assess_toxicity(text: str) -> float:
         max_score = max(results.values())
         return float(max_score)
     except Exception as e:
-        logger.warning(f"Toxicity detection failed: {e}")
-        return 0.0
+        raise TransientError(f"Toxicity detection failed: {e}") from e
 
 
 def run_quality_safety_pipeline(
@@ -308,10 +342,14 @@ def run_quality_safety_pipeline(
     """
     # 1. Quality
     q_labels = QualityLabels(1.0, False, False, False, 'good')
-    if modality in ('IMAGE', 'VIDEO'):
+    if modality == 'VIDEO':
+        images = preprocessing_result.get('keyframes', [])
+        if images:
+            q_labels = assess_video_quality(images)
+    elif modality in ('IMAGE', 'DOCUMENT'):
         images = preprocessing_result.get('images', []) or preprocessing_result.get('keyframes', [])
         if images:
-            q_labels = assess_image_quality(images[0]) # Simple logic: test first image
+            q_labels = assess_image_quality(images[0])
             
     elif modality == 'AUDIO':
         audio = preprocessing_result.get('audio_waveform', np.array([]))
@@ -324,17 +362,30 @@ def run_quality_safety_pipeline(
     s_labels_text = detect_pii_in_text(combined_text)
     
     # 3. Toxicity (Text)
-    toxicity_score = assess_toxicity(combined_text)
+    try:
+        toxicity_score = assess_toxicity(combined_text)
+    except TransientError as exc:
+        toxicity_score = 0.0
+        s_labels_text.analysis_incomplete = True
+        s_labels_text.analysis_errors.append(str(exc))
 
     # 4. Safety (Images)
     s_labels_img = PrivacySafetyLabels()
-    if modality in ('IMAGE', 'VIDEO'):
+    if modality in ('IMAGE', 'VIDEO', 'DOCUMENT'):
         images = preprocessing_result.get('images', []) or preprocessing_result.get('keyframes', [])
         s_labels_img = detect_pii_in_images(images)
-        s_labels_img.nsfw_score = assess_nsfw(images)
-        s_labels_img.nsfw_flagged = s_labels_img.nsfw_score > 0.8
-        s_labels_img.ai_generated_score = assess_ai_generated(images)
-        s_labels_img.ai_generated_flagged = s_labels_img.ai_generated_score > 0.8
+        try:
+            s_labels_img.nsfw_score = assess_nsfw(images)
+            s_labels_img.nsfw_flagged = s_labels_img.nsfw_score >= settings.NSFW_THRESHOLD
+        except TransientError as exc:
+            s_labels_img.analysis_incomplete = True
+            s_labels_img.analysis_errors.append(str(exc))
+        try:
+            s_labels_img.ai_generated_score = assess_ai_generated(images)
+            s_labels_img.ai_generated_flagged = s_labels_img.ai_generated_score >= settings.AI_GENERATED_THRESHOLD
+        except TransientError as exc:
+            s_labels_img.analysis_incomplete = True
+            s_labels_img.analysis_errors.append(str(exc))
 
     # Merge Safety Labels
     merged_s_labels = PrivacySafetyLabels(
@@ -347,6 +398,8 @@ def run_quality_safety_pipeline(
         ai_generated_score=s_labels_img.ai_generated_score,
         ai_generated_flagged=s_labels_img.ai_generated_flagged,
         toxicity_score=toxicity_score,
+        analysis_incomplete=s_labels_text.analysis_incomplete or s_labels_img.analysis_incomplete,
+        analysis_errors=s_labels_text.analysis_errors + s_labels_img.analysis_errors,
     )
     
     return q_labels, merged_s_labels

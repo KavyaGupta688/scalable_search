@@ -1,17 +1,18 @@
-"""Initial schema — enrichment_tasks and generated_metadata tables.
+"""Initial AI-module schema: enrichment task tracking.
 
 Revision ID: 001_initial
 Revises: (none)
 Create Date: 2026-08-29
 
-This migration creates the two core tables used by the AI enrichment pipeline:
-  - enrichment_tasks: tracks file processing jobs through the pipeline
-  - generated_metadata: stores AI-generated tags, descriptions, and quality labels
+The ingestion-owned documents table must already exist in the target cloud
+database. Task rows are children of that table and are removed with it.
 """
+import os
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "001_initial"
@@ -21,15 +22,26 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    source_schema = os.environ.get("SOURCE_DOCUMENT_SCHEMA", "public")
+    source_table = os.environ.get("SOURCE_DOCUMENT_TABLE", "documents")
+    source_id_column = os.environ.get("SOURCE_DOCUMENT_ID_COLUMN", "id")
     # --- enrichment_tasks ---
     op.create_table(
         "enrichment_tasks",
-        sa.Column("file_id", sa.String(255), primary_key=True),
-        sa.Column("status", sa.String(20), default="queued"),
+        sa.Column(
+            "file_id",
+            postgresql.UUID(as_uuid=False),
+            sa.ForeignKey(
+                f"{source_schema}.{source_table}.{source_id_column}",
+                ondelete="CASCADE",
+            ),
+            primary_key=True,
+        ),
+        sa.Column("status", sa.String(20), nullable=False, server_default="queued"),
         sa.Column("current_stage", sa.String(50), nullable=True),
-        sa.Column("retry_count", sa.Integer(), default=0),
-        sa.Column("max_retries", sa.Integer(), default=3),
-        sa.Column("stage_results", sa.JSON(), default={}),
+        sa.Column("retry_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("max_retries", sa.Integer(), nullable=False, server_default="3"),
+        sa.Column("stage_results", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
         sa.Column("error_message", sa.Text(), nullable=True),
         sa.Column("locked_by", sa.String(255), nullable=True),
         sa.Column("lock_expires_at", sa.DateTime(timezone=True), nullable=True),
@@ -47,45 +59,11 @@ def upgrade() -> None:
         sa.Column("file_type", sa.String(50)),
         sa.Column("checksum", sa.String(128)),
         sa.Column("source_metadata", sa.JSON(), nullable=True),
-    )
-
-    # --- generated_metadata ---
-    op.create_table(
-        "generated_metadata",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("file_id", sa.String(255), nullable=False),
-        sa.Column("model_version", sa.String(100), nullable=False),
-        sa.Column("enrichment_version", sa.String(50), nullable=False),
-        sa.Column("generated_tags", sa.JSON()),
-        sa.Column("short_description", sa.Text()),
-        sa.Column("long_description", sa.Text()),
-        sa.Column("search_description", sa.Text()),
-        sa.Column("accessibility_description", sa.Text()),
-        sa.Column("extracted_text", sa.JSON()),
-        sa.Column("privacy_safety_labels", sa.JSON()),
-        sa.Column("quality_labels", sa.JSON()),
-        sa.Column("confidence_scores", sa.JSON()),
-        sa.Column("raw_model_outputs", sa.JSON()),
-        sa.Column("status", sa.String(20), default="pending"),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-        ),
-        sa.UniqueConstraint(
-            "file_id",
-            "model_version",
-            "enrichment_version",
-            name="uix_file_model_version",
+        sa.CheckConstraint(
+            "status IN ('queued','queue_failed','in_progress','completed','partial','needs_review','failed_terminal')",
+            name="ck_enrichment_tasks_status",
         ),
     )
-
 
 def downgrade() -> None:
-    op.drop_table("generated_metadata")
     op.drop_table("enrichment_tasks")

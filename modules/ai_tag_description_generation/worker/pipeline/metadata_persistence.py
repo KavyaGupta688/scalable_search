@@ -9,11 +9,12 @@ import logging
 from uuid import UUID
 from typing import Dict, Any
 
-from app.db import get_sync_session
-from app.models import DocumentEnrichmentMetadata
-from app.qdrant_client import qdrant_manager
-from app.config import settings
-from worker.pipeline.model_manager import get_model
+from modules.ai_tag_description_generation.app.db import get_sync_session
+from modules.ai_tag_description_generation.app.models import DocumentEnrichmentMetadata
+from modules.ai_tag_description_generation.app.qdrant_client import qdrant_manager
+from modules.ai_tag_description_generation.app.config import settings
+from modules.ai_tag_description_generation.worker.pipeline.model_manager import encode_text
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError
 
 logger = logging.getLogger(__name__)
 
@@ -27,18 +28,25 @@ def retry_handler(func):
                 return func(*args, **kwargs)
             except Exception as e:
                 if i == retries - 1:
-                    raise e
+                    raise TransientError(
+                        f"Persistence operation {func.__name__} failed after {retries} attempts: {e}"
+                    ) from e
                 logger.warning(f"Transient error in {func.__name__}, retrying ({i+1}/{retries}): {e}")
     return wrapper
 
 
 @retry_handler
-def persist_metadata(file_id: str, metadata_record: Dict[str, Any], model_version: str, enrichment_version: str) -> str:
+def persist_metadata(document_id: str, metadata_record: Dict[str, Any], model_version: str, enrichment_version: str) -> str:
     """Upsert metadata to PostgreSQL."""
+    metadata_record = dict(metadata_record)
+    for uuid_field in ("source_asset_id", "run_id"):
+        if metadata_record.get(uuid_field):
+            metadata_record[uuid_field] = UUID(str(metadata_record[uuid_field]))
     with get_sync_session() as session:
-        document_id = UUID(file_id)
+        normalized_id = UUID(document_id)
         existing = session.query(DocumentEnrichmentMetadata).filter_by(
-            file_id=document_id,
+            document_id=normalized_id,
+            model_name="ai_tag_description_generation",
             model_version=model_version,
             enrichment_version=enrichment_version
         ).first()
@@ -53,7 +61,8 @@ def persist_metadata(file_id: str, metadata_record: Dict[str, Any], model_versio
         else:
             # Insert new
             new_record = DocumentEnrichmentMetadata(
-                file_id=document_id,
+                document_id=normalized_id,
+                model_name="ai_tag_description_generation",
                 model_version=model_version,
                 enrichment_version=enrichment_version,
                 **metadata_record
@@ -66,14 +75,15 @@ def persist_metadata(file_id: str, metadata_record: Dict[str, Any], model_versio
 def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool:
     """Generate CLIP embedding and upsert to Qdrant."""
     try:
-        tags = metadata_record.get('tags', [])
+        tags = metadata_record.get('generated_tags', [])
         short_desc = metadata_record.get('short_description', '')
         search_desc = metadata_record.get('search_description', '')
         
         # Build text representation
         text_parts = []
         if tags:
-            text_parts.append(f"Tags: {', '.join(tags)}")
+            labels = [tag.get("tag", "") if isinstance(tag, dict) else str(tag) for tag in tags]
+            text_parts.append(f"Tags: {', '.join(label for label in labels if label)}")
         if short_desc:
             text_parts.append(f"Description: {short_desc}")
         if search_desc:
@@ -85,12 +95,12 @@ def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool
             return False
 
         # Generate embedding
-        clip_model = get_model('clip')
-        vector = clip_model.encode_text(text_representation)
+        text_features = encode_text([text_representation])
+        vector = text_features[0].detach().cpu().tolist()
 
         # Build payload
         payload = {
-            "file_id": file_id,
+            "document_id": file_id,
             "tags": tags,
             "short_description": short_desc
         }
@@ -99,8 +109,7 @@ def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool
         qdrant_manager.upsert_embedding(file_id, vector, payload)
         return True
     except Exception as e:
-        logger.error(f"Failed to forward for embedding {file_id}: {e}")
-        return False
+        raise TransientError(f"Failed to forward embedding for {file_id}: {e}") from e
 
 
 if __name__ == "__main__":

@@ -4,12 +4,8 @@ from typing import Dict, List, Any
 logger = logging.getLogger(__name__)
 
 def _normalize_tag(label: str) -> str:
-    """Lowercase, strip whitespace, basic lemmatization."""
-    label = label.lower().strip()
-    # Simple plural removal
-    if label.endswith('s') and not label.endswith('ss'):
-        label = label[:-1]
-    return label
+    """Normalize casing and whitespace without corrupting valid words."""
+    return " ".join(label.casefold().split())
 
 def _deduplicate_tags(tags: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Merge tags by normalized label, keeping highest confidence."""
@@ -19,17 +15,18 @@ def _deduplicate_tags(tags: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not norm:
             continue
             
-        if norm in merged:
-            # Update if confidence is higher
-            if tag.get('confidence', 0) > merged[norm].get('confidence', 0):
-                merged[norm] = tag
-            # Note source
-            sources = merged[norm].get('sources', set())
-            sources.add(tag.get('source_model', 'unknown'))
-            merged[norm]['sources'] = sources
+        source = tag.get('source_model', 'unknown')
+        if norm not in merged:
+            merged[norm] = {**tag, 'sources': {source}}
+            continue
+
+        existing = merged[norm]
+        sources = set(existing.get('sources', set()))
+        sources.add(source)
+        if tag.get('confidence', 0) > existing.get('confidence', 0):
+            merged[norm] = {**tag, 'sources': sources}
         else:
-            tag['sources'] = {tag.get('source_model', 'unknown')}
-            merged[norm] = tag
+            existing['sources'] = sources
             
     return list(merged.values())
 
@@ -94,6 +91,7 @@ def fuse_metadata(
         },
         'extracted_text': text_dict,
         'quality_labels': {
+            'blur_score': quality_labels.blur_score,
             'overall_quality': quality_labels.overall_quality,
             'is_blurry': quality_labels.is_blurry,
             'low_light': quality_labels.low_light,
@@ -103,7 +101,16 @@ def fuse_metadata(
             'contains_pii': safety_labels.contains_pii,
             'nsfw_flagged': safety_labels.nsfw_flagged,
             'ai_generated_flagged': safety_labels.ai_generated_flagged,
-            'pii_types': safety_labels.pii_types
+            'pii_types': safety_labels.pii_types,
+            'faces_detected': safety_labels.faces_detected,
+            'nsfw_score': safety_labels.nsfw_score,
+            'ai_generated_score': safety_labels.ai_generated_score,
+            'toxicity_score': safety_labels.toxicity_score,
+            'analysis_incomplete': safety_labels.analysis_incomplete,
+            'analysis_errors': safety_labels.analysis_errors,
+        },
+        'restricted_metadata': {
+            'pii_details': safety_labels.pii_details,
         },
         'modality': modality,
         'models_used': model_versions

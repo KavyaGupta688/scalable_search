@@ -6,9 +6,23 @@ WORKDIR /app
 # ffmpeg   - video keyframe extraction, audio handling
 # libgl1   - required by opencv/paddleocr for image processing
 # libglib2.0-0 - required by opencv
-RUN apt-get update && apt-get install -y ffmpeg libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY modules/ai_tag_description_generation/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY . .
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
+
+# Copy only this service and the package marker. Model checkpoints are mounted
+# read-only at runtime so they do not add several GB to every image layer.
+COPY --chown=appuser:appuser modules/__init__.py modules/__init__.py
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/alembic modules/ai_tag_description_generation/alembic
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/api modules/ai_tag_description_generation/api
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/app modules/ai_tag_description_generation/app
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/worker modules/ai_tag_description_generation/worker
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/scripts modules/ai_tag_description_generation/scripts
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/__init__.py modules/ai_tag_description_generation/__init__.py
+COPY --chown=appuser:appuser modules/ai_tag_description_generation/alembic.ini modules/ai_tag_description_generation/alembic.ini
+
+USER appuser

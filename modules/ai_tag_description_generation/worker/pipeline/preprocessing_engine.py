@@ -11,8 +11,8 @@ downstream code never touches individual processors directly.
 from dataclasses import dataclass
 from typing import Any
 
-from worker.pipeline.media_router import route_file, Modality, ModalityPolicy
-from worker.pipeline import image_processor, video_processor, audio_processor, document_processor, csv_profiler
+from modules.ai_tag_description_generation.worker.pipeline.media_router import route_file, Modality, ModalityPolicy
+from modules.ai_tag_description_generation.worker.pipeline import image_processor, video_processor, audio_processor, document_processor, csv_profiler
 
 
 @dataclass

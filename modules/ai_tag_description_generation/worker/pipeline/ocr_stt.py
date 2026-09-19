@@ -1,11 +1,13 @@
 import logging
+import json
+import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 import numpy as np
 from PIL import Image
 
-from worker.pipeline.retry_handler import TransientError, DataQualityError, with_retry
-from worker.pipeline import model_manager
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError, DataQualityError, with_retry
+from modules.ai_tag_description_generation.worker.pipeline import model_manager
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,32 @@ class ExtractionResult:
     source: str          # 'paddleocr', 'whisper-large-v3', 'native_parser'
     language: str         # detected or assumed language code
     confidence: float     # 0.0-1.0
+
+
+def extract_ocr_lines(model, image: np.ndarray) -> list[tuple[str, float]]:
+    """Return OCR text/confidence pairs from PaddleOCR v2 or v3."""
+    # PaddleOCR v3 uses ``predict`` and returns mapping-like OCRResult objects.
+    if hasattr(model, "predict"):
+        lines: list[tuple[str, float]] = []
+        for prediction in model.predict(image):
+            data = prediction
+            if not isinstance(data, dict):
+                data = getattr(prediction, "json", prediction)
+                data = data() if callable(data) else data
+                if isinstance(data, str):
+                    data = json.loads(data)
+            if isinstance(data, dict):
+                data = data.get("res", data)
+                texts = data.get("rec_texts", [])
+                scores = data.get("rec_scores", [])
+                lines.extend((str(text), float(score)) for text, score in zip(texts, scores))
+        return lines
+
+    # PaddleOCR v2 legacy result format.
+    result = model.ocr(image, cls=True)
+    if not result or not result[0]:
+        return []
+    return [(str(line[1][0]), float(line[1][1])) for line in result[0]]
 
 def run_ocr(images: List[Image.Image]) -> ExtractionResult:
     """
@@ -34,16 +62,11 @@ def run_ocr(images: List[Image.Image]) -> ExtractionResult:
 
     for img in images:
         try:
-            # Convert PIL image to numpy array as expected by PaddleOCR
-            img_np = np.array(img)
-            # result structure: list of [bbox, (text, confidence)]
-            result = model.ocr(img_np, cls=True)
-            
-            if not result or not result[0]:
-                continue
-                
-            for line in result[0]:
-                text, conf = line[1]
+            # PaddleOCR v3 expects HxWx3 input. Direct callers can pass a
+            # grayscale/P-mode receipt image, unlike the preprocessing stage
+            # which already normalizes images to RGB.
+            img_np = np.array(img.convert("RGB"))
+            for text, conf in extract_ocr_lines(model, img_np):
                 all_texts.append(text)
                 total_confidence += conf
                 count += 1
@@ -78,7 +101,12 @@ def run_speech_to_text(waveform: np.ndarray, sample_rate: int = 16000) -> Extrac
 
     try:
         # Whisper transcription via model_manager
-        result = model.transcribe(waveform)
+        result = model.transcribe(
+            waveform,
+            fp16=model_manager.DEVICE == "cuda",
+            temperature=0,
+            condition_on_previous_text=False,
+        )
         
         text = result.get('text', '').strip()
         language = result.get('language', 'en')
@@ -86,9 +114,29 @@ def run_speech_to_text(waveform: np.ndarray, sample_rate: int = 16000) -> Extrac
         # Calculate average segment confidence
         segments = result.get('segments', [])
         if segments:
-            conf = sum(s.get('confidence', 0.5) for s in segments) / len(segments)
+            speech_segments = [
+                segment for segment in segments
+                if float(segment.get('no_speech_prob', 0.0)) < 0.6
+            ]
+            if not speech_segments:
+                return ExtractionResult(
+                    text="", source="whisper-large-v3", language=language, confidence=0.0
+                )
+            # Rebuild from speech-like segments so music/silence hallucinations
+            # in Whisper's aggregate text do not enter tags and captions.
+            text = " ".join(
+                str(segment.get('text', '')).strip()
+                for segment in speech_segments
+                if str(segment.get('text', '')).strip()
+            )
+            probabilities = [
+                math.exp(min(0.0, float(segment.get('avg_logprob', -0.7))))
+                * (1.0 - float(segment.get('no_speech_prob', 0.0)))
+                for segment in speech_segments
+            ]
+            conf = sum(probabilities) / len(probabilities)
         else:
-            conf = 0.8 # Fallback
+            conf = 0.0
             
         return ExtractionResult(
             text=text,
