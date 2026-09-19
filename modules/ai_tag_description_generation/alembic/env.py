@@ -25,7 +25,9 @@ config = context.config
 # Set sqlalchemy.url from the environment variable
 database_url = os.environ.get("DATABASE_URL_SYNC")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    # ConfigParser treats percent signs in URL-encoded passwords as
+    # interpolation markers unless they are escaped.
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # Set up Python logging from alembic.ini
 if config.config_file_name is not None:
@@ -35,6 +37,7 @@ from modules.ai_tag_description_generation.app.db import Base
 from modules.ai_tag_description_generation.app import models  # noqa: F401
 
 target_metadata = Base.metadata
+VERSION_TABLE = "ai_enrichment_alembic_version"
 
 
 def run_migrations_offline() -> None:
@@ -49,6 +52,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table=VERSION_TABLE,
     )
 
     with context.begin_transaction():
@@ -70,6 +74,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            version_table=VERSION_TABLE,
         )
 
         with context.begin_transaction():

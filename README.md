@@ -14,7 +14,7 @@ The API is available at `http://localhost:8000`. OpenAPI documentation is at `/d
 ## AI enrichment development stack
 
 Copy `.env.docker.example` to `.env.docker`, replace its cloud placeholders,
-then start Redis, the API, migrations, and a single-concurrency Celery worker:
+then start Redis, migrations, the API, a Celery worker, and the ingestion Kafka consumer:
 
 ```bash
 cd modules/ai_tag_description_generation
@@ -22,7 +22,7 @@ docker compose up --build
 ```
 
 The Compose file starts a persistent local Redis broker and connects to
-externally managed PostgreSQL, Qdrant, and MinIO services. It starts migrations
+externally managed PostgreSQL, Qdrant, Kafka, and ingestion API services. It starts migrations
 before the API and worker; the API is available on `localhost:8000`. Check the
 queue connection at `GET /ai/health/queue`.
 
@@ -33,19 +33,13 @@ fallback when the three role-specific URLs are not set.
 
 ## AI enrichment cloud contract
 
-The enrichment API accepts only a PostgreSQL `file_id`. The ingestion-owned
-source table is the authority for the MinIO path, file type, checksum, and
-source metadata. Configure its table and column names with the
-`SOURCE_*` variables in `modules/ai_tag_description_generation/.env.example`.
-The source table must already exist and the AI database user needs `SELECT`
-permission on it.
-
-The worker downloads the referenced MinIO object, routes it by modality,
-generates metadata asynchronously, then writes to
-`document_enrichment_metadata` and upserts a 512-dimensional CLIP vector into
-the configured Qdrant collection. Replace all PostgreSQL, Redis, MinIO, and
-Qdrant placeholders in `.env.example` with the corresponding cloud endpoints
-and credentials before deployment.
+The preferred trigger is ingestion's `ai-processing-events` Kafka topic. The
+AI module uses the canonical `document_id`, requests a short-lived S3 URL or
+NAS stream from ingestion immediately before processing, verifies size and
+SHA-256, and never stores source credentials. Generated metadata is written to
+`document_enrichment_metadata` without modifying vendor metadata, and a
+512-dimensional CLIP vector is upserted to Qdrant. The manual compatibility
+endpoint accepts `{"document_id": "..."}`.
 
 ## Initial endpoints
 

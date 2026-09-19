@@ -8,13 +8,15 @@ this module's internals directly.
 """
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select, desc
+from uuid import UUID
 
 from modules.ai_tag_description_generation.app.db import get_async_session
 from modules.ai_tag_description_generation.app.models import EnrichmentTask, DocumentEnrichmentMetadata
 from modules.ai_tag_description_generation.app.celery_app import process_validated_file
 from modules.ai_tag_description_generation.app.event_schemas import EnrichmentRequest
-from modules.ai_tag_description_generation.app.source_repository import get_source_document_async
+from modules.ai_tag_description_generation.app.ingestion_client import IngestionAccessError, get_document
 
 
 router = APIRouter()
@@ -49,27 +51,63 @@ async def start_enrichment(request: EnrichmentRequest) -> dict:
     Accept a validated-file event from Ingestion and kick off the
     enrichment pipeline asynchronously via Celery.
     """
+    document_id = str(request.document_id)
     try:
-        source = await get_source_document_async(request.file_id)
+        source = await run_in_threadpool(get_document, document_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if source is None:
-        raise HTTPException(status_code=404, detail="Document not found in ingestion table")
+    except IngestionAccessError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    task = process_validated_file.delay(request.file_id)
+    async with get_async_session() as session:
+        result = await session.execute(select(EnrichmentTask).filter_by(document_id=document_id))
+        task_record = result.scalars().first()
+        if task_record is None:
+            task_record = EnrichmentTask(
+                document_id=document_id,
+                status="queued",
+                source_asset_id=source.source_asset_id,
+                entitlement_id=source.entitlement_id,
+                source_type=source.source_type,
+                source_ref=source.source_ref,
+                mime_type=source.mime_type,
+                size_bytes=source.size_bytes,
+                checksum_sha256=source.checksum_sha256,
+                vendor_metadata=source.metadata,
+            )
+            session.add(task_record)
+        elif task_record.status == "completed":
+            return {"task_id": None, "document_id": document_id, "status": "completed"}
+        else:
+            task_record.status = "queued"
+            task_record.error_message = None
+        await session.commit()
+
+    try:
+        task = await run_in_threadpool(process_validated_file.delay, document_id)
+    except Exception as exc:
+        async with get_async_session() as session:
+            result = await session.execute(select(EnrichmentTask).filter_by(document_id=document_id))
+            task_record = result.scalars().first()
+            if task_record:
+                task_record.status = "queue_failed"
+                task_record.error_message = f"Queue dispatch failed: {type(exc).__name__}"
+                await session.commit()
+        raise HTTPException(status_code=503, detail="Unable to queue enrichment task") from exc
     return {
         "task_id": task.id,
-        "file_id": request.file_id,
+        "document_id": document_id,
         "status": "queued",
     }
 
 
-@router.get("/status/{file_id}")
-async def get_status(file_id: str) -> dict:
+@router.get("/status/{document_id}")
+async def get_status(document_id: UUID) -> dict:
     """Return the current enrichment task status and stage-by-stage results."""
+    document_id = str(document_id)
     async with get_async_session() as session:
         result = await session.execute(
-            select(EnrichmentTask).filter_by(file_id=file_id)
+            select(EnrichmentTask).filter_by(document_id=document_id)
         )
         task_record = result.scalars().first()
 
@@ -77,7 +115,7 @@ async def get_status(file_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Enrichment task not found")
 
     return {
-        "file_id": file_id,
+        "document_id": document_id,
         "status": task_record.status,
         "current_stage": task_record.current_stage,
         "retry_count": task_record.retry_count,
@@ -87,13 +125,13 @@ async def get_status(file_id: str) -> dict:
     }
 
 
-@router.get("/metadata/{file_id}")
-async def get_metadata(file_id: str) -> dict:
+@router.get("/metadata/{document_id}")
+async def get_metadata(document_id: UUID) -> dict:
     """Return the most recent generated metadata record for a file."""
     async with get_async_session() as session:
         result = await session.execute(
             select(DocumentEnrichmentMetadata)
-            .filter_by(file_id=file_id)
+            .filter_by(document_id=document_id)
             .order_by(desc(DocumentEnrichmentMetadata.created_at))
         )
         metadata_record = result.scalars().first()
@@ -103,7 +141,9 @@ async def get_metadata(file_id: str) -> dict:
 
     return {
         "id": metadata_record.id,
-        "file_id": str(metadata_record.file_id),
+        "document_id": str(metadata_record.document_id),
+        "source_asset_id": str(metadata_record.source_asset_id) if metadata_record.source_asset_id else None,
+        "run_id": str(metadata_record.run_id) if metadata_record.run_id else None,
         "model_version": metadata_record.model_version,
         "enrichment_version": metadata_record.enrichment_version,
         "generated_tags": metadata_record.generated_tags,
@@ -124,8 +164,8 @@ async def get_metadata(file_id: str) -> dict:
     }
 
 
-@router.post("/retry/{file_id}")
-async def retry_task(file_id: str) -> dict:
+@router.post("/retry/{document_id}")
+async def retry_task(document_id: UUID) -> dict:
     """
     Manually retry a failed_terminal or needs_review task.
 
@@ -133,19 +173,23 @@ async def retry_task(file_id: str) -> dict:
     The orchestrator will pick up from the first incomplete stage
     thanks to checkpointing.
     """
+    document_id = str(document_id)
     async with get_async_session() as session:
         result = await session.execute(
-            select(EnrichmentTask).filter_by(file_id=file_id)
+            select(EnrichmentTask).filter_by(document_id=document_id)
         )
         task_record = result.scalars().first()
 
         if not task_record:
             raise HTTPException(status_code=404, detail="Enrichment task not found")
 
-        if task_record.status not in ("failed_terminal", "needs_review"):
+        if task_record.status not in ("failed_terminal", "needs_review", "partial", "queue_failed"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Task status is '{task_record.status}' — only failed_terminal and needs_review tasks can be retried",
+                detail=(
+                    f"Task status is '{task_record.status}' — only failed_terminal, "
+                    "needs_review, partial, and queue_failed tasks can be retried"
+                ),
             )
 
         task_record.status = "queued"
@@ -153,11 +197,21 @@ async def retry_task(file_id: str) -> dict:
         task_record.error_message = None
         await session.commit()
 
-    # Re-dispatch — the orchestrator will read storage_path/file_type from the DB
-    celery_task = process_validated_file.delay(file_id)
+    # Re-dispatch; the worker refreshes metadata and entitlement through ingestion.
+    try:
+        celery_task = await run_in_threadpool(process_validated_file.delay, document_id)
+    except Exception as exc:
+        async with get_async_session() as session:
+            result = await session.execute(select(EnrichmentTask).filter_by(document_id=document_id))
+            task_record = result.scalars().first()
+            if task_record:
+                task_record.status = "queue_failed"
+                task_record.error_message = f"Queue dispatch failed: {type(exc).__name__}"
+                await session.commit()
+        raise HTTPException(status_code=503, detail="Unable to queue enrichment retry") from exc
 
     return {
-        "file_id": file_id,
+        "document_id": document_id,
         "status": "queued",
         "task_id": celery_task.id,
     }

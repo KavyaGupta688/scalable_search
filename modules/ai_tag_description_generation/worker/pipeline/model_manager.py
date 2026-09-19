@@ -16,12 +16,13 @@ os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
 
 import torch
 import logging
+from pathlib import Path
 
 from modules.ai_tag_description_generation.app.config import settings
 
 MODEL_VERSIONS = {
     'clip': 'ViT-B-32-openai',
-    'yolo': 'yolov8s',
+    'yolo': Path(settings.YOLO_MODEL_NAME).stem,
     'blip': 'blip-image-captioning-base',
     'whisper': 'whisper-large-v3',
     'ram': 'ram-plus-swin-l-14m',
@@ -232,19 +233,25 @@ def _build_ai_generated_detector():
 # --- Precomputed CLIP text embeddings - used only by the fine-grained
 # conditional classification pass in tagging.py, not the main tagging pass
 # (RAM now owns open-vocabulary tagging). ---
-_text_embedding_cache: dict = {}
+_text_embedding_cache: dict[tuple[str, tuple[str, ...]], torch.Tensor] = {}
 
 
-def get_text_embeddings(label_set_name: str, labels: list):
-    if label_set_name in _text_embedding_cache:
-        return _text_embedding_cache[label_set_name]
-
+def encode_text(labels: list[str]) -> torch.Tensor:
+    """Encode dynamic text without retaining document-specific tensors."""
     clip_bundle = get_model("clip")
     model, tokenizer = clip_bundle["model"], clip_bundle["tokenizer"]
     text_inputs = tokenizer(labels).to(DEVICE)
     with torch.no_grad():
         text_features = model.encode_text(text_inputs)
         text_features /= text_features.norm(dim=-1, keepdim=True)
+    return text_features
 
-    _text_embedding_cache[label_set_name] = text_features
+
+def get_text_embeddings(label_set_name: str, labels: list):
+    cache_key = (label_set_name, tuple(labels))
+    if cache_key in _text_embedding_cache:
+        return _text_embedding_cache[cache_key]
+
+    text_features = encode_text(labels)
+    _text_embedding_cache[cache_key] = text_features
     return text_features

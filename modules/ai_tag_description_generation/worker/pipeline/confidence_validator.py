@@ -1,9 +1,7 @@
 import logging
 from typing import Dict, List, Tuple, Any
 
-# Assuming defaults if not available in app.config.settings
-CONFIDENCE_THRESHOLD_COMPLETED = 0.7
-CONFIDENCE_THRESHOLD_REVIEW = 0.4
+from modules.ai_tag_description_generation.app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +32,10 @@ def _check_safety_flags(record: Dict[str, Any]) -> List[str]:
         # High sensitivity PII
         if any(t in pii_types for t in ['id_number', 'face', 'license_plate']):
             reasons.append(f"High sensitivity PII detected: {pii_types}")
+    if safety.get('analysis_incomplete'):
+        reasons.append("One or more safety checks did not complete")
+    if safety.get('toxicity_score', 0.0) >= settings.TOXICITY_THRESHOLD:
+        reasons.append("Toxic content detected")
             
     return reasons
 
@@ -67,8 +69,10 @@ def validate_and_score(metadata_record: Dict[str, Any]) -> Tuple[Dict[str, Any],
         text_conf = 0.0
         
     # 4. Quality/Safety (static 1.0 for now)
-    qual_conf = 1.0
-    safe_conf = 1.0
+    quality = metadata_record.get('quality_labels', {})
+    safety = metadata_record.get('safety_labels', {})
+    qual_conf = 0.5 if quality.get('overall_quality') == 'poor' else 1.0
+    safe_conf = 0.0 if safety.get('analysis_incomplete') else 1.0
     
     # 5. Aggregate Score
     aggregate = (
@@ -92,9 +96,9 @@ def validate_and_score(metadata_record: Dict[str, Any]) -> Tuple[Dict[str, Any],
     
     final_status = 'completed'
     
-    if review_reasons or aggregate < CONFIDENCE_THRESHOLD_REVIEW:
+    if review_reasons or aggregate < settings.CONFIDENCE_THRESHOLD_REVIEW:
         final_status = 'needs_review'
-    elif aggregate < CONFIDENCE_THRESHOLD_COMPLETED or warnings:
+    elif aggregate < settings.CONFIDENCE_THRESHOLD_COMPLETED or warnings:
         if aggregate < 0.1 or (not tags and not short_desc):
             final_status = 'failed_terminal'
         else:

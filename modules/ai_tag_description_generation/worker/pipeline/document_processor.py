@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pdfplumber
 from docx import Document as DocxDocument
+from PIL import Image
 
 
 # Most captioning/summarization models have a practical input limit.
@@ -25,6 +26,7 @@ CHUNK_OVERLAP_CHARS = 200
 # Below this character count for a document with pages, assume it's a
 # scanned image with no real text layer rather than genuinely empty.
 MIN_CHARS_PER_PAGE_FOR_NATIVE_TEXT = 20
+MAX_OCR_PAGES = 50
 
 
 @dataclass
@@ -34,6 +36,7 @@ class ProcessedDocument:
     page_count: int
     needs_ocr: bool          # True if no meaningful native text layer was found
     file_format: str
+    pages_as_images: list[Image.Image]
 
 
 def process_document(file_path: str) -> ProcessedDocument:
@@ -41,8 +44,10 @@ def process_document(file_path: str) -> ProcessedDocument:
 
     if extension == "pdf":
         full_text, page_count = _extract_pdf_text(file_path)
-    elif extension in ("docx", "doc"):
+    elif extension == "docx":
         full_text, page_count = _extract_docx_text(file_path)
+    elif extension == "doc":
+        raise ValueError("Legacy .doc files must be converted to .docx before enrichment")
     elif extension == "txt":
         full_text, page_count = _extract_txt_text(file_path)
     else:
@@ -50,6 +55,7 @@ def process_document(file_path: str) -> ProcessedDocument:
 
     avg_chars_per_page = len(full_text) / page_count if page_count else len(full_text)
     needs_ocr = avg_chars_per_page < MIN_CHARS_PER_PAGE_FOR_NATIVE_TEXT
+    pages_as_images = _render_pdf_pages(file_path) if extension == "pdf" and needs_ocr else []
 
     chunks = _chunk_text(full_text) if full_text else []
 
@@ -59,7 +65,21 @@ def process_document(file_path: str) -> ProcessedDocument:
         page_count=page_count,
         needs_ocr=needs_ocr,
         file_format=extension,
+        pages_as_images=pages_as_images,
     )
+
+
+def _render_pdf_pages(file_path: str) -> list[Image.Image]:
+    """Render scanned PDF pages for OCR without requiring external Poppler."""
+    import pymupdf
+
+    images: list[Image.Image] = []
+    with pymupdf.open(file_path) as document:
+        for page_number in range(min(document.page_count, MAX_OCR_PAGES)):
+            page = document.load_page(page_number)
+            pixmap = page.get_pixmap(matrix=pymupdf.Matrix(2, 2), alpha=False)
+            images.append(Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples))
+    return images
 
 
 def _extract_pdf_text(file_path: str) -> tuple[str, int]:

@@ -9,3 +9,28 @@ __pycache__/
 !.env.docker.example
 modules/ai_tag_description_generation/checkpoints/
 samples/
+.vscode/
+# Local Redis/Celery demonstration data and generated reports
+modules/ai_tag_description_generation/demo_data/
+modules/ai_tag_description_generation/demo_output/
+
+# Demo-only AI module stack
+modules/ai_tag_description_generation/docker-compose.demo.yml
+modules/ai_tag_description_generation/dockerfile.demo
+modules/ai_tag_description_generation/requirements.demo.txt
+modules/ai_tag_description_generation/scripts/run_demo.ps1
+modules/ai_tag_description_generation/scripts/prepare_demo_dataset.py
+modules/ai_tag_description_generation/scripts/run_redis_celery_demo.py
+modules/ai_tag_description_generation/worker/pipeline/demo_pipeline.py
+modules/ai_tag_description_generation/tests/test_demo_setup.py
+
+# Generated analysis, review, and media artifacts
+_artifact_work/
+modules/ai_tag_description_generation/docs/reviews/
+modules/ai_tag_description_generation/keyframe_*.jpg
+modules/ai_tag_description_generation/thumbnail.jpg
+/processed_output.jpg
+
+# Local model weights are provisioned outside Git
+/yolov8s.pt
+modules/ai_tag_description_generation/*.pt

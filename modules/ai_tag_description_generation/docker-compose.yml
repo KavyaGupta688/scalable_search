@@ -23,7 +23,7 @@ services:
     build:
       context: ../..
       dockerfile: modules/ai_tag_description_generation/dockerfile
-    command: uvicorn server:app --host 0.0.0.0 --port 8000
+    command: uvicorn modules.ai_tag_description_generation.api.main:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
     env_file: .env.docker
     depends_on:
@@ -40,6 +40,27 @@ services:
       dockerfile: modules/ai_tag_description_generation/dockerfile
     command: celery -A modules.ai_tag_description_generation.app.celery_app:celery_app worker --loglevel=info --pool=solo --concurrency=1
     env_file: .env.docker
+    volumes:
+      - ./checkpoints:/app/modules/ai_tag_description_generation/checkpoints:ro
+      - model_cache:/home/appuser/.cache
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 10m
+    init: true
+
+  kafka-consumer:
+    build:
+      context: ../..
+      dockerfile: modules/ai_tag_description_generation/dockerfile
+    command: python -m modules.ai_tag_description_generation.app.kafka_consumer
+    env_file: .env.docker
+    volumes:
+      - ./checkpoints:/app/modules/ai_tag_description_generation/checkpoints:ro
+      - model_cache:/home/appuser/.cache
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -51,3 +72,4 @@ services:
 
 volumes:
   redis_data:
+  model_cache:

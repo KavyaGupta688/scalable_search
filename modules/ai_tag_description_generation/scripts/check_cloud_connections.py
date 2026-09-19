@@ -1,46 +1,37 @@
-"""Read-only connectivity checks for the configured cloud services.
+"""Read-only connectivity checks for AI integration dependencies."""
 
-Run from the repository root after creating
-``modules/ai_tag_description_generation/.env``. This script never creates
-tables, collections, buckets, tasks, vectors, or Redis keys.
-"""
 from __future__ import annotations
 
-import sys
 import asyncio
+import sys
+from pathlib import Path
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+import httpx
 import redis
-from minio import Minio
+from kafka import KafkaConsumer
 from qdrant_client import QdrantClient
 from sqlalchemy import text
 
 from modules.ai_tag_description_generation.app.config import settings
 from modules.ai_tag_description_generation.app.db import async_engine, sync_engine
+from modules.ai_tag_description_generation.app.kafka_consumer import _kafka_security
 
 
 def check(name: str, operation) -> bool:
     try:
         detail = operation()
-    except Exception as exc:  # Report all failures without exposing secrets.
+    except Exception as exc:
         print(f"FAIL  {name}: {type(exc).__name__}: {exc}")
         return False
     print(f"PASS  {name}{': ' + detail if detail else ''}")
     return True
 
 
-def minio_client() -> Minio:
-    endpoint = settings.MINIO_ENDPOINT.removeprefix("https://").removeprefix("http://").rstrip("/")
-    secure = settings.MINIO_SECURE or settings.MINIO_ENDPOINT.startswith("https://")
-    return Minio(
-        endpoint,
-        access_key=settings.MINIO_ACCESS_KEY,
-        secret_key=settings.MINIO_SECRET_KEY,
-        secure=secure,
-    )
-
-
 def main() -> int:
-    results = []
+    results: list[bool] = []
 
     def postgres() -> str:
         with sync_engine.connect() as connection:
@@ -60,20 +51,44 @@ def main() -> int:
 
     results.append(check("PostgreSQL async driver", async_postgres))
 
+    def ingestion_api() -> str:
+        response = httpx.get(
+            f"{settings.INGESTION_API_BASE_URL.rstrip('/')}/health",
+            timeout=settings.INGESTION_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return "health endpoint reachable"
+
+    results.append(check("Ingestion API", ingestion_api))
+
+    def kafka() -> str:
+        consumer = KafkaConsumer(
+            bootstrap_servers=[item.strip() for item in settings.KAFKA_BOOTSTRAP_SERVERS.split(",")],
+            consumer_timeout_ms=3000,
+            request_timeout_ms=5000,
+            api_version_auto_timeout_ms=5000,
+            **_kafka_security(),
+        )
+        topics = consumer.topics()
+        consumer.close()
+        state = "present" if settings.KAFKA_AI_TOPIC in topics else "missing"
+        return f"reachable; topic '{settings.KAFKA_AI_TOPIC}' is {state}"
+
+    results.append(check("Kafka", kafka))
+
     def qdrant() -> str:
         client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
-        collection_names = {item.name for item in client.get_collections().collections}
-        state = "present" if settings.QDRANT_COLLECTION_NAME in collection_names else "missing"
+        names = {item.name for item in client.get_collections().collections}
+        state = "present" if settings.QDRANT_COLLECTION_NAME in names else "missing"
         return f"reachable; collection '{settings.QDRANT_COLLECTION_NAME}' is {state}"
 
     results.append(check("Qdrant", qdrant))
-    results.append(check("Redis", lambda: "PING succeeded" if redis.Redis.from_url(settings.REDIS_URL).ping() else "PING returned false"))
-
-    if all((settings.MINIO_ENDPOINT, settings.MINIO_ACCESS_KEY, settings.MINIO_SECRET_KEY)):
-        results.append(check("MinIO", lambda: f"reachable; {len(minio_client().list_buckets())} bucket(s) visible"))
-    else:
-        print("SKIP  MinIO: credentials are not configured")
-
+    results.append(
+        check(
+            "Redis",
+            lambda: "PING succeeded" if redis.Redis.from_url(settings.REDIS_URL).ping() else "PING returned false",
+        )
+    )
     return 0 if all(results) else 1
 
 

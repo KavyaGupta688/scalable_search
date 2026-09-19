@@ -1,5 +1,6 @@
 import logging
 import json
+import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Any
 import numpy as np
@@ -100,7 +101,12 @@ def run_speech_to_text(waveform: np.ndarray, sample_rate: int = 16000) -> Extrac
 
     try:
         # Whisper transcription via model_manager
-        result = model.transcribe(waveform)
+        result = model.transcribe(
+            waveform,
+            fp16=model_manager.DEVICE == "cuda",
+            temperature=0,
+            condition_on_previous_text=False,
+        )
         
         text = result.get('text', '').strip()
         language = result.get('language', 'en')
@@ -108,9 +114,29 @@ def run_speech_to_text(waveform: np.ndarray, sample_rate: int = 16000) -> Extrac
         # Calculate average segment confidence
         segments = result.get('segments', [])
         if segments:
-            conf = sum(s.get('confidence', 0.5) for s in segments) / len(segments)
+            speech_segments = [
+                segment for segment in segments
+                if float(segment.get('no_speech_prob', 0.0)) < 0.6
+            ]
+            if not speech_segments:
+                return ExtractionResult(
+                    text="", source="whisper-large-v3", language=language, confidence=0.0
+                )
+            # Rebuild from speech-like segments so music/silence hallucinations
+            # in Whisper's aggregate text do not enter tags and captions.
+            text = " ".join(
+                str(segment.get('text', '')).strip()
+                for segment in speech_segments
+                if str(segment.get('text', '')).strip()
+            )
+            probabilities = [
+                math.exp(min(0.0, float(segment.get('avg_logprob', -0.7))))
+                * (1.0 - float(segment.get('no_speech_prob', 0.0)))
+                for segment in speech_segments
+            ]
+            conf = sum(probabilities) / len(probabilities)
         else:
-            conf = 0.8 # Fallback
+            conf = 0.0
             
         return ExtractionResult(
             text=text,

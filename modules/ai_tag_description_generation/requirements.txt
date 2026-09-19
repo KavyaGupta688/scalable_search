@@ -12,14 +12,18 @@ alembic==1.13.2
 qdrant-client==1.11.1
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
-minio>=7.2.0
+httpx==0.27.2
+kafka-python-ng==2.2.3
 
 # --- ML / AI models ---
 torch>=2.1.0
 Pillow>=10.0.0
 numpy>=1.24.0
+# TensorFlow 2.21 accepts this release and it remains compatible with NumPy 1.x.
+ml-dtypes==0.5.4
 librosa>=0.10.0
 pdfplumber>=0.10.0
+PyMuPDF>=1.24.0
 python-docx>=1.0.0
 pandas>=2.0.0
 
@@ -39,6 +43,9 @@ sentence-transformers==2.2.2
 # PaddleOCR v3 avoids the legacy LMDB import path that Windows App Control
 # can block. Install the platform-appropriate paddlepaddle package separately.
 paddleocr>=3.0,<4.0
+paddlepaddle==3.3.1
+# PaddleX 3.7.2 requires this exact patch release.
+PyYAML==6.0.2
 # Newer Chardet Windows wheels bundle native pipeline extensions that can be
 # blocked by Windows App Control before PaddleOCR/PaddleX can initialize.
 chardet==5.2.0
@@ -48,11 +55,16 @@ openai-whisper>=20231117
 # Keep the previously stable 3.7 binary line. 3.8's native extensions can be
 # rejected by Windows Application Control policies that allow the 3.7 wheels.
 spacy==3.7.5
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 keybert>=0.8.0
 
+# RAM++ implementation, pinned to the exact revision used during validation.
+ram @ git+https://github.com/xinyu1205/recognize-anything.git@7cb804a8609e9f4b1a50b7f31436d2df40bb9481
+
 # --- Safety / PII ---
-presidio-analyzer>=2.2.0
-presidio-anonymizer>=2.2.0
+# 2.2.360+ requires PyYAML>=6.0.3, conflicting with PaddleX 3.7.2.
+presidio-analyzer==2.2.359
+presidio-anonymizer==2.2.359
 nudenet>=3.0.0
 # Exposes `from retinaface import RetinaFace`, used by quality_safety.py.
 retina-face>=0.0.17

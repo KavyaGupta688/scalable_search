@@ -22,71 +22,80 @@ import torch
 from PIL import Image
 
 from modules.ai_tag_description_generation.worker.pipeline.model_manager import get_model, get_text_embeddings, DEVICE
+from modules.ai_tag_description_generation.worker.pipeline.retry_handler import DataQualityError, TransientError
+from modules.ai_tag_description_generation.worker.pipeline.fine_grained_taxonomy import (
+    DEFAULT_FINE_GRAINED_CONFIDENCE_THRESHOLD,
+    DEFAULT_FINE_GRAINED_MINIMUM_MARGIN,
+    FINE_GRAINED_CONFIDENCE_THRESHOLDS,
+    FINE_GRAINED_LABELS,
+    FINE_GRAINED_MINIMUM_MARGINS,
+    FINE_GRAINED_PROMPT_TEMPLATES,
+    FINE_GRAINED_TRIGGER_ALIASES,
+)
 
 
 # Fine-grained sub-labels, checked only when the trigger label appears in
 # RAM's or YOLO's output. This table is the extensibility point for
 # specificity - add entries as your dataset reveals categories worth
 # specializing, without touching the open-vocabulary tagging itself.
-FINE_GRAINED_LABELS = {
-    "dog": [
-        "Labrador Retriever", "German Shepherd", "Golden Retriever", "Bulldog",
-        "Poodle", "Beagle", "Rottweiler", "Dachshund", "Siberian Husky",
-        "Chihuahua", "Shih Tzu", "Boxer", "Great Dane", "Pomeranian",
-        "Border Collie", "Doberman", "Corgi", "Mixed breed dog",
-    ],
-    "cat": [
-        "Siamese cat", "Persian cat", "Maine Coon", "Bengal cat", "Sphynx cat",
-        "British Shorthair", "Ragdoll cat", "Domestic shorthair cat",
-    ],
-    "flower": [
-        "rose", "tulip", "sunflower", "daisy", "orchid", "lily",
-        "lotus", "marigold", "hibiscus",
-    ],
-    "car": [
-        "sedan", "SUV", "pickup truck", "hatchback", "sports car",
-        "convertible", "van", "electric car",
-    ],
-    "bird": [
-        "sparrow", "eagle", "parrot", "owl", "peacock", "pigeon",
-        "duck", "crow", "flamingo",
-    ],
-}
-
-# Fine-grained predictions are particularly prone to over-specific labels.
-FINE_GRAINED_CONFIDENCE_THRESHOLD = 0.60
 YOLO_CONFIDENCE_THRESHOLD = 0.55
 GENERIC_TAGS = {"image", "photo", "photograph", "picture", "artwork"}
 
 SCENE_KEYWORDS = {'indoor', 'outdoor', 'beach', 'mountain', 'forest', 'city', 'street', 'park', 'office', 'kitchen', 'bedroom', 'bathroom', 'garden', 'stadium', 'restaurant', 'school', 'hospital', 'airport', 'farm', 'desert', 'lake', 'river', 'ocean', 'sky', 'sunset', 'sunrise', 'night', 'snow', 'rain'}
 ACTION_KEYWORDS = {'running', 'walking', 'sitting', 'standing', 'eating', 'drinking', 'playing', 'driving', 'reading', 'writing', 'dancing', 'singing', 'cooking', 'swimming', 'jumping', 'flying', 'climbing', 'surfing', 'skiing'}
+ACTION_ALIASES = {
+    'run': 'running', 'walk': 'walking', 'sit': 'sitting', 'stand': 'standing',
+    'eat': 'eating', 'drink': 'drinking', 'play': 'playing', 'drive': 'driving',
+    'read': 'reading', 'write': 'writing', 'dance': 'dancing', 'sing': 'singing',
+    'cook': 'cooking', 'swim': 'swimming', 'jump': 'jumping', 'fly': 'flying',
+    'climb': 'climbing', 'surf': 'surfing', 'ski': 'skiing', 'chase': 'chasing',
+    'throw': 'throwing', 'catch': 'catching', 'fetch': 'fetching',
+}
+STYLE_KEYWORDS = {
+    'animation', 'animated', 'cartoon', 'drawing', 'illustration', 'sketch',
+    'painting', 'render', 'cgi', 'computer generated',
+}
+ATTRIBUTE_KEYWORDS = {
+    'backpack', 'bag', 'belt', 'coat', 'collar', 'dress', 'glasses', 'hat',
+    'jacket', 'leash', 'shirt', 'shoe', 'suit', 'sweater', 'trench coat',
+}
 
 @dataclass
 class Tag:
     label: str
     confidence: float
     source: str          # "ram" | "yolo" | "clip_fine_grained" | "keybert" | "spacy" | "bart_mnli"
-    category: str         # "open_vocab" | "object" | "fine_grained" | "keyword" | "entity" | "category" | "domain" | "scene" | "action"
+    category: str         # open_vocab/object/fine_grained/country/keyword/entity/domain/scene/action/style/attribute
 
 def retry_handler(func):
-    """Basic retry handler for transient errors."""
+    """Convert backend failures into an explicit retryable stage failure."""
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
+        except (DataQualityError, TransientError):
+            raise
         except Exception as e:
-            import logging
-            logging.error(f"Error in {func.__name__}: {e}")
-            return []
+            raise TransientError(f"{func.__name__} failed: {e}") from e
     return wrapper
 
 
 def _classify_ram_tag_category(label: str) -> str:
     label_lower = label.lower()
+    if label_lower in STYLE_KEYWORDS:
+        return 'style'
+    if label_lower in ATTRIBUTE_KEYWORDS:
+        return 'attribute'
     if label_lower in SCENE_KEYWORDS:
         return 'scene'
-    elif label_lower in ACTION_KEYWORDS:
+    elif label_lower in ACTION_KEYWORDS or label_lower in ACTION_ALIASES:
         return 'action'
     return 'open_vocab'
+
+
+def _canonicalize_ram_label(label: str) -> str:
+    """Normalize action lemmas so captions can use grammatical verb forms."""
+    normalized = " ".join(label.lower().split())
+    return ACTION_ALIASES.get(normalized, normalized)
 
 
 @retry_handler
@@ -121,7 +130,7 @@ def generate_zero_shot_categories(text: str, candidate_categories: list | None =
         candidate_categories = ['technology', 'science', 'sports', 'entertainment', 'business', 'health', 'education', 'politics', 'travel', 'food', 'art', 'nature', 'music', 'fashion', 'automotive']
         
     bart_mnli = get_model('bart_mnli')
-    result = bart_mnli(text, candidate_categories)
+    result = bart_mnli(text, candidate_categories, truncation=True)
         
     tags = []
     for label, score in zip(result['labels'], result['scores']):
@@ -179,7 +188,15 @@ def _ram_tags(image: Image.Image) -> list[Tag]:
     # all returned tags already passed its internal threshold, so they're
     # recorded as confirmed detections rather than scored guesses.
     return [
-        Tag(label=label, confidence=1.0, source="ram", category=_classify_ram_tag_category(label))
+        Tag(
+            label=_canonicalize_ram_label(label),
+            # RAM's public inference helper does not expose calibrated
+            # per-label probabilities. Treat accepted labels as strong but
+            # not certain so a synthetic 1.0 does not dominate every model.
+            confidence=0.75,
+            source="ram",
+            category=_classify_ram_tag_category(label),
+        )
         for label in labels
         if label.lower() not in GENERIC_TAGS
     ]
@@ -207,8 +224,20 @@ def _fine_grained_tags(
     ram_tags: list[Tag],
     yolo_detections: list[tuple],
 ) -> list[Tag]:
+    # Breed/species/flag softmax scores are unreliable for drawings and
+    # animation. RAM's broad labels remain available for those inputs.
+    if any(tag.category == "style" for tag in ram_tags):
+        return []
+
     trigger_labels = {t.label.lower() for t in ram_tags} | {t.label.lower() for t, _ in yolo_detections}
-    matched_triggers = trigger_labels & FINE_GRAINED_LABELS.keys()
+    matched_triggers = {
+        FINE_GRAINED_TRIGGER_ALIASES.get(label, label)
+        for label in trigger_labels
+        if FINE_GRAINED_TRIGGER_ALIASES.get(label, label) in FINE_GRAINED_LABELS
+    }
+    # Do not classify both a superclass and an already detected child.
+    if "animal" in matched_triggers and matched_triggers & {"dog", "cat", "bird", "horse", "fish"}:
+        matched_triggers.remove("animal")
 
     if not matched_triggers:
         return []
@@ -221,7 +250,11 @@ def _fine_grained_tags(
 
 
 def _best_crop_for_trigger(image: Image.Image, trigger: str, yolo_detections: list[tuple]) -> Image.Image:
-    matching_boxes = [(t, b) for t, b in yolo_detections if t.label.lower() == trigger]
+    matching_boxes = [
+        (tag, bbox)
+        for tag, bbox in yolo_detections
+        if FINE_GRAINED_TRIGGER_ALIASES.get(tag.label.lower(), tag.label.lower()) == trigger
+    ]
     if matching_boxes:
         best_tag, bbox = max(matching_boxes, key=lambda pair: pair[0].confidence)
         return image.crop(bbox)
@@ -232,7 +265,9 @@ def _clip_classify_crop(crop: Image.Image, trigger: str, sub_labels: list[str]) 
     clip_bundle = get_model("clip")
     model, preprocess = clip_bundle["model"], clip_bundle["preprocess"]
 
-    text_features = get_text_embeddings(f"fine_grained_{trigger}", sub_labels)
+    template = FINE_GRAINED_PROMPT_TEMPLATES.get(trigger, "a photo of a {label}")
+    prompts = [template.format(label=label) for label in sub_labels]
+    text_features = get_text_embeddings(f"fine_grained_{trigger}", prompts)
 
     image_input = preprocess(crop).unsqueeze(0).to(DEVICE)
 
@@ -242,13 +277,21 @@ def _clip_classify_crop(crop: Image.Image, trigger: str, sub_labels: list[str]) 
         similarity = (100.0 * image_features @ text_features.T).softmax(dim=-1)
 
     scores = similarity[0].cpu().tolist()
-    best_idx = max(range(len(scores)), key=lambda i: scores[i])
-    if scores[best_idx] >= FINE_GRAINED_CONFIDENCE_THRESHOLD:
+    ranked_indexes = sorted(range(len(scores)), key=lambda index: scores[index], reverse=True)
+    best_idx = ranked_indexes[0]
+    runner_up_score = scores[ranked_indexes[1]] if len(ranked_indexes) > 1 else 0.0
+    threshold = FINE_GRAINED_CONFIDENCE_THRESHOLDS.get(
+        trigger, DEFAULT_FINE_GRAINED_CONFIDENCE_THRESHOLD
+    )
+    minimum_margin = FINE_GRAINED_MINIMUM_MARGINS.get(
+        trigger, DEFAULT_FINE_GRAINED_MINIMUM_MARGIN
+    )
+    if scores[best_idx] >= threshold and scores[best_idx] - runner_up_score >= minimum_margin:
         return [Tag(
             label=sub_labels[best_idx],
             confidence=round(scores[best_idx], 4),
             source="clip_fine_grained",
-            category="fine_grained",
+            category="country" if trigger == "flag" else "fine_grained",
         )]
     return []
 
@@ -263,7 +306,7 @@ def _merge_and_dedupe(tags: list[Tag]) -> list[Tag]:
 
 
 def _aggregate_video_tags(tags_by_frame: list[list[Tag]]) -> list[Tag]:
-    """Keep video labels repeated across frames or confirmed by RAM++ and YOLO."""
+    """Keep temporally stable labels while accounting for model/domain trust."""
     frames_by_label: dict[str, set[int]] = {}
     sources_by_label: dict[str, set[str]] = {}
     all_tags: list[Tag] = []
@@ -275,11 +318,34 @@ def _aggregate_video_tags(tags_by_frame: list[list[Tag]]) -> list[Tag]:
             sources_by_label.setdefault(key, set()).add(tag.source)
             all_tags.append(tag)
 
-    confirmed_labels = {
-        label for label, frame_indexes in frames_by_label.items()
-        if len(frame_indexes) >= 2 or {"ram", "yolo"}.issubset(sources_by_label[label])
-    }
-    return _merge_and_dedupe([tag for tag in all_tags if tag.label.lower() in confirmed_labels])
+    stylized_video = any(
+        tag.source == "ram" and tag.category == "style"
+        for tag in all_tags
+    )
+    frame_count = len(tags_by_frame)
+    confirmed_labels: set[str] = set()
+    for label, frame_indexes in frames_by_label.items():
+        sources = sources_by_label[label]
+        coverage = len(frame_indexes) / frame_count
+        categories = {tag.category for tag in all_tags if tag.label.lower() == label}
+        if stylized_video and sources == {"ram"} and "attribute" in categories:
+            # Clothing/accessory predictions from RAM are not calibrated and
+            # frequently become false relations in cartoons (for example a
+            # dog edge being interpreted as a leash).
+            continue
+        if len(sources) >= 2:
+            confirmed_labels.add(label)
+        elif "ram" in sources and len(frame_indexes) >= 2:
+            confirmed_labels.add(label)
+        elif "yolo" in sources and not stylized_video and len(frame_indexes) >= 2 and coverage >= 0.4:
+            # YOLO is trained primarily on photographs. Repeated YOLO-only
+            # labels in cartoons/animation are often stable false positives.
+            confirmed_labels.add(label)
+        elif "yolo" not in sources and len(frame_indexes) >= 2 and coverage >= 0.4:
+            confirmed_labels.add(label)
+
+    accepted = [tag for tag in all_tags if tag.label.lower() in confirmed_labels]
+    return _merge_and_dedupe(accepted)
 
 
 if __name__ == "__main__":

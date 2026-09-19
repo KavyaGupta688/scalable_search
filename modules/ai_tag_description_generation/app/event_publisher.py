@@ -1,7 +1,7 @@
 """
 Layer 3 - Event Publisher
 Broadcasts state changes to downstream services (e.g. search indexing, webhooks).
-Uses Redis Pub/Sub for lightweight decoupling.
+Uses a Redis Stream so events remain available while consumers are offline.
 """
 import logging
 from modules.ai_tag_description_generation.app.event_schemas import EnrichmentEvent
@@ -12,27 +12,25 @@ logger = logging.getLogger(__name__)
 def publish_enrichment_event(event: EnrichmentEvent) -> None:
     """
     Serializes and publishes a domain event.
-    Failures in publishing should not crash the main pipeline to maintain reliability.
+    PostgreSQL remains the source of truth; the stream provides durable delivery
+    for downstream consumers compared with fire-and-forget Pub/Sub.
     """
-    channel = "enrichment_events"
+    stream = "enrichment_events"
     payload = event.model_dump_json()
-    
-    try:
-        event_redis_client.publish(channel, payload)
-        logger.info(f"Published {event.event_type} for file {event.file_id} to {channel}")
-        
-        # In a full system, you could also send a signal back to celery or update a secondary tracker here.
-    except Exception as e:
-        logger.error(f"Failed to publish event to Redis: {e}", exc_info=True)
-        # We deliberately catch and log rather than raise, because the DB transaction 
-        # (which happened prior to this) is the source of truth.
+    event_id = event_redis_client.xadd(
+        stream,
+        {"event_type": event.event_type, "document_id": event.document_id, "payload": payload},
+        maxlen=100_000,
+        approximate=True,
+    )
+    logger.info("Published %s for document %s to %s as %s", event.event_type, event.document_id, stream, event_id)
 
 if __name__ == "__main__":
     from datetime import datetime
     from modules.ai_tag_description_generation.app.event_schemas import EnrichmentCompletedEvent, ProcessingSummary
     # Simple self-test
     test_event = EnrichmentCompletedEvent(
-        file_id="test_001",
+        document_id="test_001",
         metadata_version="1.0",
         model_version="test",
         enrichment_version="1.0",

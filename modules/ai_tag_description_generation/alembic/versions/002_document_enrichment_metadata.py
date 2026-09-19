@@ -31,7 +31,7 @@ def upgrade() -> None:
             ),
             nullable=False,
         ),
-        sa.Column("model_version", sa.String(100), nullable=False),
+        sa.Column("model_version", sa.Text(), nullable=False),
         sa.Column("enrichment_version", sa.String(50), nullable=False),
         sa.Column("metadata_version", sa.String(50), nullable=False, server_default="1.0"),
         sa.Column("generated_tags", postgresql.JSONB()),

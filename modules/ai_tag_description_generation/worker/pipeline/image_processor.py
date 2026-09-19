@@ -20,36 +20,32 @@ DEFAULT_TARGET_SIZE = (224, 224)
 @dataclass
 class ProcessedImage:
     image: Image.Image          # the processed PIL image, ready for model input
+    original_image: Image.Image # orientation-normalized full-resolution RGB image
     original_size: tuple[int, int]
     exif_metadata: dict
     was_rotated: bool
 
 
 def process_image(file_path: str, target_size: tuple[int, int] = DEFAULT_TARGET_SIZE) -> ProcessedImage:
-    img = Image.open(file_path)
-    original_size = img.size
-
-    exif_metadata = _extract_exif(img)
+    with Image.open(file_path) as source:
+        original_size = source.size
+        exif_metadata = _extract_exif(source)
+        orientation = source.getexif().get(274, 1)
+        original_image = ImageOps.exif_transpose(source).convert("RGB")
 
     # Phone/camera photos often store orientation as an EXIF flag instead
     # of physically rotating pixels. Without this, a portrait photo can
     # load sideways into every downstream model.
-    img_before_rotation = img
-    img = ImageOps.exif_transpose(img)
-    was_rotated = img is not img_before_rotation
-
-    # Convert to RGB unconditionally - handles grayscale, CMYK, and
-    # RGBA (transparent PNGs) inputs consistently, since most models
-    # expect exactly 3 channels.
-    img = img.convert("RGB")
+    was_rotated = orientation not in (None, 1)
 
     # Resize with aspect-preserving thumbnail + pad, rather than a hard
     # stretch - avoids distorting object proportions before detection/
     # tagging models ever see the image.
-    img = _resize_with_padding(img, target_size)
+    img = _resize_with_padding(original_image, target_size)
 
     return ProcessedImage(
         image=img,
+        original_image=original_image,
         original_size=original_size,
         exif_metadata=exif_metadata,
         was_rotated=was_rotated,
