@@ -57,6 +57,17 @@ MIME_MAP = {
 }
 
 
+def is_ignored_storage_key(key: str) -> bool:
+    """Return true for operating-system artifacts that are not user assets."""
+    parts = [part for part in key.replace("\\", "/").split("/") if part]
+    if "__MACOSX" in parts:
+        return True
+    if not parts:
+        return False
+    name = parts[-1]
+    return name == ".DS_Store" or name.startswith("._")
+
+
 class S3StreamClient:
     def __init__(self):
         self.use_mock = USE_MOCK_S3
@@ -105,7 +116,7 @@ class S3StreamClient:
                 pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
                 for page in pages:
                     for item in page.get("Contents", []):
-                        if item["Key"].endswith("/"):
+                        if item["Key"].endswith("/") or is_ignored_storage_key(item["Key"]):
                             continue
                         results.append({
                             "key": item["Key"],
@@ -123,6 +134,8 @@ class S3StreamClient:
             for p in LOCAL_MOCK_DIR.rglob("*"):
                 if p.is_file():
                     rel_key = p.relative_to(LOCAL_MOCK_DIR).as_posix()
+                    if is_ignored_storage_key(rel_key):
+                        continue
                     if prefix and not rel_key.startswith(prefix):
                         continue
                     results.append({
@@ -138,6 +151,9 @@ class S3StreamClient:
         Retrieves a chunked byte generator for the requested S3 key.
         Returns: (chunk_iterator, content_length_bytes, content_type)
         """
+        if is_ignored_storage_key(s3_key):
+            raise FileNotFoundError(f"'{s3_key}' is an operating-system sidecar, not a media asset.")
+
         ext = s3_key.lower().split(".")[-1]
         content_type = MIME_MAP.get(ext, "application/octet-stream")
 

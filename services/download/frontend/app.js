@@ -677,7 +677,7 @@ function initDownloadForm() {
 • Packaged Files:    ${selectedKeys.length} assets
 • Total Memory Size: ${formatBytes(blob.size)}
 • Downloader:        ${userId} (${userEmail})
-• Watermark Type:    Zero-Pixel Metadata (HMAC-SHA256)
+• Watermark Type:    ${resp.headers.get('X-Watermark-Status') || 'See server configuration'}
 • Audit Trail:       Logged ${selectedKeys.length} records in PostgreSQL
 • Status:            100% Validated & Delivered`;
 
@@ -743,7 +743,7 @@ function initDownloadForm() {
 
             const downloadId = response.headers.get('X-Watermark-Download-ID') || 'N/A';
             const watermarkStatus = response.headers.get('X-Watermark-Status') || 'Injected';
-            const pixelDistortion = response.headers.get('X-Watermark-Pixel-Distortion') || '0%';
+            const pixelDistortion = response.headers.get('X-Watermark-Pixel-Distortion') || 'Not measured';
 
             const blob = await response.blob();
             const objectUrl = URL.createObjectURL(blob);
@@ -758,7 +758,7 @@ function initDownloadForm() {
 • Download UUID:     ${downloadId}
 • Stream Size:       ${formatBytes(blob.size)}
 • Header Injection:  ${watermarkStatus}
-• Pixel Alteration:  ${pixelDistortion} (100% ML Integrity)
+• Pixel Alteration:  ${pixelDistortion}
 • Database Registry: Logged in PostgreSQL`;
 
             directLink.href = objectUrl;
@@ -969,10 +969,16 @@ async function runForensicInspection(file) {
         const payload = data.decoded_payload || {};
         const audit = data.forensic_audit_trail || {};
 
-        if (data.signature_valid) {
-            verdictBadge.textContent = 'AUTHENTICATED LEAK ORIGIN';
+        if (data.identity_conflict) {
+            verdictBadge.textContent = 'IDENTITY CONFLICT';
+            verdictBadge.style.background = 'var(--accent-amber)';
+            verdictTitle.textContent = 'Metadata and coefficient IDs disagree';
+            repCrypto.textContent = 'Review both authenticated IDs';
+            repCrypto.className = 'item-value';
+        } else if (data.signature_valid) {
+            verdictBadge.textContent = 'AUTHENTICATED DOWNLOAD ID';
             verdictBadge.style.background = 'var(--accent-emerald)';
-            verdictTitle.textContent = 'Origin Conclusively Identified';
+            verdictTitle.textContent = 'Download watermark verified';
             repCrypto.textContent = 'Valid HMAC-SHA256 Signature';
             repCrypto.className = 'item-value valid';
         } else {
@@ -984,14 +990,17 @@ async function runForensicInspection(file) {
             repCrypto.style.color = 'var(--accent-rose)';
         }
 
-        repUid.textContent = payload.uid || 'N/A';
-        repEmail.textContent = payload.uem || 'N/A';
+        repUid.textContent = payload.uid || audit.user_id || 'N/A';
+        repEmail.textContent = payload.uem || audit.user_email || 'N/A';
         repDid.textContent = payload.did || 'N/A';
-        repKey.textContent = payload.key || 'N/A';
+        repKey.textContent = payload.key || audit.s3_key || 'N/A';
         repTs.textContent = payload.ts ? new Date(payload.ts * 1000).toUTCString() : (audit.iso_timestamp || 'N/A');
 
         repRawJson.textContent = JSON.stringify({
             analysis_verdict: data.verification_status,
+            signal_watermark: data.signal_watermark,
+            identity_conflict: data.identity_conflict,
+            metadata_download_id: data.metadata_download_id,
             embedded_token: data.embedded_token,
             decoded_metadata: payload,
             database_audit_record: audit

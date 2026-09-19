@@ -146,9 +146,23 @@ def inject_flac_watermark_bytes(flac_data: bytes, token_str: str) -> bytes:
     if not flac_data.startswith(b"fLaC"):
         raise ValueError("Invalid FLAC format: Missing 'fLaC' marker")
 
-    comment_block = build_flac_vorbis_comment_block(token_str, is_last=False)
-    # Insert right after the 'fLaC' marker (offset 4)
-    return flac_data[:4] + comment_block + flac_data[4:]
+    # FLAC requires STREAMINFO first. Add an APPLICATION block after the existing
+    # metadata chain, preserving the unique VORBIS_COMMENT block and audio frames.
+    offset = 4
+    while offset + 4 <= len(flac_data):
+        header = flac_data[offset]
+        length = int.from_bytes(flac_data[offset + 1:offset + 4], "big")
+        end = offset + 4 + length
+        if end > len(flac_data):
+            raise ValueError("Truncated FLAC metadata")
+        if header & 0x80:
+            payload = b"AGYW" + f"{WATERMARK_PREFIX}{token_str}".encode("utf-8")
+            if len(payload) >= 1 << 24:
+                raise ValueError("FLAC watermark payload too large")
+            block = b"\x82" + len(payload).to_bytes(3, "big") + payload
+            return flac_data[:offset] + bytes([header & 0x7f]) + flac_data[offset + 1:end] + block + flac_data[end:]
+        offset = end
+    raise ValueError("FLAC metadata chain is incomplete")
 
 
 # ==============================================================================

@@ -1,0 +1,4 @@
+-r requirements-codec.txt
+cmake==4.4.3
+# Unmodified reference codecs used by native compatibility/quality tests.
+imageio-ffmpeg==0.6.0
