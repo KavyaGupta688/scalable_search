@@ -19,6 +19,10 @@ export async function protectedBlob(path, { signal, maximum = 2 * 1024 ** 3 } = 
   const reader = response.body.getReader();
   const chunks = []; let length = 0;
   try {
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declaredLength) && declaredLength > maximum) {
+      throw new Error('Content exceeds the browser size limit');
+    }
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;

@@ -83,10 +83,13 @@ class FileRepository:
     async def compute_facets(self, query="", filters=None):
         clauses, _, _ = conditions(query, filters)
 
-        async def counts(column, labels=None):
+        async def counts(column, labels=None, display_column=None):
+            columns = [column, func.count()]
+            if display_column is not None:
+                columns.append(func.min(display_column))
             rows = (
                 await self.db.execute(
-                    select(column, func.count())
+                    select(*columns)
                     .where(*clauses)
                     .group_by(column)
                     .order_by(func.count().desc())
@@ -94,9 +97,10 @@ class FileRepository:
                 )
             ).all()
             return [
-                FacetCountItem(value=labels[v] if labels else str(v), count=n)
-                for v, n in rows
-                if v is not None
+                FacetCountItem(value=labels[row[0]] if labels else str(row[0]), count=row[1],
+                               label=row[2] if display_column is not None else None)
+                for row in rows
+                if row[0] is not None
             ]
 
         # JSON tag expansion stays in PostgreSQL; no file records are loaded.
@@ -116,7 +120,7 @@ class FileRepository:
         return FacetsResponse(
             file_types=await counts(F.file_type),
             categories=await counts(F.category),
-            datasets=await counts(F.dataset_id),
+            datasets=await counts(F.dataset_id, display_column=F.dataset_name),
             ai_generated=await counts(F.ai_generated, {True: "true", False: "false"}),
             pii_detected=await counts(F.pii_detected, {True: "true", False: "false"}),
             top_tags=[FacetCountItem(value=t, count=n) for t, n in tag_rows],

@@ -16,3 +16,9 @@ test('autocomplete carries AbortSignal and encodes query',async()=>{const c=new 
 test('similarity uses canonical document POST contract',async()=>{global.fetch=async(url,options)=>{assert.equal(url,'/search/similar');assert.equal(options.method,'POST');assert.equal(JSON.parse(options.body).file_id,'canonical-id');return Response.json({results:[]});};await getSimilar('canonical-id');});
 test('downloads use persistent server IDs',async()=>{global.fetch=async(url,options)=>{assert.equal(url,'/downloads/batch');assert.deepEqual(JSON.parse(options.body),{file_ids:['a','b']});return Response.json({download_id:'server-job',status:'building'});};assert.equal((await createBatchDownload(['a','b'])).download_id,'server-job');global.fetch=async url=>{assert.equal(url,'/downloads/server-job');return Response.json({status:'failed',error:'Access expired'});};assert.equal((await getDownloadStatus('server-job')).status,'failed');});
 test('protected content enforces browser bounds and authentication',async()=>{global.fetch=async(url,options)=>{assert.equal(options.headers.Authorization,'Bearer session-token');return new Response('abcdef');};await assert.rejects(protectedBlob('/documents/id/content',{maximum:3}),/size limit/);});
+test('oversized declared content is cancelled before reading source bytes', async () => {
+ let reads=0,cancelled=false,released=false;
+ global.fetch=async()=>({ok:true,headers:new Headers({'content-length':'447000000'}),body:{getReader:()=>({read:async()=>{reads++;throw new Error('Must not read');},cancel:async()=>{cancelled=true;},releaseLock:()=>{released=true;}})}});
+ await assert.rejects(protectedBlob('/documents/id/content',{maximum:32*1024**2}),/size limit/);
+ assert.equal(reads,0);assert.ok(cancelled);assert.ok(released);
+});

@@ -2,6 +2,7 @@
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.exc import OperationalError, TimeoutError as DatabaseTimeoutError
 
 from modules.shared.auth.models import UserInDB, UserRole
 from modules.shared.auth.service import AuthService
@@ -33,7 +34,7 @@ def get_auth_service() -> AuthService:
 # ── Dependency: current user ────────────────────────────────────────────────
 
 
-async def get_current_user(
+def get_current_user(
     token: str | None = Depends(oauth2_scheme),
     auth: AuthService = Depends(get_auth_service),
 ) -> UserInDB:
@@ -51,6 +52,8 @@ async def get_current_user(
 
     try:
         payload = auth.decode_token(token)
+    except (OperationalError, DatabaseTimeoutError):
+        raise
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

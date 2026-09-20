@@ -51,6 +51,38 @@ def login(client, role="user"):
     return {"Authorization": "Bearer " + r.json()["access_token"]}
 
 
+@pytest.mark.parametrize("operation", ["decode", "user", "audit"])
+def test_slow_database_operations_do_not_block_public_health(browser, monkeypatch, operation):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from modules.shared import audit
+
+    client, auth, _ = browser
+    headers = login(client)
+    entered, release = Event(), Event()
+    target, method = (audit, "record") if operation == "audit" else (
+        auth, "decode_token" if operation == "decode" else "get_user"
+    )
+    original = getattr(target, method)
+
+    def slow(*args, **kwargs):
+        entered.set()
+        assert release.wait(5), "test did not release the blocked operation"
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(target, method, slow)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        pending = executor.submit(client.request, "POST" if operation == "audit" else "GET",
+                                  "/auth/logout" if operation == "audit" else "/auth/me", headers=headers)
+        try:
+            assert entered.wait(2)
+            health = executor.submit(client.get, "/health")
+            assert health.result(timeout=2).status_code == 200
+        finally:
+            release.set()
+        assert pending.result(timeout=5).status_code in (200, 204)
+
+
 def test_credentials_roles_revocation_and_registration(browser):
     c, auth, events = browser
     assert (
@@ -88,6 +120,33 @@ def test_credentials_roles_revocation_and_registration(browser):
     assert c.post("/auth/logout", headers=h).status_code == 204
     assert c.get("/auth/me", headers=h).status_code == 401
     assert events
+
+
+@pytest.mark.parametrize("operation", ["decode", "user", "audit"])
+@pytest.mark.parametrize("failure", ["connection", "pool"])
+def test_database_outage_is_unavailable_not_invalid_credentials(browser, monkeypatch, operation, failure):
+    from sqlalchemy.exc import OperationalError, TimeoutError
+    from modules.shared import audit
+
+    client, auth, _ = browser
+    headers = login(client)
+    target, method = (audit, "record") if operation == "audit" else (
+        auth, "decode_token" if operation == "decode" else "get_user"
+    )
+
+    def unavailable(*args, **kwargs):
+        if failure == "connection":
+            raise OperationalError("private SQL", {}, Exception("private database address"))
+        raise TimeoutError("private database address")
+
+    monkeypatch.setattr(target, method, unavailable)
+    response = client.request("POST" if operation == "audit" else "GET",
+                              "/auth/logout" if operation == "audit" else "/auth/me", headers=headers)
+    assert response.status_code == 503
+    assert "Database temporarily unavailable" in response.json()["detail"]
+    assert "private" not in response.text
+    assert response.headers["x-correlation-id"]
+    assert client.get("/health").status_code == 200
 
 
 def test_forged_identity_and_expired_internal_assertion(browser):
@@ -173,3 +232,53 @@ def test_redesigned_frontend_routes(browser):
         assert r.status_code == 200
         assert '<div id="root">' in r.text
     assert c.get("/api/unknown").status_code == 404
+
+
+@pytest.mark.parametrize('compressed', [False, True])
+def test_proxy_preserves_only_valid_content_length(browser, compressed):
+    import gzip
+    client, _, _ = browser
+    payload = b'protected source bytes'
+    wire = gzip.compress(payload) if compressed else payload
+
+    async def backend(request):
+        return httpx.Response(200, content=wire, headers={
+            'Content-Length': str(len(wire)), 'Cache-Control': 'no-store',
+            **({'Content-Encoding': 'gzip'} if compressed else {}),
+        })
+
+    app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(backend))
+    response = client.get('/downloads/job/content', headers=login(client))
+    assert response.content == payload
+    assert response.headers['cache-control'] == 'no-store'
+    if compressed:
+        assert 'content-encoding' not in response.headers
+        assert 'content-length' not in response.headers
+    else:
+        assert response.headers['content-length'] == str(len(payload))
+
+
+def test_slow_content_entitlement_check_does_not_block_health(browser, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from modules.shared import catalog
+    from fastapi import HTTPException
+
+    client, _, _ = browser
+    headers = login(client)
+    entered, release = Event(), Event()
+
+    def deny_after_delay(ids):
+        entered.set()
+        assert release.wait(5)
+        raise HTTPException(403, 'Access expired')
+
+    monkeypatch.setattr(catalog, 'require_downloadable', deny_after_delay)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        pending = executor.submit(client.get, '/documents/00000000-0000-0000-0000-000000000001/content', headers=headers)
+        try:
+            assert entered.wait(2)
+            assert executor.submit(client.get, '/health').result(timeout=2).status_code == 200
+        finally:
+            release.set()
+        assert pending.result(timeout=5).status_code == 403

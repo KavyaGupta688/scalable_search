@@ -114,9 +114,11 @@ def database_engine(schema: str):
     url = os.environ["DATABASE_URL_SYNC"].replace(
         "postgresql://", "postgresql+psycopg2://"
     )
-    return create_engine(
-        url, pool_pre_ping=True, connect_args=connection_args(url, schema)
-    )
+    args = connection_args(url, schema)
+    if url.startswith("postgresql"):
+        args["connect_timeout"] = 5
+    options = {"pool_timeout": 5} if url.startswith("postgresql") else {}
+    return create_engine(url, pool_pre_ping=True, connect_args=args, **options)
 
 
 def point_id(document_id: str) -> str:

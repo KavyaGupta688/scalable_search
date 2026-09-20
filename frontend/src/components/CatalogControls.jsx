@@ -89,7 +89,7 @@ export function CatalogFilters({catalog}) {
         const values = facets?.[source] || [], selected = filters[key]?.[0];
         return <label key={key} className="flex flex-col gap-1 min-w-0">{label}<select className="nx-input max-w-full" aria-label={label} value={selected || ''} onChange={e => choose(key,e.target.value ? [e.target.value] : undefined)}>
           <option value="">All</option>{selected && !values.some(v => v.value === selected) && <option value={selected}>{selected}</option>}
-          {values.map(v => <option value={v.value} key={v.value}>{v.value} ({v.count})</option>)}</select></label>;
+          {values.map(v => <option value={v.value} key={v.value}>{v.label || v.value} ({v.count})</option>)}</select></label>;
       })}
       {[['ai_generated','AI generated'],['pii_detected','PII detected']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<select className="nx-input" value={filters[key] == null ? '' : String(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : e.target.value === 'true')}><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>)}
       {[['date_from','Ingested from'],['date_to','Ingested until']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="date" className="nx-input" value={filters[key]?.slice(0,10) || ''} onChange={e => choose(key,e.target.value ? `${e.target.value}${key === 'date_to' ? 'T23:59:59Z' : 'T00:00:00Z'}` : undefined)}/></label>)}

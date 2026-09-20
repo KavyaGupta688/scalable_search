@@ -18,6 +18,7 @@ class SearchFilters(BaseModel):
 class FacetCountItem(BaseModel):
     value: str
     count: int
+    label: Optional[str] = None
 
 class FacetsResponse(BaseModel):
     file_types: List[FacetCountItem]

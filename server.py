@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import os
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,6 +10,8 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
+from sqlalchemy.exc import OperationalError, TimeoutError as DatabaseTimeoutError
 from modules.shared.auth.dependencies import get_current_user, require_admin
 from modules.shared.auth.routes import router as auth_router
 from modules.shared.audit_api import router as audit_router
@@ -50,6 +53,20 @@ async def lifespan(app):
 app = FastAPI(title="SMSPRSM Integrated Platform", lifespan=lifespan)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(audit_router, tags=["audit"])
+
+
+def database_unavailable(request: Request):
+    return JSONResponse(
+        {"detail": "Database temporarily unavailable. Refresh the operation status before retrying."},
+        status_code=503,
+        headers={"X-Correlation-ID": getattr(request.state, "correlation_id", str(uuid.uuid4()))},
+    )
+
+
+@app.exception_handler(OperationalError)
+@app.exception_handler(DatabaseTimeoutError)
+async def database_error(request: Request, exc):
+    return database_unavailable(request)
 
 
 @app.get("/health")
@@ -101,13 +118,20 @@ async def forward(request: Request, service: str, user):
         )
     except httpx.TimeoutException:
         raise HTTPException(504, "The service timed out. Please retry.") from None
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        logging.getLogger(__name__).warning(
+            "Upstream transport failure service=%s path=%s correlation=%s type=%s",
+            service, path, request.state.correlation_id, type(exc).__name__,
+        )
         raise HTTPException(503, "The service is unavailable. Please retry.") from None
     return StreamingResponse(
         upstream.aiter_bytes(),
         status_code=upstream.status_code,
         headers={
-            k: v for k, v in upstream.headers.items() if k.lower() not in HOP_HEADERS
+            k: v for k, v in upstream.headers.items()
+            if k.lower() not in HOP_HEADERS or (
+                k.lower() == "content-length" and not upstream.headers.get("content-encoding")
+            )
         },
         background=BackgroundTask(upstream.aclose),
     )
@@ -136,7 +160,7 @@ async def documents(request: Request, path: str = "", user=Depends(get_current_u
             raise HTTPException(403, "Administrator access required") from None
         if path.split("/")[1:] not in ([], ["content"]):
             raise HTTPException(403, "Use the protected content endpoint")
-        require_downloadable([document_id])
+        await run_in_threadpool(require_downloadable, [document_id])
     return await forward(request, "ingestion", user)
 
 
@@ -193,8 +217,10 @@ async def audit_requests(request: Request, call_next):
     token = request.headers.get("authorization", "")
     if token.startswith("Bearer "):
         try:
-            claims = get_auth_service().decode_token(token[7:])
+            claims = await run_in_threadpool(lambda: get_auth_service().decode_token(token[7:]))
             actor, role = claims["sub"], claims["role"]
+        except (OperationalError, DatabaseTimeoutError):
+            return database_unavailable(request)
         except Exception:
             pass
     response = await call_next(request)
@@ -207,20 +233,24 @@ async def audit_requests(request: Request, call_next):
         from modules.shared.audit import record
 
         if request.method != "GET" or response.status_code >= 400:
-            record(
-                request.method + " " + path,
-                actor,
-                "api",
-                path,
-                user_role=role,
-                status="SUCCESS"
-                if response.status_code < 400
-                else "DENIED"
-                if response.status_code in (401, 403)
-                else "FAILED",
-                correlation_id=request.state.correlation_id,
-                metadata={"http_status": response.status_code},
-            )
+            try:
+                await run_in_threadpool(
+                    record,
+                    request.method + " " + path,
+                    actor,
+                    "api",
+                    path,
+                    user_role=role,
+                    status="SUCCESS"
+                    if response.status_code < 400
+                    else "DENIED"
+                    if response.status_code in (401, 403)
+                    else "FAILED",
+                    correlation_id=request.state.correlation_id,
+                    metadata={"http_status": response.status_code},
+                )
+            except (OperationalError, DatabaseTimeoutError):
+                return database_unavailable(request)
     return response
 
 
