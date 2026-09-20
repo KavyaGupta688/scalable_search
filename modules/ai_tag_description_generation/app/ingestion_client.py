@@ -9,8 +9,13 @@ from tempfile import NamedTemporaryFile
 from typing import Any, Iterator
 from uuid import UUID
 import hashlib
+import logging
 
 import httpx
+
+# Source access may use signed URLs. HTTPX's INFO request logging includes the
+# complete query string, so keep those temporary credentials out of worker logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 from modules.ai_tag_description_generation.app.config import settings
 

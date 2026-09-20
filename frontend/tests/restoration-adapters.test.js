@@ -2,8 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {bytes, number, fileView, connectorView, runView, pipelineGroups} from '../src/services/presentation.js';
 import {getConnectors, createConnector, startScan, archiveConnector, getAuditLogs} from '../src/services/adminApi.js';
+import {connectorPayload, defaultConnectorForm} from '../src/services/connectorForm.js';
 
 global.localStorage = {getItem: key => key === 'nexus_token' ? 'test-session' : null};
+
+test('connector form preserves S3 prefix, bounds, region and mutually exclusive credentials', () => {
+  const role = {...defaultConnectorForm, name:'Source', bucketName:'bucket', iamRoleArn:'arn:aws:iam::123456789012:role/Ingest', prefix:'datasets/meld/images/', pageSize:'250', secretAccessKey:'must-not-leak'};
+  const body = connectorPayload(role);
+  assert.equal(body.s3.endpoint_url, 'https://s3.ap-south-1.amazonaws.com');
+  assert.equal(body.s3.max_objects, 1000); assert.equal(body.s3.page_size, 250);
+  assert.equal(body.s3.prefix, 'datasets/meld/images/'); assert.equal(body.s3.secret_key, undefined);
+  const keys = connectorPayload({...role, authMethod:'access_key', accessKeyId:'example', secretAccessKey:'example-secret', maxFiles:'', addressingStyle:'path'});
+  assert.equal(keys.s3.role_arn, undefined); assert.equal(keys.s3.max_objects, null);
+  assert.equal(keys.s3.addressing_style, 'path'); assert.equal(keys.s3.auth_mode, 'static_keys');
+});
+
+test('connector form rejects invalid bounds, missing authentication and deferred NAS', () => {
+  const form = {...defaultConnectorForm, name:'Source', bucketName:'bucket', iamRoleArn:'arn:aws:iam::123456789012:role/Ingest'};
+  for (const maxFiles of ['0', '-1', '1.5', 'oops']) assert.throws(() => connectorPayload({...form,maxFiles}), /Maximum objects/);
+  for (const pageSize of ['', '0', '1001', '1.5']) assert.throws(() => connectorPayload({...form,pageSize}), /Listing page size/);
+  assert.throws(() => connectorPayload({...form,iamRoleArn:''}), /IAM Role ARN/);
+  assert.throws(() => connectorPayload({...form,authMethod:'access_key'}), /Access key/);
+  assert.throws(() => connectorPayload({...form,sourceType:'nas_smb'}), /deferred/);
+  assert.throws(() => connectorPayload({...form,endpointUrl:'https://user:secret@example.test'}), /embedded credentials/);
+});
 
 test('display adapters distinguish missing data from measured zero', () => {
   assert.equal(bytes(null), '—'); assert.equal(bytes(0), '0 B');

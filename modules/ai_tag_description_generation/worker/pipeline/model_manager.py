@@ -7,6 +7,7 @@ the fine-grained label sets ONCE at load time - not per image.
 """
 
 import os
+from contextlib import contextmanager
 
 # Transformers 4.28 predates modern Keras layouts. This pipeline uses the
 # PyTorch implementations exclusively, so prevent optional TensorFlow model
@@ -50,6 +51,41 @@ DEVICE = get_device()
 _model_cache: dict = {}
 
 
+def release_models():
+    """Release cache ownership on memory-constrained, sequential workers."""
+    import gc
+    from modules.shared.embeddings import clip_bundle
+    _model_cache.clear()
+    _text_embedding_cache.clear()
+    clip_bundle.cache_clear()
+    gc.collect()
+    # glibc can retain freed tensor arenas in an idle process. Return those
+    # pages before another process acquires the shared inference slot.
+    import ctypes
+    try:
+        trim = ctypes.CDLL(None).malloc_trim
+    except (AttributeError, OSError):
+        return  # Not every platform uses glibc.
+    trim.argtypes = [ctypes.c_size_t]
+    trim.restype = ctypes.c_int
+    trim(0)
+
+
+@contextmanager
+def model_execution_slot():
+    """Serialize local consumer/Celery inference when they share limited RAM."""
+    from contextlib import nullcontext
+    from filelock import FileLock
+    path = os.environ.get("AI_MODEL_EXECUTION_LOCK")
+    slot = FileLock(path, timeout=600) if path else nullcontext()
+    with slot:
+        try:
+            yield
+        finally:
+            if os.environ.get("AI_MODEL_CACHE_POLICY") == "single":
+                release_models()
+
+
 def get_model_version_string() -> str:
     return "; ".join([f"{k}={v}" for k, v in MODEL_VERSIONS.items()])
 
@@ -58,6 +94,9 @@ def get_model(name: str):
     """Valid names: "clip", "yolo", "blip", "whisper", "ram", "paddleocr", "presidio", "nudenet", "bart_mnli", "spacy", "keybert", "summarizer", "face_detector", "toxicity", "ai_generated_detector" """
     if name in _model_cache:
         return _model_cache[name]
+
+    if os.environ.get("AI_MODEL_CACHE_POLICY") == "single":
+        release_models()
 
     if name == "clip":
         model = _load_clip()
@@ -73,8 +112,19 @@ def get_model(name: str):
         model = _load_paddleocr()
     elif name == "presidio":
         from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
 
-        model = AnalyzerEngine()
+        model_path = os.environ.get("PRESIDIO_MODEL_PATH")
+        if model_path:
+            if not Path(model_path, "config.cfg").is_file():
+                raise FileNotFoundError("Provision the Presidio spaCy model at " + model_path)
+            engine = NlpEngineProvider(nlp_configuration={
+                "nlp_engine_name": "spacy",
+                "models": [{"lang_code": "en", "model_name": model_path}],
+            }).create_engine()
+            model = AnalyzerEngine(nlp_engine=engine, supported_languages=["en"])
+        else:
+            model = AnalyzerEngine()
     elif name == "nudenet":
         from nudenet import NudeDetector
 
@@ -113,8 +163,14 @@ def get_model(name: str):
         model = FaceDetectorWrapper()
     elif name == "toxicity":
         from detoxify import Detoxify
+        from detoxify.detoxify import MODEL_URLS
+        from filelock import FileLock
+        from urllib.parse import urlparse
 
-        model = Detoxify("unbiased", device=DEVICE)
+        checkpoint = Path(torch.hub.get_dir()) / "checkpoints" / Path(urlparse(MODEL_URLS["unbiased"]).path).name
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(checkpoint) + ".lock"):
+            model = Detoxify("unbiased", device=DEVICE)
     elif name == "ai_generated_detector":
         model = _build_ai_generated_detector()
     else:
@@ -152,8 +208,23 @@ def _load_blip():
 
 def _load_whisper():
     import whisper
-
-    return whisper.load_model("large-v3", device=DEVICE)
+    from filelock import FileLock
+    cache = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "whisper"
+    cache.mkdir(parents=True, exist_ok=True)
+    # Share the prefetch lock so a worker cannot overwrite an active download.
+    with FileLock(str(cache / "large-v3.pt") + ".lock"):
+        if DEVICE == "cpu":
+            import hashlib
+            from modules.ai_tag_description_generation.worker.pipeline.whisper_loader import load_cpu_checkpoint
+            path = cache / "large-v3.pt"
+            if not path.is_file():
+                raise FileNotFoundError("Provision Whisper large-v3 before starting the worker")
+            with path.open("rb") as checkpoint:
+                digest = hashlib.file_digest(checkpoint, "sha256").hexdigest()
+            if digest != whisper._MODELS["large-v3"].split("/")[-2]:
+                raise ValueError("Whisper large-v3 checkpoint checksum mismatch")
+            return load_cpu_checkpoint(path, whisper._ALIGNMENT_HEADS["large-v3"])
+        return whisper.load_model("large-v3", device=DEVICE, download_root=str(cache))
 
 
 def _load_paddleocr():
@@ -162,7 +233,9 @@ def _load_paddleocr():
     # PaddleOCR v3 removed the v2-only ``show_log`` option. Disable oneDNN:
     # some Windows PaddlePaddle builds fail when converting OCR model attributes
     # through the oneDNN/PIR runtime.
-    return PaddleOCR(use_angle_cls=True, lang="en", enable_mkldnn=False)
+    # Explicitly retain the v4 checkpoint family recorded in MODEL_VERSIONS.
+    # PaddleOCR v3 otherwise selects newer checkpoints by default.
+    return PaddleOCR(use_angle_cls=True, lang="en", ocr_version="PP-OCRv4", enable_mkldnn=False)
 
 
 def _load_ram():

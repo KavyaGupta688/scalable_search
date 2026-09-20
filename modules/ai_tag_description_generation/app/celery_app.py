@@ -116,6 +116,12 @@ def process_validated_file(
 
 def process_ingestion_document(document) -> str:
     """Process one validated ingestion snapshot; safe for Kafka redelivery."""
+    from modules.ai_tag_description_generation.worker.pipeline.model_manager import model_execution_slot
+    with model_execution_slot():
+        return _process_ingestion_document(document)
+
+
+def _process_ingestion_document(document) -> str:
     from modules.ai_tag_description_generation.app.ingestion_client import (
         materialize_document,
     )

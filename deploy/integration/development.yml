@@ -1,0 +1,19 @@
+# Serve the checkout and freshly built frontend without rebuilding service images.
+x-checkout: &checkout
+  volumes: ["../..:/app:ro"]
+services:
+  migrate: {<<: *checkout}
+  gateway: {<<: *checkout}
+  ingestion: {<<: *checkout}
+  ingestion-worker: {<<: *checkout}
+  ingestion-outbox: {<<: *checkout}
+  search: {<<: *checkout}
+  search-outbox: {<<: *checkout}
+  ai: {<<: *checkout}
+  ai-worker: {<<: *checkout}
+  ai-consumer: {<<: *checkout}
+  indexer: {<<: *checkout}
+  download: {<<: *checkout}
+  download-worker: {<<: *checkout}
+  download-outbox: {<<: *checkout}
+  vault-init: {<<: *checkout}

@@ -1,6 +1,7 @@
 """Non-mutating dependency readiness for separately deployed services."""
 
 import os
+import json
 from pathlib import Path
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -59,6 +60,15 @@ def readiness(schema, *, broker=False, vault=False, vectors=False, models=False)
         checks["ram_checkpoint"] = Path(
             os.environ.get("RAM_CHECKPOINT_PATH", "/models/ram_plus_swin_large_14m.pth")
         ).is_file()
+        manifest = os.environ.get("AI_MODEL_READINESS_FILE")
+        if manifest:
+            def initialized_models():
+                results = json.loads(Path(manifest).read_text())
+                required = {"clip", "yolo", "blip", "whisper", "ram", "paddleocr",
+                            "presidio", "nudenet", "bart_mnli", "spacy", "keybert",
+                            "summarizer", "face_detector", "toxicity", "ai_generated_detector"}
+                return all(results.get(name, {}).get("ready") is True for name in required)
+            check("model_initialization", initialized_models)
     return JSONResponse(
         {"checks": checks}, status_code=200 if all(checks.values()) else 503
     )

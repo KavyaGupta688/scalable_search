@@ -1,8 +1,65 @@
 # Local integrated runtime
 
+## Current runtime: RDS (20 September 2026)
+
+The active application on `http://localhost:18000` now uses **`smsprsm_integration` on the supplied RDS instance**, over TLS. This separate database was explicitly approved after a read-only inspection found existing ingestion data in the shared `samsungdb`. No tables, records or migration ledgers in `samsungdb` were changed. The integration's old local PostgreSQL container is stopped; its volume was preserved. Do not run the old local-database commands below for this environment.
+
+Use the RDS override and portable checkout mount:
+
+```powershell
+docker compose --env-file .integration/stack.env --env-file .integration/rds-runtime.env -f deploy/integration/compose.yml -f deploy/integration/rds.yml -f deploy/integration/development.yml up -d --no-build
+docker compose --env-file .integration/stack.env --env-file .integration/rds-runtime.env -f deploy/integration/compose.yml -f deploy/integration/rds.yml -f deploy/integration/development.yml ps
+```
+
+Project `smsprsm-rds` owns separate Kafka, Redis, Qdrant, Vault, auth and package volumes. Only the existing `smsprsm-integration_models` volume is shared. The `postgres` service is excluded by profile and is not a migration dependency. This avoids importing the old synthetic catalog, vectors, sessions or queued jobs. Existing administrator bootstrap credentials in `.integration/stack.env` work; old browser sessions require login again. Other old test users and sources were not copied.
+
+On a fresh machine, create the external model volume with `docker volume create smsprsm-integration_models` before startup. Build the runtime/search/AI images and frontend first using the build commands below. The checked-in `development.yml` mount is relative to this checkout; it replaces the earlier machine-specific ignored `.integration/dev.yml`.
+
+The ignored `.integration/rds-runtime.env` contains `RDS_DATABASE_URL` (`postgresql+asyncpg`, with `?ssl=require`) and `RDS_DATABASE_URL_SYNC` (`postgresql+psycopg2`, with `?sslmode=require`). URL-encode credentials. Never print resolved Compose configuration or commit that file. `.integration/rds.env` is used only by the read-only inspection helper. Production certificate/hostname verification can be configured separately; current RDS TLS is encryption-required, matching the supplied settings.
+
+Current public IPv4 observed: `182.156.30.25`; the requested allowlist entry is TCP 5432 from `182.156.30.25/32`. It can change with the network/VPN. Connectivity and authenticated TLS 1.3 access were verified, so no additional allowlist change was required for this session.
+
+Fresh migrations have already been applied to `smsprsm_integration`. Do not run `scripts/migrate_integration.py` against shared `samsungdb`: its adoption step moves public tables into module schemas. `scripts/inspect_rds.py` runs its inventory in a read-only transaction; its local report is `.integration/team-review/rds-inventory.json`.
+
+### AI resources
+
+`scripts/provision_ai_models.py` downloads the RAM++ checkpoint, verifies its published SHA256, and loads each configured model in a separate process. Large-model cache prefetching is available through `scripts/prefetch_ai_weights.py`. Run inside the AI image with the `/models` volume; no source or database writes are performed. Downloaded artifacts and logs are not Git files.
+
+```powershell
+docker compose --env-file .integration/stack.env --env-file .integration/rds-runtime.env -f deploy/integration/compose.yml -f deploy/integration/rds.yml -f deploy/integration/development.yml exec ai python scripts/provision_ai_models.py
+```
+
+Do not start a second all-model provisioner while an existing one is active. Logs/status in model storage: `provisioning-run.log`, `preliminary-run.log`, `secondary-run.log`, `prefetch-retry.log`, `prefetch-audio.log`, `provisioning/results.json`. Preliminary/subset reports are diagnostic only. The all-model manifest is required by RDS AI readiness: a checkpoint file existing on disk does not establish that every model loads. Initialization checks still do not establish inference quality or a successful ingestion workflow.
+
+All 15 model components now pass initialization, including Whisper after its CPU memory fix. RDS `ai-consumer` and `ai-worker` have resumed. For future provisioning, stop these two workers first and restart them only after the complete manifest and `/ready` pass. Downloads alone do not automatically start workers. Preserve Kafka offsets and review pending work before any replay.
+
+The CPU Whisper loader memory-maps the unchanged large-v3 checkpoint and avoids duplicate full-model allocations. It preserves FP32 computation without quantization or a smaller checkpoint. On the supplied WAV, actual transcription peaked at 4463.3 MiB process RSS; this is one bounded sample, not a general sizing guarantee. `AI_MODEL_CACHE_POLICY=single` releases cache ownership between models and after each document. `AI_MODEL_EXECUTION_LOCK=/models/inference.lock` serializes inference across this machine's Kafka/Celery processes. Keep the shared model volume mounted to both. Do not increase concurrency on this memory allocation without measurement.
+
+The worker and consumer set `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` to use the verified local caches; missing artifacts fail explicitly. Provision through the `ai` service, which does not set these offline flags. The actual-source transcription checker is `scripts/verify_whisper_runtime.py DOCUMENT_ID`; its report excludes transcript content and records timing, peak memory and temporary-file cleanup.
+
+After fixing a previously failed component, rerun its initialization into a separate report, verify actual inference, and replace only that component's entry in `provisioning/results.json` atomically. Do not mark a model ready merely because its checkpoint exists. The Whisper retry and inference reports are retained as evidence. Running the complete provisioner again is also supported; stop workers while doing so because it replaces the readiness manifest incrementally.
+
+This PC's antivirus intercepts some model-CDN HTTPS traffic. Its already-trusted public root certificate was used to build `/models/ca/ca-bundle.pem`; `.integration/rds-runtime.env` selects it with `MODEL_CA_BUNDLE`. HTTPS verification remains enabled. Other machines should use their own approved trust store; do not copy an untrusted certificate or disable TLS checks. Model caches include Hugging Face, Torch, Whisper, YOLO and auxiliary HOME caches, all under `/models`.
+
+### Connector and team evidence updates
+
+The connector dialog follows the supplied S3/SMB screenshots, with the prefix, object cap and listing page size in the S3 panel; region defaults to `ap-south-1`. Save & Test creates the connector then performs its real connection test. A failed test retains the created ID so retry cannot create a duplicate. Blank maximum objects intentionally means unbounded; the default is 1000. NAS tabs remain visible but NAS creation/testing is deferred and disabled in this form. Manual scans only; schedule tiles were removed from this dialog to match the supplied design.
+
+The current approved real S3 connector uses bucket `demo-bucket-prism`, relative prefix `demos/metadata-formats/run-001/metadata-csv/`, maximum five objects. Do not include the bucket name in the prefix field. Its scan ingested three demonstration files (MP3, WAV and CSV) with matching vendor metadata, and all three AI-processing events were delivered to Kafka. Metadata control objects count toward the cap but are not ingested as documents. These source bytes were read from real S3; no fabricated database catalog or vectors were inserted. AI processing has resumed after all model initialization checks passed.
+
+Earlier trials remain in history: `datasets/meld/images/` was empty; `val2014/` enumerated five JPEGs which failed with “No vendor metadata matched source file”, with five persisted ingestion-failure Audit events. Use a matching vendor manifest before retrying that older prefix; the current demonstration prefix has resolved the metadata blocker for this bounded test.
+
+The configured metadata reader looks for `metadata.csv` or `metadata11.csv` in the file's directory and its parents. CSV rows can match a `filename` (for example `COCO_val2014_000000000042.jpg`) or a `target_path` (for example `val2014/COCO_val2014_000000000042.jpg`). It reads supplied identifiers, descriptions, categories, tags and additional metadata; do not invent vendor values to make ingestion pass. Supported directory sidecars are `.id`, `.desc`, `.tags`, `.lab` and `.cate`; a CSV is preferable for distinct metadata per image in this shared folder. No files were uploaded or altered in the source bucket.
+
+All three accepted files have now passed actual-model processing and indexing: CSV is completed; audio results are safety-cleared partial because they yielded no confident speech. All stages completed without task retries. Both roles passed text/hybrid/vector search, details, similarity and protected source checks. A three-file persistent archive was delivered and its metadata watermark verified against the forensic store. `tests/integration/rds_actual_workflow.py CONNECTOR_ID` repeats normal API acceptance against existing actual outputs; it creates a standard test account and download/Audit records but never inserts model/catalog fixtures. The report is `/models/provisioning/actual-workflow.json`.
+
+The Download team's supplied Markdown reports 15 synthetic signal/native-format passes on their Mac, including token stripping and negative controls. The actual media pack, machine reports, verifier and native Linux codec builds were not supplied. Their results are external evidence, not locally repeated acceptance. Default metadata watermarking remains enabled; optional signal/native flags remain off. The Search video shows filters, previews/details, similarity, selection, datasets, trending and autocomplete; it contains no visible Audit screen and no audible narration.
+
+The original Word guide describes the earlier local acceptance setup; use this updated Markdown for the RDS configuration until that guide is regenerated.
+
 This is the isolated review environment for `Feature/Integration`. Do not use the old root Compose files or standalone module frontend servers for this branch. The redesigned `frontend/dist` is the only application served by the gateway.
 
-## Build and start
+## Historical local acceptance setup (not the current RDS runtime)
 
 Use Docker Compose v2, Node 20+, Python 3.11 in containers, and substantial free disk space. AI dependencies and model weights are large; the acceptance machine had 7.6 GiB allocated to Docker, which is not a sizing recommendation for all models concurrently.
 
@@ -80,7 +137,7 @@ Acceptance helpers are under `tests/integration`. They are **test-only** and mut
 
 ## Restored frontend and visual review
 
-The active UI uses the original `Feature/Re-designed-frontend` design at `92ff6d1`, with service adapters on `Feature/Integration`. The local restoration is not pushed. Build it from `frontend` with `npm run build`. In the current acceptance stack the gateway mounts the repository and serves `frontend/dist`, so refresh `http://localhost:18000` after the build. For an image-only installation, rebuild/recreate the gateway using the Compose build instructions above; do not remove volumes. Existing login credentials and sessions remain valid.
+The active UI uses the original `Feature/Re-designed-frontend` design at `92ff6d1`, with service adapters on `Feature/Integration`. That restoration was pushed as `fb82712`; the newer connector/RDS/model changes remain local. Build it from `frontend` with `npm run build`. The gateway mounts the repository and serves `frontend/dist`, so refresh `http://localhost:18000` after the build. For an image-only installation, rebuild/recreate the gateway using the Compose build instructions above; do not remove volumes. RDS uses the same administrator bootstrap credentials but requires a fresh login; old local-database sessions are not copied.
 
 Original layouts remain for every module and both search roles. Missing backend metrics show unavailable; scheduling, separate checksum revalidation, benchmark and unsupported filters remain disabled. Source scans are manual. Create a connector, test it from Sources, then trigger a manual crawl from its details. Archived connectors cannot start scans. Search defaults to hybrid and retains server ordering. Open a file for protected preview/similarity, select files for a persistent batch, and save the archive when ready or from Downloads. AI failures and missing models appear in the administrator inspector; retry queues real work and does not imply successful enrichment.
 

@@ -1,0 +1,66 @@
+# Apply after compose.yml. This is a separate project with fresh queues,
+# Qdrant and Vault; only the provisioned model volume is shared.
+name: smsprsm-rds
+x-rds-env: &rds-env
+  DATABASE_URL: ${RDS_DATABASE_URL:?RDS async URL is required}
+  DATABASE_URL_SYNC: ${RDS_DATABASE_URL_SYNC:?RDS sync URL is required}
+x-ai-model-env: &ai-model-env
+  <<: *rds-env
+  HOME: /models/home
+  XDG_CACHE_HOME: /models/cache
+  SENTENCE_TRANSFORMERS_HOME: /models/sentence-transformers
+  YOLO_CONFIG_DIR: /models/ultralytics
+  YOLO_MODEL_NAME: /models/yolov8s.pt
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+  REQUESTS_CA_BUNDLE: ${MODEL_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}
+  SSL_CERT_FILE: ${MODEL_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}
+  AI_MODEL_READINESS_FILE: /models/provisioning/results.json
+  PRESIDIO_MODEL_PATH: /models/spacy/en_core_web_lg
+  AI_MODEL_CACHE_POLICY: single
+  AI_MODEL_EXECUTION_LOCK: /models/inference.lock
+services:
+  postgres:
+    profiles: [disabled-local-database]
+  migrate:
+    environment: *rds-env
+    depends_on: !override
+      qdrant: {condition: service_started}
+  gateway:
+    environment: *rds-env
+  ingestion:
+    environment: *rds-env
+  ingestion-worker:
+    environment: *rds-env
+  ingestion-outbox:
+    environment: *rds-env
+  search:
+    environment: *rds-env
+  search-outbox:
+    environment: *rds-env
+  ai:
+    environment: *ai-model-env
+  ai-worker:
+    environment:
+      <<: *ai-model-env
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+  ai-consumer:
+    environment:
+      <<: *ai-model-env
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+  indexer:
+    environment: *rds-env
+  download:
+    environment: *rds-env
+  download-worker:
+    environment: *rds-env
+  download-outbox:
+    environment: *rds-env
+  vault-init:
+    environment: *rds-env
+volumes:
+  models:
+    external: true
+    name: smsprsm-integration_models
