@@ -1,5 +1,7 @@
 # Integrated runtime setup guide
 
+**21 September monitoring update:** Prometheus and Grafana are running locally with real Overview/AI metrics. See [monitoring setup, credentials location, coverage and validation](../../docs/MONITORING.md). Include its environment file and Compose override when restarting this PC's stack.
+
 ## Current environment
 
 The application uses **smsprsm_integration on RDS** over TLS and runs at `http://localhost:18000`. It does not use local PostgreSQL. Shared `samsungdb` is outside the migration scope. Keep `Feature/Integration` checked out; the gateway serves the restored React build from `frontend/dist`. Do not start standalone module frontends or the old root Compose configuration.
