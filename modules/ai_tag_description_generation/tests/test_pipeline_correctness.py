@@ -15,6 +15,9 @@ from modules.ai_tag_description_generation.worker.pipeline.captioning import (
 from modules.ai_tag_description_generation.worker.pipeline.document_processor import process_document
 from modules.ai_tag_description_generation.worker.pipeline.image_processor import process_image
 from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError
+from modules.ai_tag_description_generation.worker.pipeline.confidence_validator import validate_and_score
+from modules.ai_tag_description_generation.worker.pipeline.orchestrator import _derive_status
+from modules.ai_tag_description_generation.worker.pipeline.quality_safety import PrivacySafetyLabels
 from modules.ai_tag_description_generation.worker.pipeline.video_processor import _adjust_interval_for_cap
 from modules.ai_tag_description_generation.worker.pipeline.tagging import (
     Tag,
@@ -26,6 +29,61 @@ from modules.ai_tag_description_generation.worker.pipeline.tagging import (
 
 
 class PipelineCorrectnessTests(unittest.TestCase):
+    @staticmethod
+    def _high_confidence_record(safety_labels: dict) -> dict:
+        return {
+            "generated_tags": [{"confidence": 1.0}],
+            "descriptions": {"short_description": "A complete description"},
+            "extracted_text": {"ocr_text": {"confidence": 1.0}},
+            "quality_labels": {"overall_quality": "good"},
+            "safety_labels": safety_labels,
+        }
+
+    def test_pii_is_recorded_without_triggering_review(self) -> None:
+        record = self._high_confidence_record({
+            "contains_pii": True,
+            "pii_types": ["face", "id_number", "license_plate"],
+            "toxicity_score": 0.0,
+            "nsfw_flagged": False,
+            "analysis_incomplete": False,
+        })
+
+        validated, status = validate_and_score(record)
+
+        self.assertEqual(status, "completed")
+        self.assertTrue(validated["safety_labels"]["contains_pii"])
+
+    def test_pii_does_not_trigger_review_in_fallback_status_routing(self) -> None:
+        safety = PrivacySafetyLabels(contains_pii=True, pii_types=["face"])
+
+        status = _derive_status(["quality_safety"], ["confidence_validation"], {
+            "safety_labels": safety,
+        })
+
+        self.assertEqual(status, "partial")
+
+    def test_nsfw_and_toxicity_still_trigger_review(self) -> None:
+        for safety_labels in (
+            {"nsfw_flagged": True, "toxicity_score": 0.0},
+            {"nsfw_flagged": False, "toxicity_score": 1.0},
+        ):
+            with self.subTest(safety_labels=safety_labels):
+                _, status = validate_and_score(self._high_confidence_record(safety_labels))
+                self.assertEqual(status, "needs_review")
+
+    def test_low_confidence_still_triggers_review(self) -> None:
+        record = self._high_confidence_record({
+            "nsfw_flagged": False,
+            "toxicity_score": 0.0,
+        })
+        record["generated_tags"] = [{"confidence": 0.0}]
+        record["descriptions"]["short_description"] = "short"
+        record["extracted_text"] = {}
+
+        _, status = validate_and_score(record)
+
+        self.assertEqual(status, "needs_review")
+
     def test_dynamic_text_does_not_reuse_another_documents_embedding(self) -> None:
         model_manager._text_embedding_cache.clear()
         with patch.object(
