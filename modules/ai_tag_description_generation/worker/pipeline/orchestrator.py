@@ -443,7 +443,18 @@ def _derive_status(stages_completed: list[str], stages_failed: list[str], ctx: d
         return "failed_terminal"
     if stages_failed:
         safety = ctx.get("safety_labels")
-        if safety and (safety.nsfw_flagged or safety.contains_pii):
+        if safety and (
+            safety.nsfw_flagged
+            or safety.toxicity_score >= settings.TOXICITY_THRESHOLD
+            or safety.analysis_incomplete
+        ):
+            return "needs_review"
+        aggregate = (
+            ctx.get("fused_metadata", {})
+            .get("confidence_scores", {})
+            .get("aggregate")
+        )
+        if aggregate is not None and aggregate < settings.CONFIDENCE_THRESHOLD_REVIEW:
             return "needs_review"
         return "partial"
     return "completed"
@@ -492,8 +503,10 @@ def _publish_result_event(
             reasons = []
             if safety and safety.nsfw_flagged:
                 reasons.append("NSFW content detected")
-            if safety and safety.contains_pii:
-                reasons.append(f"PII detected: {safety.pii_types}")
+            if safety and safety.toxicity_score >= settings.TOXICITY_THRESHOLD:
+                reasons.append("Toxic content detected")
+            if safety and safety.analysis_incomplete:
+                reasons.append("One or more safety checks did not complete")
             if fused.get("confidence_scores", {}).get("aggregate", 1.0) < settings.CONFIDENCE_THRESHOLD_REVIEW:
                 reasons.append("Low confidence score")
             event = NeedsReviewEvent(**common, review_reasons=reasons or ["Manual review requested"])

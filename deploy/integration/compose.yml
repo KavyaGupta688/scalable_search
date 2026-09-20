@@ -16,6 +16,7 @@ x-env: &env
   AI_SERVICE_URL: http://ai:8000
   DOWNLOAD_SERVICE_URL: http://download:8000
   SOURCE_DOCUMENT_SCHEMA: ingestion
+  TOXICITY_THRESHOLD: ${TOXICITY_THRESHOLD:-0.8}
   WATERMARK_SECRET_KEY: ${WATERMARK_SECRET_KEY:?required}
   DOWNLOAD_STAGING_DIR: /packages
 x-runtime: &runtime

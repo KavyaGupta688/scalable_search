@@ -41,7 +41,16 @@ async def test_popular_datasets_endpoint(search_headers, canonical_file_id):
         data = response.json()
         assert "datasets" in data
         assert len(data["datasets"]) > 0
-        assert data["datasets"][0]["popularity_score"] > 0
+        # A newly indexed dataset legitimately starts at zero popularity.
+        # Record a real view instead of depending on another test's activity.
+        dataset = data["datasets"][0]
+        event = await client.post("/events/search", json={
+            "event_type": "DATASET_OPEN", "dataset_id": dataset["id"],
+        })
+        assert event.status_code == 201
+        refreshed = (await client.get("/datasets/popular")).json()["datasets"]
+        updated = next(item for item in refreshed if item["id"] == dataset["id"])
+        assert updated["popularity_score"] == dataset["popularity_score"] + 1
 
 
 @pytest.mark.asyncio

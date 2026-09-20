@@ -1,10 +1,12 @@
 """Idempotently project canonical ingestion/AI records into Search and Qdrant."""
 
 import json
+import os
 from pathlib import PurePosixPath
 from sqlalchemy import text
 from modules.shared.integration import database_engine, point_id
 from modules.shared.vector_store import client, collection
+from modules.shared.publication import safety_cleared
 
 
 def index_document(document_id):
@@ -35,10 +37,7 @@ def index_document(document_id):
             raise LookupError("Canonical document/task not found")
         row = dict(row)
         safety = row.get("privacy_safety_labels") or {}
-        cleared = bool(safety) and not any(
-            safety.get(k, False)
-            for k in ("nsfw_flagged", "contains_pii", "analysis_incomplete")
-        )
+        cleared = safety_cleared(safety, float(os.getenv("TOXICITY_THRESHOLD", "0.8")))
         published = row["task_status"] in ("completed", "partial") and cleared
         vendor = {
             "title": row.get("vendor_title"),

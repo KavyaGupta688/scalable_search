@@ -27,11 +27,6 @@ def _check_safety_flags(record: Dict[str, Any]) -> List[str]:
     
     if safety.get('nsfw_flagged'):
         reasons.append("NSFW content detected")
-    if safety.get('contains_pii'):
-        pii_types = safety.get('pii_types', [])
-        # High sensitivity PII
-        if any(t in pii_types for t in ['id_number', 'face', 'license_plate']):
-            reasons.append(f"High sensitivity PII detected: {pii_types}")
     if safety.get('analysis_incomplete'):
         reasons.append("One or more safety checks did not complete")
     if safety.get('toxicity_score', 0.0) >= settings.TOXICITY_THRESHOLD:

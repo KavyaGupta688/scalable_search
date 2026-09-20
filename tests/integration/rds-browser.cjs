@@ -1,0 +1,102 @@
+// Real RDS browser acceptance. Uses actual S3 outputs; creates only a test user, download and Audit records.
+// Requires Playwright, Edge, .integration/stack.env and the six real sample documents.
+const {chromium}=require('playwright');
+const fs=require('node:fs');
+const assert=require('node:assert/strict');
+const base='http://127.0.0.1:18000';
+const output='.integration/rds-browser';
+const env=Object.fromEntries(fs.readFileSync('.integration/stack.env','utf8').split(/\r?\n/).map(line=>{const i=line.indexOf('=');return [line.slice(0,i),line.slice(i+1)];}));
+let page,browser;
+const checks=[];
+const pass=name=>{checks.push(name);console.log('PASS:',name);};
+async function capture(name){await page.screenshot({path:`${output}/${name}.png`,fullPage:true,animations:'disabled'});}
+async function login(role,email,password){
+  await page.goto(`${base}/login/${role}`);
+  await page.getByLabel('Email address').fill(email);
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.locator('button[type=submit]').click();
+  await page.waitForURL(`**/${role}/${role==='admin'?'overview':'search'}`);
+}
+async function waitCards(){await page.locator('.result-card').first().waitFor();}
+(async()=>{
+  fs.mkdirSync(output,{recursive:true});
+  browser=await chromium.launch({channel:'msedge',headless:true});
+  const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+  page=await context.newPage();page.setDefaultTimeout(15000);
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await login('admin',env.BOOTSTRAP_ADMIN_EMAIL,env.BOOTSTRAP_ADMIN_PASSWORD);
+  await page.getByText('Manage your data',{exact:true}).first().waitFor();
+  await capture('live-admin-overview');pass('credential-based administrator login and original overview');
+  await page.goto(`${base}/admin/data-sources`);
+  await page.getByRole('button',{name:'Connect a Source',exact:true}).click();
+  await capture('live-source-form-s3');
+  await page.getByRole('button',{name:'NAS (NFS)',exact:true}).click();
+  assert.ok(await page.getByRole('button',{name:'Save Connector',exact:false}).isDisabled());
+  await page.keyboard.press('Escape');
+  pass('original connector dialog and deferred NAS controls');
+  await page.goto(`${base}/admin/ingestion`);
+  await page.locator('tbody tr').first().waitFor();
+  await capture('live-ingestion-history');pass('persisted real ingestion history');
+  await page.goto(`${base}/admin/enrichment`);
+  await page.locator('#inspect-doc-select option[value]:not([value=""])').first().waitFor({state:'attached'});
+  const imageId=await page.locator('#inspect-doc-select option').filter({hasText:'image/jpeg'}).first().getAttribute('value');
+  const metadataReply=page.waitForResponse(r=>r.url().endsWith(`/ai/metadata/${imageId}`)&&r.ok(),{timeout:30000});
+  await page.locator('#inspect-doc-select').selectOption(imageId);
+  const imageMetadata=await (await metadataReply).json();
+  assert.ok(imageMetadata.short_description);
+  await page.getByText(imageMetadata.short_description,{exact:false}).first().waitFor();
+  await page.waitForFunction(()=>document.querySelectorAll('.nx-panel')[0].textContent.toLowerCase().split('completed').length>=5);
+  assert.ok(await page.getByRole('button',{name:'Retry AI Processing',exact:true}).isDisabled());
+  await capture('live-enrichment-image');pass('actual completed image enrichment and protected retry state');
+  await page.goto(`${base}/admin/search`);
+  // The original administrator table and grid remain separate from the user catalog.
+  await page.getByRole('button',{name:'Exact Keyword',exact:true}).click();
+  await page.getByRole('combobox',{name:'Search data catalog'}).fill('sample');
+  await page.getByRole('button',{name:'Grid View',exact:true}).click();
+  await waitCards();await capture('live-admin-search');pass('administrator search and original grid');
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  const email=`restoration-${Date.now()}@example.test`,password='Restoration-test-only-123!';
+  const register=await page.request.post(`${base}/auth/register`,{data:{email,password,role:'user'}});assert.ok(register.ok());
+  await login('user',email,password);await capture('live-user-discovery');
+  await page.getByRole('button',{name:'Exact Keyword',exact:true}).click();
+  await page.getByRole('combobox',{name:'Search data catalog'}).fill('sample');await waitCards();
+  const allCount=await page.locator('.result-card').count();assert.equal(allCount,6);
+  await page.keyboard.press('Escape'); await page.getByRole('button',{name:'Images',exact:true}).click();await waitCards();
+  await page.waitForFunction(()=>[...document.querySelectorAll('.result-card .modality-label')].every(el=>el.textContent==='image'));
+  const previewResponse=page.waitForResponse(r=>/\/documents\/[^/]+\/content/.test(r.url()));
+  await page.locator('.result-card').first().click();
+  await page.getByRole('dialog',{name:'File details'}).waitFor();
+  assert.ok((await previewResponse).ok());
+  await page.getByRole('dialog').locator('img').waitFor();
+  await page.getByRole('button',{name:'Find Similar Files',exact:true}).click();
+  await page.getByText('Similar Vector Matches',{exact:true}).waitFor();
+  await page.getByText('Querying vector index for nearest neighbors...',{exact:true}).waitFor({state:'hidden'});
+  assert.equal(await page.getByRole('dialog').getByRole('alert').count(),0);
+  await capture('live-user-detail-similar');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Select for batch download'}).first().click();await capture('live-selection');
+  await page.getByRole('button',{name:'Download Selected',exact:true}).click();
+  await page.getByRole('button',{name:'Save archive',exact:true}).waitFor({timeout:60000});
+  const downloaded=page.waitForEvent('download');await page.getByRole('button',{name:'Save archive',exact:true}).click();
+  assert.match((await downloaded).suggestedFilename(),/assets-.*\.zip/);
+  await page.getByRole('button',{name:'Done',exact:true}).click();
+  pass('standard user real search, modality filter, protected image, similarity and completed archive');
+  await page.goto(`${base}/user/downloads`);await page.getByRole('button',{name:'Download',exact:true}).first().waitFor();await capture('live-user-downloads');pass('persistent download history');
+  await page.goto(`${base}/admin/data-sources`);await page.waitForURL('**/user/search');pass('user cannot enter administrator screens');
+  await page.route('**/search',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({detail:'Test-only backend outage'})}));
+  await page.getByRole('combobox',{name:'Search data catalog'}).fill('outage');await page.getByRole('alert').filter({hasText:'Test-only backend outage'}).waitFor();
+  assert.equal(await page.locator('.result-card').count(),0);await capture('live-outage');pass('backend outage has an explicit error and no fabricated results');
+  await page.unroute('**/search');
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Exact Keyword',exact:true}).click();
+  await page.getByRole('combobox',{name:'Search data catalog'}).fill('sample');await waitCards();await capture('live-user-mobile');
+  const dimensions=await page.evaluate(()=>({viewport:innerWidth,body:document.documentElement.scrollWidth}));assert.ok(dimensions.body<=dimensions.viewport+1,JSON.stringify(dimensions));
+  pass('mobile user search without horizontal page overflow');
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  await page.setViewportSize({width:1440,height:1000});await login('admin',env.BOOTSTRAP_ADMIN_EMAIL,env.BOOTSTRAP_ADMIN_PASSWORD);
+  await page.goto(`${base}/admin/audit`);await page.locator('tbody tr').first().waitFor();await capture('live-audit');
+  const exported=page.waitForEvent('download');await page.getByRole('button',{name:'Export All CSV',exact:true}).click();assert.equal((await exported).suggestedFilename(),'audit.csv');pass('persistent audit and CSV export');
+  assert.deepEqual(errors,[]);await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  fs.writeFileSync(`${output}/live-results.json`,JSON.stringify({checks,errors},null,2));await browser.close();
+})().catch(async error=>{console.error(error.stack);if(page){await capture('live-failure');console.error(await page.locator('body').innerText());}await browser?.close();process.exitCode=1;});
+

@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     SOURCE_DOCUMENT_ID_COLUMN: str = "id"
 
     # Enrichment specifics
-    ENRICHMENT_VERSION: str = "1.0.0"
+    ENRICHMENT_VERSION: str = "1.1.0"
     QDRANT_COLLECTION_NAME: str = "multimodal_files"
     QDRANT_VECTOR_SIZE: int = 512
     MAX_RETRIES: int = 3

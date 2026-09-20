@@ -21,6 +21,7 @@ from modules.shared.integration import database_engine
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("connector_id")
+    parser.add_argument("--expected-documents", type=int, default=3)
     args = parser.parse_args()
     settings = dict(line.split("=", 1) for line in Path(".integration/stack.env").read_text().splitlines()
                     if "=" in line and not line.startswith("#"))
@@ -28,7 +29,8 @@ def main():
         assert conn.execute(text("SELECT current_database()")).scalar_one() == "smsprsm_integration"
         docs = list(conn.execute(text("SELECT id,checksum_sha256,size_bytes FROM documents WHERE source_connector_id=:id"),
                                  {"id": args.connector_id}).mappings())
-    assert 0 < len(docs) <= 5
+    assert 0 < args.expected_documents <= 100
+    assert len(docs) == args.expected_documents
     ids = [str(d["id"]) for d in docs]
     report = {"document_ids": ids, "checks": []}
     with database_engine("enrichment").connect() as conn:
@@ -60,13 +62,23 @@ def main():
                 found = {r["file_id"] for r in result["results"]}
                 assert found == published, (role, mode, found, published)
                 report["checks"].append(role + " " + mode + " search")
+        pages = []
+        for offset in range(0, len(published), 2):
+            page = call("POST", "/search", headers=user_headers, json={"query": "sample", "search_mode": "text",
+                        "filters": {"dataset_ids": [args.connector_id]}, "limit": 2, "offset": offset}).json()
+            assert page["total"] == len(published)
+            pages.extend(r["file_id"] for r in page["results"])
+        assert len(pages) == len(set(pages)) and set(pages) == published
+        report["checks"].append("real-result pagination without duplicates")
         for doc in docs:
             did = str(doc["id"])
             if did not in published:
                 call("GET", "/files/" + did, headers=user_headers, expected=404)
                 call("POST", "/downloads/batch", headers=user_headers, expected=403, json={"file_ids": [did]})
                 continue
-            call("GET", "/files/" + did, headers=user_headers)
+            details = call("GET", "/files/" + did, headers=user_headers).json()
+            assert '"restricted_metadata"' not in json.dumps(details)
+            assert '"pii_details"' not in json.dumps(details)
             content = call("GET", "/documents/" + did + "/content", headers=user_headers).content
             assert len(content) == doc["size_bytes"] and hashlib.sha256(content).hexdigest() == doc["checksum_sha256"]
             similar = call("POST", "/search/similar", headers=user_headers, json={"file_id": did}).json()
