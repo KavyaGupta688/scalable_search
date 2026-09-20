@@ -8,7 +8,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
+from starlette.requests import ClientDisconnect
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.exc import OperationalError, TimeoutError as DatabaseTimeoutError
@@ -43,14 +44,22 @@ HOP_HEADERS = {
 
 @asynccontextmanager
 async def lifespan(app):
+    metrics_server = None
+    if os.getenv("GATEWAY_METRICS_PORT"):
+        from prometheus_client import start_http_server
+        metrics_server, _ = start_http_server(int(os.environ["GATEWAY_METRICS_PORT"]))
     app.state.client = httpx.AsyncClient(
         timeout=httpx.Timeout(60, connect=5), follow_redirects=False
     )
     yield
     await app.state.client.aclose()
+    if metrics_server:
+        metrics_server.shutdown()
 
 
 app = FastAPI(title="SMSPRSM Integrated Platform", lifespan=lifespan)
+from modules.shared.http_metrics import HTTPMetricsMiddleware
+app.add_middleware(HTTPMetricsMiddleware)
 app.include_router(auth_router, prefix="/auth", tags=["authentication"])
 app.include_router(audit_router, tags=["audit"])
 
@@ -116,6 +125,10 @@ async def forward(request: Request, service: str, user):
             ),
             stream=True,
         )
+    except ClientDisconnect:
+        # Navigation can cancel a streamed request before its body is sent.
+        # This is a client cancellation, not a backend failure or retry signal.
+        return Response(status_code=499)
     except httpx.TimeoutException:
         raise HTTPException(504, "The service timed out. Please retry.") from None
     except httpx.HTTPError as exc:
@@ -186,26 +199,25 @@ async def downloads(request: Request, path: str = "", user=Depends(get_current_u
 
 @app.get("/api/admin/overview")
 def overview(user=Depends(require_admin)):
-    from sqlalchemy import text
-    from modules.shared.integration import database_engine
+    from modules.shared.observability import overview_summary
+    return overview_summary()
 
-    with database_engine("ingestion").connect() as conn:
-        documents = conn.execute(text("SELECT count(*) FROM documents")).scalar_one()
-        sources = conn.execute(text("SELECT count(*) FROM connectors")).scalar_one()
-        jobs = conn.execute(
-            text("SELECT status,count(*) FROM ingestion_runs GROUP BY status")
-        ).all()
-        tasks = conn.execute(
-            text(
-                "SELECT status,count(*) FROM enrichment.enrichment_tasks GROUP BY status"
-            )
-        ).all()
-    return {
-        "documents": documents,
-        "sources": sources,
-        "ingestion": dict(jobs),
-        "enrichment": dict(tasks),
-    }
+
+@app.get("/api/admin/documents/{document_id}/index")
+def index_details(document_id: uuid.UUID, user=Depends(require_admin)):
+    from modules.shared.observability import document_index
+    return document_index(document_id)
+
+
+@app.get("/api/admin/monitoring")
+async def monitoring(request: Request, user=Depends(require_admin)):
+    try:
+        response = await request.app.state.client.get(
+            os.getenv("MONITORING_SERVICE_URL", "http://monitoring:8000") + "/snapshot", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(503, "Monitoring data is temporarily unavailable") from None
 
 
 @app.middleware("http")

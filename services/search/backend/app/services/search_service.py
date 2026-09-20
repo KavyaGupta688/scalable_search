@@ -136,6 +136,7 @@ class SearchService:
             if active_filters
             else None,
             result_count=total,
+            execution_time_ms=max(1, round(elapsed_ms)),
         )
 
         return SearchResponse(

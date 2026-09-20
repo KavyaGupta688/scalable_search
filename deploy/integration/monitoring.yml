@@ -1,0 +1,49 @@
+# Add after compose.yml, rds.yml, development.yml and low-memory.yml.
+services:
+  gateway:
+    environment:
+      GATEWAY_METRICS_PORT: "9101"
+      MONITORING_SERVICE_URL: http://monitoring:8000
+  ingestion-worker:
+    environment:
+      WORKER_METRICS_PORT: "9100"
+  monitoring:
+    image: smsprsm-integration-runtime:local
+    command: [uvicorn, modules.shared.monitoring_exporter:app, --host, 0.0.0.0, --port, "8000"]
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      DATABASE_URL_SYNC: ${RDS_DATABASE_URL_SYNC:?required}
+      AI_MODEL_READINESS_FILE: /models/provisioning/results.json
+    volumes:
+      - ../..:/app:ro
+      - models:/models:ro
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    restart: unless-stopped
+    mem_limit: 512m
+    command: [--config.file=/etc/prometheus/prometheus.yml, --storage.tsdb.retention.time=7d, --storage.tsdb.retention.size=1GB]
+    ports: ["127.0.0.1:19090:9090"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+  grafana:
+    image: grafana/grafana:13.2.2
+    restart: unless-stopped
+    mem_limit: 512m
+    ports: ["127.0.0.1:13000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set in ignored monitoring.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
+volumes:
+  prometheus-data:
+  grafana-data:

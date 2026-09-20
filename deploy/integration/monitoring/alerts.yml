@@ -1,0 +1,23 @@
+groups:
+  - name: platform
+    rules:
+      - alert: MonitoringTargetDown
+        expr: up == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Monitoring target {{ $labels.job }} is unreachable'}
+      - alert: PlatformCollectionUnavailable
+        expr: platform_collection_success == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Aggregate monitoring data cannot be refreshed'}
+      - alert: PlatformServiceUnavailable
+        expr: platform_service_ready == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Backend {{ $labels.service }} is not ready'}
+      - alert: PlatformDeliveryBacklog
+        expr: platform_outbox_pending > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Persistent delivery backlog in {{ $labels.module }}'}

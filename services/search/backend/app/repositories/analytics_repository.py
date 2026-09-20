@@ -21,6 +21,7 @@ class AnalyticsRepository:
         filters: Optional[Dict[str, Any]] = None,
         result_count: int = 0,
         meta_info: Optional[Dict[str, Any]] = None,
+        execution_time_ms: int = 0,
     ) -> SearchEvent:
         event = SearchEvent(
             event_type=event_type,
@@ -49,6 +50,7 @@ class AnalyticsRepository:
                 "user_role": user_role,
                 "entity_type": "search",
                 "entity_id": file_id or dataset_id or "query",
+                "execution_time_ms": execution_time_ms,
                 "metadata": {"query": query, "result_count": result_count},
             },
         )

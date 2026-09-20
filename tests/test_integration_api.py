@@ -18,6 +18,7 @@ def browser(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "JWT_SECRET", "test-browser-secret-" * 3)
     monkeypatch.setenv("INTERNAL_JWT_SECRET", "test-internal-secret-" * 3)
     monkeypatch.delenv("BOOTSTRAP_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv("GATEWAY_METRICS_PORT", raising=False)
     auth = service.AuthService(tmp_path / "users.json", tmp_path / "tokens.db")
     auth.register(
         RegisterRequest(
@@ -49,6 +50,38 @@ def login(client, role="user"):
     )
     assert r.status_code == 200, r.text
     return {"Authorization": "Bearer " + r.json()["access_token"]}
+
+
+def test_monitoring_failure_has_no_fabricated_or_private_data(browser):
+    client, _, _ = browser
+    headers = login(client, 'admin')
+    app.state.client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(503, text='private database details')))
+    response = client.get('/api/admin/monitoring', headers=headers)
+    assert response.status_code == 503
+    assert response.json() == {'detail':'Monitoring data is temporarily unavailable'}
+
+
+def test_metrics_use_route_templates_not_document_ids(browser, monkeypatch):
+    from prometheus_client import generate_latest
+    client, _, _ = browser
+    headers = login(client, 'admin')
+    monkeypatch.setattr('modules.shared.observability.document_index',lambda did: {'indexed':False})
+    did='6f74e443-a230-4a0b-a434-11a0cc1eca31'
+    assert client.get(f'/api/admin/documents/{did}/index',headers=headers).status_code == 200
+    metrics=generate_latest().decode()
+    assert 'route="/api/admin/documents/{document_id}/index"' in metrics
+    assert did not in metrics
+
+
+def test_cancelled_proxy_request_is_not_a_backend_500(browser):
+    from starlette.requests import ClientDisconnect
+    client, _, _ = browser
+    headers = login(client)
+    def cancelled(request):
+        raise ClientDisconnect()
+    app.state.client=httpx.AsyncClient(transport=httpx.MockTransport(cancelled))
+    assert client.get('/downloads',headers=headers).status_code == 499
 
 
 @pytest.mark.parametrize("operation", ["decode", "user", "audit"])
@@ -114,6 +147,8 @@ def test_credentials_roles_revocation_and_registration(browser):
         "/api/audit/logs",
         "/auth/users",
         "/api/admin/overview",
+        "/api/admin/monitoring",
+        "/api/admin/documents/00000000-0000-0000-0000-000000000001/index",
     ]:
         assert c.get(path, headers=h).status_code == 403
     assert c.get("/auth/me", headers=h).status_code == 200
