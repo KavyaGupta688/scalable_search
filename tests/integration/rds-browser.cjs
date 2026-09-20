@@ -99,4 +99,3 @@ async function waitCards(){await page.locator('.result-card').first().waitFor();
   assert.deepEqual(errors,[]);await page.getByRole('button',{name:'Sign out',exact:true}).click();
   fs.writeFileSync(`${output}/live-results.json`,JSON.stringify({checks,errors},null,2));await browser.close();
 })().catch(async error=>{console.error(error.stack);if(page){await capture('live-failure');console.error(await page.locator('body').innerText());}await browser?.close();process.exitCode=1;});
-

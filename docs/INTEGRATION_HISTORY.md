@@ -196,4 +196,3 @@ Credentials alone do not establish stability. The implementation still needs suc
 The isolated stack already provides PostgreSQL, Kafka, Redis, Vault, and Qdrant; extra teammate credentials for these local services are not required. Share any external credentials through the team's secure channel, keep them untracked, and use scoped test access. Replace the live AWS/database credentials shared in chat; retain any prior watermark key needed to verify historical files before changing watermark configuration.
 
 The shareable companion is `docs/Integration_and_Setup_Guide.docx`, combining this report with `deploy/integration/README.md`. The Markdown files remain the editable technical sources for future updates.
-
