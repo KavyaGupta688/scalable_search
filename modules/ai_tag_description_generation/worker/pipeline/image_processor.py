@@ -24,10 +24,12 @@ class ProcessedImage:
     original_size: tuple[int, int]
     exif_metadata: dict
     was_rotated: bool
+    frame_count: int = 1
 
 
 def process_image(file_path: str, target_size: tuple[int, int] = DEFAULT_TARGET_SIZE) -> ProcessedImage:
     with Image.open(file_path) as source:
+        frame_count = getattr(source, "n_frames", 1)
         original_size = source.size
         exif_metadata = _extract_exif(source)
         orientation = source.getexif().get(274, 1)
@@ -49,6 +51,7 @@ def process_image(file_path: str, target_size: tuple[int, int] = DEFAULT_TARGET_
         original_size=original_size,
         exif_metadata=exif_metadata,
         was_rotated=was_rotated,
+        frame_count=frame_count,
     )
 
 

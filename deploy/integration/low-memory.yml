@@ -1,0 +1,19 @@
+# Optional Linux-container profile for a CPU development machine.
+# RDS model settings serialize inference with /models/inference.lock.
+services:
+  ai-consumer:
+    mem_limit: 4g
+    memswap_limit: 5g
+    environment:
+      AI_MAX_DOCUMENTS_PER_PROCESS: "1"
+      AI_MODEL_CACHE_POLICY: single
+      AI_MODEL_EXECUTION_LOCK: /models/inference.lock
+  ai-worker:
+    mem_limit: 4g
+    memswap_limit: 5g
+    # Solo ignores max-tasks-per-child. Fork a single fresh child for each retry;
+    # the parent imports no inference models before creating the child.
+    command: [celery, -A, modules.ai_tag_description_generation.app.celery_app.celery_app, worker, --pool=prefork, --concurrency=1, --max-tasks-per-child=1, --loglevel=info]
+    environment:
+      AI_MODEL_CACHE_POLICY: single
+      AI_MODEL_EXECUTION_LOCK: /models/inference.lock

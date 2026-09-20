@@ -306,6 +306,8 @@ def _run_quality_safety(file_id: str, storage_path: str, file_type: str, ctx: di
     prep = ctx.get("preprocessing_result")
     extracted = ctx.get("extracted_text", {})
     modality = ctx.get("modality", Modality.UNKNOWN)
+    if prep is None or prep.data is None or modality == Modality.UNKNOWN:
+        raise DataQualityError("Source preprocessing unavailable; safety cannot be assessed")
 
     # Build the dict quality_safety expects
     preprocessing_dict: dict[str, Any] = {}
@@ -322,6 +324,9 @@ def _run_quality_safety(file_id: str, storage_path: str, file_type: str, ctx: di
     q_labels, s_labels = quality_safety.run_quality_safety_pipeline(
         preprocessing_dict, extracted, modality.value.upper()
     )
+    if modality == Modality.IMAGE and getattr(prep.data, "frame_count", 1) > 1:
+        s_labels.analysis_incomplete = True
+        s_labels.analysis_errors.append("Animated image: only the first frame was analyzed")
     ctx["quality_labels"] = q_labels
     ctx["safety_labels"] = s_labels
 

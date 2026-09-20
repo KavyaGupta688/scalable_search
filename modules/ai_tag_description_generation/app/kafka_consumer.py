@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from pydantic import ValidationError
@@ -62,6 +63,8 @@ def run() -> None:
         value_deserializer=lambda raw: raw,
         max_poll_records=1,
         max_poll_interval_ms=settings.KAFKA_MAX_POLL_INTERVAL_MS,
+        session_timeout_ms=settings.KAFKA_SESSION_TIMEOUT_MS,
+        heartbeat_interval_ms=settings.KAFKA_HEARTBEAT_INTERVAL_MS,
         **_kafka_security(),
     )
     producer = KafkaProducer(
@@ -75,6 +78,7 @@ def run() -> None:
         settings.KAFKA_AI_TOPIC,
         settings.KAFKA_AI_GROUP_ID,
     )
+    processed = 0
     for message in consumer:
         try:
             raw_payload = _event_payload(json.loads(message.value.decode("utf-8")))
@@ -108,6 +112,14 @@ def run() -> None:
         document = document_from_event(event)
         try:
             status = process_ingestion_document(document)
+            if status == "skipped":
+                # A live/unexpired processing lease is contention, not a model
+                # failure. Redeliver this offset without consuming retries or
+                # committing a later record past it.
+                from kafka import TopicPartition
+                consumer.seek(TopicPartition(message.topic, message.partition), message.offset)
+                time.sleep(5)
+                continue
             if status not in (
                 "completed",
                 "partial",
@@ -115,12 +127,6 @@ def run() -> None:
                 "failed_terminal",
             ):
                 raise RuntimeError("Document is locked by another worker")
-            consumer.commit()
-            logger.info(
-                "Committed ingestion event for document %s with AI status %s",
-                document.document_id,
-                status,
-            )
         except Exception:
             from modules.ai_tag_description_generation.worker.pipeline.task_dispatcher import (
                 increment_retry_count,
@@ -157,6 +163,25 @@ def run() -> None:
                 document.document_id,
             )
             raise
+
+        # Model output is already durable. Broker acknowledgement failures must
+        # not consume model retries or replace a successful task with a DLQ
+        # failure. Restart/redelivery will reuse the persisted terminal result.
+        consumer.commit()
+        logger.info(
+            "Committed ingestion event for document %s with AI status %s",
+            document.document_id,
+            status,
+        )
+        processed += 1
+        if settings.AI_MAX_DOCUMENTS_PER_PROCESS > 0 and processed >= settings.AI_MAX_DOCUMENTS_PER_PROCESS:
+            # Native model runtimes retain memory even after cache eviction.
+            # The supervisor starts a fresh process only after durable output
+            # and its Kafka acknowledgement; no offsets are skipped.
+            logger.info("Recycling AI process after %s acknowledged documents", processed)
+            consumer.close(autocommit=False)
+            producer.close(timeout=10)
+            return
 
 
 if __name__ == "__main__":

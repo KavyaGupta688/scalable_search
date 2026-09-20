@@ -108,6 +108,8 @@ services:
       <<: *env
       DATABASE_SCHEMA: ingestion
       WORKER_METRICS_PORT: 0
+      # Source checksum reads can exceed Kafka's five-minute default on large files.
+      KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS: ${INGESTION_MAX_POLL_INTERVAL_MS:-7200000}
   ingestion-outbox:
     <<: *runtime
     command: [python, -m, modules.shared.outbox_worker, ingestion]

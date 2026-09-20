@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     KAFKA_SASL_USERNAME: str = ""
     KAFKA_SASL_PASSWORD: str = ""
     KAFKA_MAX_POLL_INTERVAL_MS: int = 7_200_000
+    # CPU checkpoint loading can hold the Python GIL longer than Kafka's
+    # ten-second default session lease, despite a separate heartbeat thread.
+    KAFKA_SESSION_TIMEOUT_MS: int = 120_000
+    KAFKA_HEARTBEAT_INTERVAL_MS: int = 10_000
+    AI_MAX_DOCUMENTS_PER_PROCESS: int = 0
 
     # Ingestion-owned canonical document table. Used only for foreign keys;
     # document/source reads go through the ingestion API.

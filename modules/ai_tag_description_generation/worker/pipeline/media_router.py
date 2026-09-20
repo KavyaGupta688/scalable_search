@@ -37,6 +37,7 @@ _EXTENSION_MAP = {
     "png": Modality.IMAGE,
     "webp": Modality.IMAGE,
     "bmp": Modality.IMAGE,
+    "gif": Modality.IMAGE,
 
     "mp4": Modality.VIDEO,
     "mov": Modality.VIDEO,
@@ -58,7 +59,7 @@ _EXTENSION_MAP = {
 }
 
 _MIME_EXTENSION_MAP = {
-    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/bmp": "bmp",
+    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/bmp": "bmp", "image/gif": "gif",
     "video/mp4": "mp4", "video/quicktime": "mov", "video/x-msvideo": "avi",
     "audio/mpeg": "mp3", "audio/wav": "wav", "audio/flac": "flac", "audio/mp4": "m4a",
     "application/pdf": "pdf", "text/plain": "txt", "text/csv": "csv",
