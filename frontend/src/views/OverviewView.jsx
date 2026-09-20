@@ -3,7 +3,7 @@ import { Button } from '../components/DesignSystem';
 import { Link } from 'react-router-dom';
 import React, { useState } from 'react';
 import {useResource, ResourceState} from '../components/ResourceState';
-import {number} from '../services/presentation';
+import {number,bytes} from '../services/presentation';
 import { SearchIcon, S3Icon, CpuIcon, ChevronRightIcon, ImageIcon, VideoIcon, AudioIcon, DocumentIcon } from '../components/Icons';
 import { ModalDetail } from '../components/ModalDetail';
 import { useNavigate } from 'react-router-dom';
@@ -15,10 +15,15 @@ export const OverviewView = ({ showToast }) => {
   const data = summary.data;
   const enriched = data ? (data.enrichment.completed || 0) + (data.enrichment.partial || 0) : null;
   const platformOverview = {
-    totalIndexedFiles: number(data?.documents), totalStorageFormatted:'—', enrichmentRate:'—', searchLatencyAvgMs:'—',
-    modalityDistribution: [['image','Images'],['video','Videos'],['document','Documents'],['audio','Audio and transcripts'],['tabular','Tabular data']].map(([type,label]) => ({type,label,count:'—',bytes:'unavailable',percentage:0})),
+    totalIndexedFiles: number(data?.documents), totalStorageFormatted:bytes(data?.bytes),
+    searchLatencyAvgMs:data?.search_latency?.mean_ms?.toFixed(0) ?? '—',
+    modalityDistribution: [['image','Images'],['video','Videos'],['document','Documents'],['audio','Audio and transcripts'],['tabular','Tabular data']].map(([type,label]) => {
+      const row = data?.modalities?.find(r => r.modality === type);
+      return {type,label,count:data ? row?.count || 0 : '—',bytes:data ? bytes(row?.bytes || 0) : 'loading',percentage:data?.documents ? (row?.count || 0)/data.documents*100 : 0};
+    }),
   };
-  const documents = [];
+  const documents = (data?.recent || []).map(d => ({id:d.file_id,filename:d.file_name,modality:d.file_type,
+    canonicalCaption:d.description,fileSize:bytes(d.file_size),source:d.dataset_name}));
 
   const renderModalityIcon = (type) => {
     switch (type) {
@@ -74,7 +79,7 @@ export const OverviewView = ({ showToast }) => {
           <div className="text-2xl font-bold text-nexus-textPrimary font-mono">
             {platformOverview.totalStorageFormatted}
           </div>
-          <div className="text-sm text-nexus-textMuted mt-auto">Aggregate storage size unavailable</div>
+          <div className="text-sm text-nexus-textMuted mt-auto">Unique ingested bytes · originals stay at source</div>
         </div>
 
         <div className="nx-panel p-6 flex flex-col gap-2">
@@ -96,7 +101,7 @@ export const OverviewView = ({ showToast }) => {
           <div className="text-2xl font-bold text-nexus-textPrimary font-mono">
             {platformOverview.searchLatencyAvgMs} ms
           </div>
-          <div className="text-sm text-nexus-textMuted mt-auto">Unavailable · 512-d vectors</div>
+          <div className="text-sm text-nexus-textMuted mt-auto">Recorded search mean · last 24 hours · {number(data?.search_latency?.samples)} samples</div>
         </div>
       </div>
 
@@ -124,7 +129,7 @@ export const OverviewView = ({ showToast }) => {
             </div>
             <div className="text-sm font-bold text-nexus-textPrimary">Source Ingestion & Validation</div>
             <div className="text-sm text-nexus-textSecondary">
-              <span className="font-mono font-bold text-nexus-brandText">—</span> · MIME & SHA-256 Check
+              <span className="font-mono font-bold text-nexus-brandText">{number(data?.documents)} documents</span> · MIME & SHA-256 Check
             </div>
             <div className="flex items-center justify-between text-sm text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
               <span>Connected</span>
@@ -135,15 +140,15 @@ export const OverviewView = ({ showToast }) => {
           <div className="bg-nexus-elevated border border-nexus-borderSubtle p-3.5 rounded-sm flex flex-col gap-2">
             <div className="flex items-center justify-between text-sm font-sans">
               <span className="font-bold text-nexus-textMuted">STEP 02</span>
-              <span className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded-xs font-semibold">Status unavailable</span>
+              <span className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded-xs font-semibold">{data ? `${data.enrichment.in_progress || 0} processing` : 'Loading'}</span>
             </div>
             <div className="text-sm font-bold text-nexus-textPrimary">AI Enrichment & Fusion</div>
             <div className="text-sm text-nexus-textSecondary">
-              <span className="font-mono font-bold text-nexus-brandText">—</span> · Vision & Whisper
+              <span className="font-mono font-bold text-nexus-brandText">{number(enriched)} enriched</span> · Vision & Whisper
             </div>
             <div className="flex items-center justify-between text-sm text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
               <span>Confidence</span>
-              <span className="font-mono text-nexus-textPrimary">Unavailable</span>
+              <span className="font-mono text-nexus-textPrimary">{data?.confidence == null ? 'No samples' : `${(data.confidence*100).toFixed(1)}% mean`}</span>
             </div>
           </div>
 
@@ -154,11 +159,11 @@ export const OverviewView = ({ showToast }) => {
             </div>
             <div className="text-sm font-bold text-nexus-textPrimary">Multimodal Search Index</div>
             <div className="text-sm text-nexus-textSecondary">
-              <span className="font-mono font-bold text-nexus-brandText">Unavailable</span> · Lexical + Vector
+              <span className="font-mono font-bold text-nexus-brandText">{number(data?.published)} published</span> · Lexical + Vector
             </div>
             <div className="flex items-center justify-between text-sm text-nexus-textMuted border-t border-nexus-borderSubtle pt-2 mt-auto">
               <span>P95 Speed</span>
-              <span className="font-mono text-nexus-textPrimary">Unavailable</span>
+              <span className="font-mono text-nexus-textPrimary">{data?.search_latency?.p95_ms == null ? 'No samples' : `${data.search_latency.p95_ms.toFixed(0)} ms`}</span>
             </div>
           </div>
         </div>
@@ -171,7 +176,7 @@ export const OverviewView = ({ showToast }) => {
           <div className="flex items-center justify-between">
             <div>
               <h3 className="panel-title">Objects by Modality</h3>
-              <p className="text-sm text-nexus-textMuted">Global modality totals unavailable</p>
+              <p className="text-sm text-nexus-textMuted">Unique ingested documents across all sources</p>
             </div>
             <button
               onClick={() => navigate('/admin/search')}
@@ -206,11 +211,11 @@ export const OverviewView = ({ showToast }) => {
         <div className="nx-panel p-6 flex flex-col gap-3">
           <div>
             <h3 className="panel-title">Recent Discoveries</h3>
-            <p className="text-sm text-nexus-textMuted">Latest discoveries unavailable · browse Search for published files</p>
+            <p className="text-sm text-nexus-textMuted">Most recently ingested files currently available in Search</p>
           </div>
 
           <div className="flex flex-col gap-2 pt-1">
-            <div className="flex flex-col gap-2">{[1,2,3].map(slot => <div key={slot} aria-disabled="true" className="flex items-start gap-3 p-2.5 bg-nexus-elevated border border-nexus-borderSubtle rounded-sm"><div className="p-2 rounded-sm bg-nexus-surface text-nexus-textMuted"><DocumentIcon className="w-4 h-4"/></div><div className="flex flex-col gap-1"><span className="text-sm font-bold text-nexus-textMuted">Recent item unavailable</span><span className="text-sm text-nexus-textMuted">No chronological feed is available.</span></div></div>)}</div>{documents.slice(0, 3).map((doc) => (
+            {!summary.loading && !summary.error && documents.length === 0 && <p className="text-sm text-nexus-textMuted">No published files yet.</p>}{documents.slice(0, 3).map((doc) => (
               <div
                 key={doc.id}
                 role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveDocId(doc.id); } }} onClick={() => setActiveDocId(doc.id)}
@@ -225,7 +230,7 @@ export const OverviewView = ({ showToast }) => {
                   <div className="flex items-center gap-2 text-sm text-nexus-textMuted font-mono mt-1">
                     <span className="text-blue-400">{doc.modality}</span> ·
                     <span>{doc.fileSize}</span> ·
-                    <span className="text-nexus-textSecondary truncate">{doc.sourceUri.split('/')[2]}</span>
+                    <span className="text-nexus-textSecondary truncate">{doc.source}</span>
                   </div>
                 </div>
               </div>

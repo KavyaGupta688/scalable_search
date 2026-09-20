@@ -342,11 +342,11 @@
 .result-card:has([aria-pressed="true"]) { border-color:rgb(var(--nexus-accent)); box-shadow:0 0 0 1px rgb(var(--nexus-accent)); }
 
 /* Let module actions wrap below headings when the workspace narrows. */
-.workspace-content :is(div,header):has(>div>h1) { flex-wrap:wrap; gap:16px; }
-.workspace-content :is(div,header):has(>div>h1)>div:first-child { min-width:0; }
-.workspace-content :is(div,header):has(>div>h1)>button { flex-shrink:0; white-space:nowrap; }
+.workspace-content :is(div,header):not(.flex-col):has(>div>h1) { flex-wrap:wrap; gap:16px; }
+.workspace-content :is(div,header):not(.flex-col):has(>div>h1)>div:first-child { min-width:0; }
+.workspace-content :is(div,header):not(.flex-col):has(>div>h1)>button { flex-shrink:0; white-space:nowrap; }
 @media (min-width:768px) {
- .workspace-content :is(div,header):has(>div>h1)>div:first-child { flex:1 1 340px; }
+ .workspace-content :is(div,header):not(.flex-col):has(>div>h1)>div:first-child { flex:1 1 340px; }
 }
 @media (min-width:768px) and (max-width:1100px) {
  .overview-grid>.overview-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -361,3 +361,9 @@
 .nx-button:not([class*="nx-button--"]) { border-color:rgb(var(--nexus-border)); background:rgb(var(--nexus-elevated)); }
 .nx-button:disabled { opacity:.45; cursor:not-allowed; }
 button:disabled, input:disabled, select:disabled { cursor:not-allowed; }
+.downloads-page { width:100%; max-width:1120px; margin-inline:auto; align-content:start; }
+.downloads-heading { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:16px; padding-bottom:8px; }
+.download-request { min-height:96px; border-radius:18px; }
+.download-progress { max-width:55%; overflow-wrap:anywhere; }
+.downloads-page nav { gap:12px; padding-top:4px; }
+@media(max-width:640px) { .download-progress { max-width:100%; width:100%; }.downloads-page nav { flex-wrap:wrap; }.downloads-page nav span { order:3; width:100%; text-align:center; } }

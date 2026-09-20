@@ -20,6 +20,6 @@ export function ProtectedPreview({documentId, modality, name, text}) {
     {state.url && modality === 'image' ? <img src={state.url} alt={name} onError={unreadable} className="w-full h-full object-contain"/> :
       state.url && modality === 'video' ? <video src={state.url} aria-label={name} onError={unreadable} controls className="w-full h-full"/> :
       state.url && modality === 'audio' ? <audio src={state.url} aria-label={name} onError={unreadable} controls className="w-full"/> :
-      <div className="text-sm text-nexus-textMuted flex flex-col items-center gap-2"><Icon className="w-8 h-8 text-nexus-brandText"/><span role={state.error ? 'alert' : 'status'}>{state.loading ? 'Loading protected preview…' : state.error || 'Preview unavailable'}</span>{text && <p className="font-mono whitespace-pre-wrap max-h-40 overflow-auto self-stretch">{text}</p>}</div>}
+      <div className="text-sm text-nexus-textMuted flex flex-col items-center gap-2"><Icon className="w-8 h-8 text-nexus-brandText"/><span role={state.error ? 'alert' : 'status'}>{state.loading ? 'Loading protected preview…' : state.error || (text ? 'Extracted text preview' : 'No browser preview for this format. Use an authorized download.')}</span>{text && <p className="font-mono whitespace-pre-wrap max-h-64 overflow-auto self-stretch break-words">{text.slice(0,20000)}{text.length>20000 ? '\n…Preview limited to 20,000 characters.' : ''}</p>}</div>}
   </div>;
 }

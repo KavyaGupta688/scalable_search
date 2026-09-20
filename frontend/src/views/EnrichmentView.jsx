@@ -26,15 +26,23 @@ export const EnrichmentView = ({ showToast }) => {
   useEffect(() => {if (tasks.data && !tasks.data.tasks.some(t => t.document_id === selectedDocId)) setSelectedDocId(tasks.data.tasks[0]?.document_id || '');},[tasks.data,selectedDocId]);
   const status = useResource(selectedTask ? `/ai/status/${selectedDocId}` : null, {poll:5000});
   const metadata = useResource(selectedTask ? `/ai/metadata/${selectedDocId}` : null, {poll:10000});
+  const monitoring = useResource('/api/admin/monitoring', {poll:30000});
+  const index = useResource(selectedTask ? `/api/admin/documents/${selectedDocId}/index` : null, {poll:30000});
+  const initialized = monitoring.data?.models?.filter(m => m.initialized === true).length;
+  const extractedText = metadata.data?.native_document_text || metadata.data?.ocr_text || metadata.data?.transcribed_text;
   const documents = (tasks.data?.tasks || []).map(t => ({id:t.document_id, filename:t.document_id, modality:t.mime_type || 'Unknown'}));
   const selectedDoc = {
-    id:selectedDocId, filename:selectedDocId || 'No task selected', sourceUri:'Source location unavailable',
+    id:selectedDocId, filename:index.data?.source_ref?.split('/').pop() || selectedDocId || 'No task selected', sourceUri:index.data?.source_ref || 'Source location unavailable',
     modality:selectedTask?.mime_type?.split('/')[0],
     canonicalCaption:metadata.data?.short_description || metadata.data?.long_description || 'Generated description unavailable',
     tags:tags(metadata.data?.generated_tags),
   };
   const stages = pipelineGroups(status.data);
-  const aiEnrichment = {activePipelines: ['Vision and tagging','OCR and documents','Audio and transcription','Shared CLIP embeddings'].map((name,i) => ({id:i,name,latencyAvg:'Unavailable',status:'Not reported',throughput:'—',queueSize:'—'}))};
+  const aiEnrichment = {activePipelines: [['tagging','Tag generation'],['captioning','Descriptions'],['ocr_extraction','Text extraction'],['quality_safety','Quality and safety']].map(([stage,name]) => {
+    const row = monitoring.data?.stages?.find(r => r.stage === stage);
+    return {id:stage,name,latencyAvg:row?.mean_ms == null ? 'No samples' : `${(row.mean_ms/1000).toFixed(2)} s`,
+      status:row ? 'Recorded' : 'No samples',throughput:row?.completed ?? '—',queueSize:row?.failed ?? '—'};
+  })};
   const canRetry = ['partial','needs_review','failed_terminal','queue_failed'].includes(selectedTask?.status);
   const handleRetry = async () => {
     if (!canRetry) return;
@@ -44,7 +52,7 @@ export const EnrichmentView = ({ showToast }) => {
     finally {setIsReEnriching(false);}
   };
   const handleCopyJson = async () => {
-    try {await navigator.clipboard.writeText(JSON.stringify(metadata.data,null,2));showToast?.('Copied versioned metadata','success');}
+    try {await navigator.clipboard.writeText(JSON.stringify({metadata:metadata.data,index:index.data},null,2));showToast?.('Copied metadata and index details','success');}
     catch {setActionError('Unable to copy metadata.');}
   };
 
@@ -60,7 +68,7 @@ export const EnrichmentView = ({ showToast }) => {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Notice Banner: Stub notification per Milestone 12 */}
+      {/* Recorded operational state */}
       <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-sm bg-[#1a1c29] border border-[#2d324d] text-nexus-textSecondary text-sm">
         <AlertCircleIcon className="w-4 h-4 text-nexus-brandText shrink-0" />
         <div>
@@ -68,7 +76,7 @@ export const EnrichmentView = ({ showToast }) => {
             AI processing and administrator review
           </span>
           <span>
-            Task status comes from the AI service. Model telemetry is unavailable; missing models appear in task errors. Review-required content is excluded from discovery.
+            Actual task results and recorded model checks. Models load on demand; initialization does not guarantee prediction accuracy. Review-required content is excluded from discovery.
           </span>
         </div>
       </div>
@@ -144,8 +152,15 @@ export const EnrichmentView = ({ showToast }) => {
       {/* Active Multimodal Models Grid */}
       <div className="flex flex-col gap-3">
         <div>
-          <h3 className="panel-title">Active Multimodal Models</h3>
-          <p className="text-sm text-nexus-textMuted">Model groups · runtime health, throughput, latency, and queue telemetry are not exposed</p>
+          <h3 className="panel-title">Model readiness and processing</h3>
+          <p className="text-sm text-nexus-textMuted">{initialized == null ? 'Loading model checks…' : `${initialized}/${monitoring.data.models.length} model initialization checks passed`} · {monitoring.data?.finished_last_hour ?? '—'} documents finished in the last hour</p>
+          <ResourceState error={monitoring.error} loading={monitoring.loading}/>
+          <p className="text-sm text-nexus-textMuted">Latest recorded attempt per document. Stage timings include model loading; they are not per-model benchmarks.</p>
+          <details className="mt-3 text-sm"><summary className="cursor-pointer text-nexus-brandText">View all model checks</summary>
+            <p className="my-2 text-nexus-textMuted">Last initialization verification: {monitoring.data?.checked_at ? new Date(monitoring.data.checked_at*1000).toLocaleString() : 'Not recorded'}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{monitoring.data?.models?.map(m => <div key={m.name} className="bg-nexus-elevated rounded-sm p-2"><strong>{m.name}</strong><span className="block text-nexus-textMuted">{m.initialized === true ? 'Initialization passed' : m.initialized === false ? 'Check failed' : 'No verification record'}</span></div>)}</div>
+          </details>
+          <a className="inline-block mt-3 text-sm text-nexus-brandText underline" href="http://localhost:13000/d/smsprsm-platform" target="_blank" rel="noreferrer">Open Grafana monitoring</a>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -163,11 +178,11 @@ export const EnrichmentView = ({ showToast }) => {
 
               <div className="grid grid-cols-2 gap-2 bg-nexus-elevated p-2 rounded-xs border border-nexus-borderSubtle">
                 <div className="flex flex-col">
-                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Throughput</span>
+                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Completed stages</span>
                   <span className="text-sm font-bold text-nexus-brandText font-mono">{pipe.throughput}</span>
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Queue</span>
+                  <span className="text-sm uppercase text-nexus-textMuted font-semibold">Failed stages</span>
                   <span className="text-sm font-bold text-nexus-textPrimary font-mono">{pipe.queueSize.toLocaleString()}</span>
                 </div>
               </div>
@@ -207,11 +222,12 @@ export const EnrichmentView = ({ showToast }) => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Left Column: Media & Vision AI Detection Box */}
           <div className="flex flex-col gap-3">
-            {selectedDocId ? <ProtectedPreview documentId={selectedDocId} modality={selectedDoc.modality} name={selectedDoc.filename}/> : <div className="h-52 bg-nexus-elevated border border-nexus-borderSubtle flex items-center justify-center text-sm text-nexus-textMuted">No task selected</div>}
+            {selectedDocId ? <ProtectedPreview documentId={selectedDocId} modality={selectedDoc.modality} name={selectedDoc.filename} text={extractedText}/> : <div className="h-52 bg-nexus-elevated border border-nexus-borderSubtle flex items-center justify-center text-sm text-nexus-textMuted">No task selected</div>}
 
             {/* Neural Canonical Caption */}
             <div className="flex flex-col gap-1 bg-nexus-elevated p-3 rounded-xs border border-nexus-borderSubtle">
-              <span className="text-sm font-mono uppercase font-bold text-nexus-brandText">Canonical AI Caption</span>
+              <span className="text-sm font-mono uppercase font-bold text-nexus-brandText">Generated description</span>
+              <span className="text-xs text-nexus-textMuted">May use extracted text and vendor context · inspect versioned metadata below</span>
               <p className="text-sm text-nexus-textPrimary leading-relaxed italic">
                 &ldquo;{selectedDoc.canonicalCaption || selectedDoc.description}&rdquo;
               </p>
@@ -235,7 +251,7 @@ export const EnrichmentView = ({ showToast }) => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-nexus-textPrimary">512-d Vector Embedding</span>
-                <span className="text-sm font-sans text-nexus-textMuted bg-nexus-elevated border border-nexus-borderSubtle px-1.5 py-0.2 rounded-xs">Index state unavailable</span>
+                <span className="text-sm font-sans text-nexus-textMuted bg-nexus-elevated border border-nexus-borderSubtle px-1.5 py-0.2 rounded-xs">{index.loading ? 'Checking index' : index.error ? 'Index check failed' : index.data?.indexed ? (index.data.published ? 'Indexed · published' : 'Indexed · not published') : 'Not indexed'}</span>
               </div>
               <button
                 type="button"
@@ -251,14 +267,18 @@ export const EnrichmentView = ({ showToast }) => {
             <div className="bg-nexus-input p-3 rounded-sm border border-nexus-border font-mono text-sm text-nexus-textMuted flex flex-col gap-2">
               <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-1.5">
                 <span>Dense Float32 Embedding Array</span>
-                <span className="text-nexus-brandText font-semibold">512 dimensions configured</span>
+                <span className="text-nexus-brandText font-semibold">{index.data?.dimensions ? `${index.data.dimensions} stored dimensions` : '512 dimensions configured'}</span>
               </div>
               <div className="text-sm text-blue-300 break-all leading-tight font-mono">
-                Embedding values are not exposed by this endpoint.
+                {index.data?.vector ? `[${index.data.vector.slice(0,16).map(v => v.toFixed(4)).join(', ')}, …]` : index.error || 'No stored vector available yet.'}
               </div>
               <div className="h-6 flex items-center gap-0.5 mt-1">
-                <span className="text-nexus-textMuted">Vector visualization unavailable</span>
+                {index.data?.vector ? Array.from({length:32},(_,i) => {
+                  const part=index.data.vector.slice(i*16,i*16+16), magnitude=part.reduce((s,v)=>s+Math.abs(v),0)/part.length;
+                  return <span key={i} title={`Dimensions ${i*16+1}–${i*16+16}: mean magnitude ${magnitude.toFixed(5)}`} className="bg-nexus-brandText flex-1" style={{height:`${Math.min(100, magnitude*1000)}%`,minHeight:1}}/>;
+                }) : <span className="text-nexus-textMuted">Visualization appears after indexing</span>}
               </div>
+              {index.data?.vector && <span className="text-xs">Mean absolute magnitude per 16 dimensions · norm {index.data.norm.toFixed(4)}</span>}
             </div>
 
             <ResourceState error={metadata.error || status.error} loading={metadata.loading}/>
@@ -267,7 +287,7 @@ export const EnrichmentView = ({ showToast }) => {
             <div className="mt-auto flex items-center justify-between bg-nexus-elevated p-3 rounded-sm border border-nexus-borderSubtle">
               <div className="flex flex-col">
                 <span className="text-sm font-bold text-nexus-textPrimary">Sequential Re-Enrichment</span>
-                <span className="text-sm text-nexus-textMuted">Retry eligible tasks from their persisted checkpoints</span>
+                <span className="text-sm text-nexus-textMuted">Reprocess eligible tasks using current models and source permissions</span>
               </div>
               <button
                 type="button"

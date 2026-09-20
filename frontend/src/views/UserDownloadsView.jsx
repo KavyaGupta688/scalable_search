@@ -1,7 +1,6 @@
 import {useResource,ResourceState} from '../components/ResourceState';
 import {saveArchive} from '../services/http';
-import React, { useState, useEffect, useCallback } from 'react';
-import { getDownloadStatus } from '../services/downloadApi';
+import React, { useState } from 'react';
 import { DownloadIcon, ClockIcon, CheckCircleIcon, XCircleIcon, SpinnerIcon } from '../components/Icons';
 
 /**
@@ -28,15 +27,15 @@ export const UserDownloadsView = ({ showToast }) => {
   const formatTime = (isoStr) => {
     if (!isoStr) return '';
     const d = new Date(isoStr);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString([], { month:'short', day:'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   return (
-    <div className="flex flex-col gap-5 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h1 className="page-title">Downloads</h1>
-        <span className="text-sm text-nexus-textMuted">{downloads.length} request{downloads.length !== 1 ? 's' : ''}</span>
-      </div>
+    <div className="downloads-page flex flex-col gap-5">
+      <header className="downloads-heading">
+        <div><h1 className="page-title">Downloads</h1><p className="text-sm text-nexus-textMuted mt-2">Your file packages, progress, and download history.</p></div>
+        <span className="text-sm text-nexus-textMuted">{downloads.length} request{downloads.length !== 1 ? 's' : ''} on this page</span>
+      </header>
 
       <ResourceState error={error || history.error} loading={history.loading}/>
       {!history.loading && !history.error && downloads.length === 0 && (
@@ -52,7 +51,7 @@ export const UserDownloadsView = ({ showToast }) => {
       {downloads.map(dl => (
         <div
           key={dl.download_id}
-          className="nx-panel p-4 flex flex-wrap items-center gap-3"
+          className="nx-panel download-request p-5 flex flex-wrap items-center gap-4"
         >
           {/* Status icon */}
           <div className="shrink-0">{statusIcon(dl.status)}</div>
@@ -69,7 +68,7 @@ export const UserDownloadsView = ({ showToast }) => {
             </div>
           </div>
 
-          <div className="text-sm text-nexus-textMuted"><p>{dl.progress ?? 0}/{dl.file_count} packaged</p>{dl.error && <p role="alert" className="text-nexus-danger">{dl.error}</p>}{dl.items?.filter(i => i.error).map(i => <p key={i.document_id} className="break-all">{i.document_id}: {i.error}</p>)}</div>
+          <div className="download-progress text-sm text-nexus-textMuted"><p>{dl.progress ?? 0}/{dl.file_count} packaged</p>{dl.error && <p role="alert" className="text-nexus-danger">{dl.error}</p>}{dl.items?.filter(i => i.error).map(i => <p key={i.document_id} className="break-all">{i.document_id}: {i.error}</p>)}</div>
           {/* Action */}
           {dl.status === 'ready' && (
             <button
