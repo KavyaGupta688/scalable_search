@@ -203,7 +203,7 @@ def _run_ocr_extraction(file_id: str, storage_path: str, file_type: str, ctx: di
 
 
 def _vendor_context_text(metadata: dict, limit: int = 16_000) -> str:
-    """Bound vendor-supplied context and keep provenance separate from AI output."""
+    """Semantic fallback only; identifiers and arbitrary metadata are not content."""
     if not isinstance(metadata, dict):
         return ""
     fields = (
@@ -213,8 +213,6 @@ def _vendor_context_text(metadata: dict, limit: int = 16_000) -> str:
         "tags",
         "categories",
         "brand",
-        "contributor_id",
-        "additional_metadata",
     )
     parts: list[str] = []
     for name in fields:
@@ -222,7 +220,7 @@ def _vendor_context_text(metadata: dict, limit: int = 16_000) -> str:
         if value in (None, "", [], {}):
             continue
         rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
-        parts.append(f"Vendor {name}: {rendered}")
+        parts.append(rendered)
     return "\n".join(parts)[:limit]
 
 
@@ -239,8 +237,8 @@ def _run_tagging(file_id: str, storage_path: str, file_type: str, ctx: dict) -> 
             text_pieces.append(result.text)
     combined_text = " ".join(text_pieces) if text_pieces else None
     vendor_context = _vendor_context_text(ctx.get("source_metadata") or {})
-    if vendor_context:
-        combined_text = " ".join(part for part in (vendor_context, combined_text) if part)
+    if not combined_text and modality not in (Modality.IMAGE, Modality.VIDEO):
+        combined_text = vendor_context or None
 
     # Gather images for vision-based tagging
     images: list = []
@@ -272,8 +270,11 @@ def _run_captioning(file_id: str, storage_path: str, file_type: str, ctx: dict) 
         if result is not None and result.text:
             text_pieces.append(result.text)
     supporting_text = " ".join(text_pieces)
-    vendor_context = _vendor_context_text(ctx.get("source_metadata") or {})
-    supporting_text = " ".join(part for part in (vendor_context, supporting_text) if part)
+    # Vision captions must not mislabel vendor metadata as extracted OCR/speech.
+    # Text modalities prefer actual content; vendor context is an explicit fallback.
+    vendor_fallback = not supporting_text and modality not in (Modality.IMAGE, Modality.VIDEO)
+    if vendor_fallback:
+        supporting_text = _vendor_context_text(ctx.get("source_metadata") or {})
 
     # Route to the right captioning function based on modality
     if modality == Modality.VIDEO and prep and prep.data and prep.data.keyframes:
@@ -299,6 +300,9 @@ def _run_captioning(file_id: str, storage_path: str, file_type: str, ctx: dict) 
             supporting_text, tags, modality.value
         )
 
+    if vendor_fallback and supporting_text:
+        caption.short_description = "Vendor context: " + caption.short_description
+        caption.long_description = "Vendor context (no extracted text): " + caption.long_description
     ctx["caption"] = caption
 
 

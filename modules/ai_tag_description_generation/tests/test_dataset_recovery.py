@@ -18,6 +18,38 @@ from modules.ai_tag_description_generation.worker.pipeline.retry_handler import 
 from modules.shared.publication import safety_cleared
 
 
+def test_extracted_content_wins_over_vendor_benchmark_context(monkeypatch):
+    text = 'The turbine inspection found a cracked blade.'
+    ctx = {'modality': Modality.DOCUMENT,
+           'extracted_text': {'native_document_text': SimpleNamespace(text=text)},
+           'source_metadata': {'title':'Vendor test asset', 'contributor_id':'internal-id',
+                               'additional_metadata':{'benchmark_run_id':'secret-run'}}}
+    tagger = Mock(return_value=[])
+    captioner = Mock(return_value=SimpleNamespace(short_description=text, long_description=text))
+    monkeypatch.setattr(orchestrator.tagging_module, 'generate_all_tags', tagger)
+    monkeypatch.setattr(orchestrator.captioning_module, 'generate_text_description', captioner)
+    orchestrator._run_tagging('id','path','text/plain',ctx)
+    orchestrator._run_captioning('id','path','text/plain',ctx)
+    assert tagger.call_args.kwargs['text'] == text
+    assert captioner.call_args.args[0] == text
+    assert 'internal-id' not in orchestrator._vendor_context_text(ctx['source_metadata'])
+    assert 'secret-run' not in orchestrator._vendor_context_text(ctx['source_metadata'])
+
+
+def test_vendor_fallback_is_explicit_and_not_mislabeled_as_ocr(monkeypatch):
+    ctx = {'modality':Modality.DOCUMENT,'source_metadata':{'description':'Vendor description.'}}
+    captioner = Mock(return_value=SimpleNamespace(short_description='Vendor description.', long_description='Vendor description.'))
+    monkeypatch.setattr(orchestrator.captioning_module, 'generate_text_description', captioner)
+    orchestrator._run_captioning('id','path','text/plain',ctx)
+    assert ctx['caption'].short_description.startswith('Vendor context: ')
+    ctx = {'modality':Modality.IMAGE,'source_metadata':{'description':'Vendor description.'},
+           'preprocessing_result':SimpleNamespace(data=SimpleNamespace(original_image=object()))}
+    vision = Mock()
+    monkeypatch.setattr(orchestrator.captioning_module,'generate_caption',vision)
+    orchestrator._run_captioning('id','path','image/jpeg',ctx)
+    assert vision.call_args.args[2] == ''
+
+
 def test_kafka_lock_contention_does_not_exhaust_retries_or_skip_offset(monkeypatch):
     import kafka
     did = str(uuid4())

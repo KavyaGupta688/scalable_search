@@ -193,8 +193,8 @@ async def retry_task(document_id: UUID) -> dict:
     Manually retry a failed_terminal or needs_review task.
 
     Resets the task status to queued and re-dispatches via Celery.
-    The orchestrator will pick up from the first incomplete stage
-    thanks to checkpointing.
+    The orchestrator reconstructs the transient context from the original
+    source and reprocesses the pipeline, preserving versioned metadata.
     """
     document_id = str(document_id)
     async with get_async_session() as session:
