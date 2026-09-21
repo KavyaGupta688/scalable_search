@@ -111,7 +111,9 @@ def connection_args(url: str, schema: str, *, asynchronous: bool = False) -> dic
 
 @lru_cache
 def database_engine(schema: str):
-    url = os.environ["DATABASE_URL_SYNC"].replace(
+    # Identity can be shared across independently configured module stacks.
+    configured_url = os.getenv("AUTH_DATABASE_URL_SYNC") if schema == "identity" else None
+    url = (configured_url or os.environ["DATABASE_URL_SYNC"]).replace(
         "postgresql://", "postgresql+psycopg2://"
     )
     args = connection_args(url, schema)

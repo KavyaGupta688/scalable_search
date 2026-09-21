@@ -22,12 +22,22 @@ def get_auth_service() -> AuthService:
     if _auth_service is None:
         import os
 
-        if os.getenv("DATABASE_URL_SYNC"):
-            from modules.shared.auth.postgres import PostgresAuthService
+        from sqlalchemy.engine import make_url
+        from sqlalchemy.exc import ArgumentError
 
-            _auth_service = PostgresAuthService()
-        else:
-            _auth_service = AuthService()
+        try:
+            url = os.getenv("AUTH_DATABASE_URL_SYNC") or os.getenv("DATABASE_URL_SYNC", "")
+            configured = make_url(url).get_backend_name() == "postgresql"
+        except (ArgumentError, ValueError):
+            configured = False
+        if not configured:
+            raise HTTPException(
+                503,
+                "Shared authentication database is not configured. Start the application with the RDS configuration.",
+            )
+        from modules.shared.auth.postgres import PostgresAuthService
+
+        _auth_service = PostgresAuthService()
     return _auth_service
 
 

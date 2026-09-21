@@ -4,6 +4,7 @@ x-env: &env
   DATABASE_URL_SYNC: postgresql+psycopg2://platform:${POSTGRES_PASSWORD:?required}@postgres:5432/platform
   INTERNAL_JWT_SECRET: ${INTERNAL_JWT_SECRET:?required}
   NEXUS_JWT_SECRET: ${NEXUS_JWT_SECRET:?required}
+  AUTH_DATABASE_URL_SYNC: ${AUTH_DATABASE_URL_SYNC:-}
   REDIS_URL: redis://redis:6379/0
   QDRANT_URL: http://qdrant:6333
   QDRANT_COLLECTION_NAME: multimodal_files
