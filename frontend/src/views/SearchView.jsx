@@ -6,6 +6,13 @@ import {DownloadBar} from '../components/DownloadBar';
 import { ModalDetail } from '../components/ModalDetail';
 import { ModalityBadge } from '../components/ModalityBadge';
 import { SearchResultCard } from '../components/SearchResultCard';
+import { TrendingSearches } from '../components/TrendingSearches';
+import { PopularDatasets } from '../components/PopularDatasets';
+import { SuggestionOptions } from '../components/SuggestionOptions';
+import { ResolutionFilter } from '../components/ResolutionFilter';
+import { SizeFilter } from '../components/SizeFilter';
+import { BulkDownload } from '../components/BulkDownload';
+import { MODALITIES, modalityCounts, formatCount } from '../services/facets';
 import {
   SearchIcon,
   FilterIcon,
@@ -19,11 +26,14 @@ export const SearchView = ({ showToast }) => {
   const catalog = useCatalog({browse:true});
   const {query,setQuery,mode,setMode,results,totalCount,loading,error,activeDocId,setActiveDocId,executeSearch,handleOpenDocument:handleOpenDoc,selectedFileIds,setSelectedFileIds,toggleSelect} = catalog;
   const [viewMode,setViewMode] = useState('grid');
-  const availableFacets = ['image','video','document','audio','tabular'];
+  const counts = modalityCounts(catalog.facets);
   const selectedModalities = (catalog.filters.file_types || []).map(v => v === 'csv' ? 'tabular' : v);
   const toggleModality = id => catalog.selectModality(selectedModalities.includes(id) ? selectedModalities.filter(m => m !== id) : [...selectedModalities,id]);
   const minConfidence = 0, sortBy = 'relevance';
   const resetFilters = () => {catalog.setFilters({}); setQuery('');};
+  const handleBrowseDataset = id => {catalog.setFilters(f => ({...f,dataset_ids:[id]})); setQuery('');};
+  // Discovery (trending searches, popular datasets) shows until the admin narrows the catalog.
+  const showDiscovery = !query.trim() && !catalog.filters.dataset_ids?.length;
   const exampleQueries = ['Cracked OLED display panels','Robotic assembly line video feeds','Display panel quality failure reports','Motor vibration acoustic anomalies','Defect telemetry inspection CSV'];
 
   return (
@@ -33,13 +43,14 @@ export const SearchView = ({ showToast }) => {
         {/* Search Header Panel */}
         <div className="nx-panel p-6 flex flex-col gap-3.5">
           {/* Search Input Box */}
+          <div className="relative">
           <div className="search-field relative flex items-center bg-nexus-elevated border border-nexus-borderStrong rounded-sm pl-3 pr-[5px] h-11 transition-colors">
             <SearchIcon className="w-4 h-4 text-nexus-textMuted shrink-0 mr-2.5" />
             <input
               id="admin-search-input" aria-label="Search data catalog"
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {setQuery(e.target.value); catalog.setShowSuggestions(true);}}
               onKeyDown={catalog.onSearchKeyDown} onFocus={() => catalog.setShowSuggestions(true)} onBlur={() => setTimeout(() => catalog.setShowSuggestions(false),150)} role="combobox" aria-expanded={catalog.showSuggestions && catalog.suggestions.length > 0} aria-controls="admin-suggestions" aria-activedescendant={catalog.highlight >= 0 ? `admin-suggestion-${catalog.highlight}` : undefined}
               placeholder={
                 mode === 'similar'
@@ -70,6 +81,12 @@ export const SearchView = ({ showToast }) => {
             >
               Search
             </button>
+          </div>
+          {catalog.showSuggestions && catalog.suggestions.length > 0 && (
+            <div id="admin-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-nexus-surface border border-nexus-borderStrong rounded-sm shadow-xl z-40 overflow-hidden divide-y divide-nexus-borderSubtle">
+              <SuggestionOptions idPrefix="admin-suggestion" items={catalog.suggestions} highlight={catalog.highlight} onSelect={catalog.handleSelectSuggestion} />
+            </div>
+          )}
           </div>
 
           {/* Controls Bar: Mode Switcher & View Switcher */}
@@ -120,7 +137,6 @@ export const SearchView = ({ showToast }) => {
             </div>
           </div>
 
-          {catalog.showSuggestions && catalog.suggestions.length > 0 && <ul id="admin-suggestions" role="listbox" className="nx-panel p-2">{catalog.suggestions.map((item,index) => <li key={item.text} id={`admin-suggestion-${index}`} role="option" aria-selected={catalog.highlight === index}><button className="w-full text-left p-2 hover:bg-nexus-hover" onMouseDown={e => e.preventDefault()} onClick={() => catalog.handleSelectSuggestion(item.text)}>{item.text}</button></li>)}</ul>}
           {/* Example Queries */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-bold text-nexus-textMuted uppercase font-mono">Try:</span>
@@ -136,6 +152,13 @@ export const SearchView = ({ showToast }) => {
             ))}
           </div>
         </div>
+
+        {showDiscovery && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+            <div className="nx-panel p-4"><TrendingSearches onSelectTerm={term => setQuery(term)} /></div>
+            <PopularDatasets onBrowse={handleBrowseDataset} />
+          </div>
+        )}
 
         {/* Search Workspace (Sidebar Filters + Results Area) */}
         <div className="grid grid-cols-1 lg:grid-cols-[230px_1fr] gap-5 items-start">
@@ -159,7 +182,7 @@ export const SearchView = ({ showToast }) => {
             <div className="flex flex-col gap-2 border-b border-nexus-borderSubtle pb-3">
               <span className="text-sm font-bold text-nexus-textSecondary">Content Modality</span>
               <div className="flex flex-col gap-1.5">
-                {availableFacets.map((fac) => (
+                {MODALITIES.map(({id: fac, label}) => (
                   <label
                     key={fac}
                     className="flex items-center gap-2 text-sm text-nexus-textSecondary hover:text-nexus-textPrimary cursor-pointer select-none"
@@ -170,12 +193,15 @@ export const SearchView = ({ showToast }) => {
                       onChange={() => toggleModality(fac)}
                       className="accent-nexus-brand rounded-xs"
                     />
-                    <span className="capitalize">{fac}</span>
+                    <span>{label}</span>
+                    <span className="ml-auto font-mono text-nexus-textMuted">{formatCount(counts?.[fac])}</span>
                   </label>
                 ))}
               </div>
             </div>
 
+            <div className="border-b border-nexus-borderSubtle pb-3"><ResolutionFilter catalog={catalog} layout="list" /></div>
+            <div className="border-b border-nexus-borderSubtle pb-3"><SizeFilter catalog={catalog} layout="list" /></div>
             <CatalogFilters catalog={catalog}/>
             {/* Minimum Confidence Slider */}
             <div className="flex flex-col gap-2">
@@ -226,6 +252,8 @@ export const SearchView = ({ showToast }) => {
                 </select>
               </div>
             </div>
+
+            <BulkDownload catalog={catalog} />
 
             {error && (
               <div role="alert" className="p-3 bg-red-950/30 border border-red-800 text-nexus-danger text-sm rounded-sm">

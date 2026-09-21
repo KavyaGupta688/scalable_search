@@ -19,6 +19,7 @@ from typing import Any
 from modules.ai_tag_description_generation.worker.pipeline import task_dispatcher
 from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError, DataQualityError
 from modules.ai_tag_description_generation.worker.pipeline.preprocessing_engine import preprocess, PreprocessingResult
+from modules.ai_tag_description_generation.worker.pipeline import technical_metadata
 from modules.ai_tag_description_generation.worker.pipeline.media_router import Modality
 from modules.ai_tag_description_generation.worker.pipeline import ocr_stt
 from modules.ai_tag_description_generation.worker.pipeline import tagging as tagging_module
@@ -375,6 +376,7 @@ def _run_metadata_fusion(file_id: str, storage_path: str, file_type: str, ctx: d
         safety_labels=s_labels,
         modality=modality.value,
         model_versions=MODEL_VERSIONS,
+        technical=technical_metadata.from_preprocessing(ctx.get("preprocessing_result")),
     )
     ctx["fused_metadata"] = fused
 

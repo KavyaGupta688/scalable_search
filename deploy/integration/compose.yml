@@ -20,6 +20,11 @@ x-env: &env
   TOXICITY_THRESHOLD: ${TOXICITY_THRESHOLD:-0.8}
   WATERMARK_SECRET_KEY: ${WATERMARK_SECRET_KEY:?required}
   DOWNLOAD_STAGING_DIR: /packages
+  # Download limits are read by both Search (planning) and Download (enforcement); keep them in one place.
+  DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-134217728}
+  DOWNLOAD_MAX_BATCH_BYTES: ${DOWNLOAD_MAX_BATCH_BYTES:-2147483648}
+  DOWNLOAD_MAX_FILES: ${DOWNLOAD_MAX_FILES:-10000}
+  DOWNLOAD_MAX_TOTAL_BYTES: ${DOWNLOAD_MAX_TOTAL_BYTES:-21474836480}
 x-runtime: &runtime
   image: smsprsm-integration-runtime:local
   build:

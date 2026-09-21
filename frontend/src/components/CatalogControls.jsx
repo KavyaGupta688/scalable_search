@@ -1,6 +1,8 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {search, getSuggestions, getFacets} from '../services/searchApi';
 import {fileView, backendModality} from '../services/presentation';
+import {facetCount} from '../services/facets';
+import {bytesToMb, mbToBytes} from '../services/sizes';
 
 export function useCatalog({browse = false, limit = 24} = {}) {
   const [query, setQueryValue] = useState('');
@@ -13,6 +15,7 @@ export function useCatalog({browse = false, limit = 24} = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [facets, setFacets] = useState(null);
+  const [lastFacets, setLastFacets] = useState(null);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -22,7 +25,9 @@ export function useCatalog({browse = false, limit = 24} = {}) {
   const setQuery = value => {setQueryValue(value); setPage(0);};
   const setMode = value => {setModeValue(value); setPage(0);};
   const setFilters = change => {setFilterValues(change); setPage(0);};
-  const hasSearch = browse || Boolean(debouncedQuery.trim()) || Boolean(filters.dataset_ids?.length);
+  // Any active filter starts a search, so choosing 4K or Images alone lists those files.
+  const filterActive = Object.values(filters).some(v => Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && v !== '');
+  const hasSearch = browse || Boolean(debouncedQuery.trim()) || filterActive;
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(query), 300);
     return () => clearTimeout(timer);
@@ -47,7 +52,7 @@ export function useCatalog({browse = false, limit = 24} = {}) {
     if (!hasSearch) {setLoading(false); return () => controller.abort();}
     setLoading(true);
     search(debouncedQuery.trim() || '*', debouncedQuery.trim() ? mode : 'text', filters, limit, page * limit, controller.signal)
-      .then(response => {if (!controller.signal.aborted) {setData({...response, results:response.results.map(fileView)});}})
+      .then(response => {if (!controller.signal.aborted) {setData({...response, results:response.results.map(fileView)}); setLastFacets(response.facets || null);}})
       .catch(e => {if (!controller.signal.aborted) setError(e.message);})
       .finally(() => {if (!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
@@ -63,8 +68,10 @@ export function useCatalog({browse = false, limit = 24} = {}) {
     if (event.key === 'Escape') {event.preventDefault(); setShowSuggestions(false);}
     if (event.key === 'Enter') {event.preventDefault(); highlight >= 0 && suggestions[highlight] ? handleSelectSuggestion(suggestions[highlight].text) : executeSearch();}
   };
-  return {query,setQuery,debouncedQuery,mode,setMode,filters,setFilters,page,setPage,limit,
-    data,results:data?.results || [],totalCount:data?.total || 0,loading,error,facets:data?.facets || facets,
+  // The request behind the current results; download planning must ask for the same search.
+  const searchParams = {query: debouncedQuery.trim() || '*', mode: debouncedQuery.trim() ? mode : 'text', filters};
+  return {query,setQuery,debouncedQuery,mode,setMode,filters,setFilters,page,setPage,limit,searchParams,
+    data,results:data?.results || [],totalCount:data?.total || 0,loading,error,facets:hasSearch ? (data?.facets || lastFacets || facets) : facets,
     suggestions,showSuggestions,setShowSuggestions,highlight,onSearchKeyDown,
     selectedFileIds,setSelectedFileIds,activeDocId,setActiveDocId,searchInputRef,hasSearch,
     executeSearch,handleSelectSuggestion,handleOpenDocument,toggleSelect,selectModality};
@@ -82,7 +89,8 @@ export function CatalogPagination({catalog}) {
 export function CatalogFilters({catalog}) {
   const {filters,setFilters,facets} = catalog;
   const choose = (key,value) => setFilters(f => ({...f,[key]:value}));
-  return <details className="text-sm border-t border-nexus-borderSubtle pt-3">
+  const countLabel = count => typeof count === 'number' ? ` (${count.toLocaleString()})` : '';
+  return <details open className="text-sm border-t border-nexus-borderSubtle pt-3">
     <summary className="cursor-pointer font-semibold text-nexus-textSecondary">More filters</summary>
     <div className="flex flex-wrap gap-3 mt-3">
       {[['dataset_ids','Dataset','datasets'],['categories','Category','categories'],['tags','Tag','top_tags']].map(([key,label,source]) => {
@@ -91,8 +99,9 @@ export function CatalogFilters({catalog}) {
           <option value="">All</option>{selected && !values.some(v => v.value === selected) && <option value={selected}>{selected}</option>}
           {values.map(v => <option value={v.value} key={v.value}>{v.label || v.value} ({v.count})</option>)}</select></label>;
       })}
-      {[['ai_generated','AI generated'],['pii_detected','PII detected']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<select className="nx-input" value={filters[key] == null ? '' : String(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : e.target.value === 'true')}><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></label>)}
+      {[['ai_generated','AI generated'],['pii_detected','PII detected']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<select className="nx-input" value={filters[key] == null ? '' : String(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : e.target.value === 'true')}><option value="">Any</option><option value="true">{`Yes${countLabel(facetCount(facets,key,true))}`}</option><option value="false">{`No${countLabel(facetCount(facets,key,false))}`}</option></select></label>)}
       {[['date_from','Ingested from'],['date_to','Ingested until']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="date" className="nx-input" value={filters[key]?.slice(0,10) || ''} onChange={e => choose(key,e.target.value ? `${e.target.value}${key === 'date_to' ? 'T23:59:59Z' : 'T00:00:00Z'}` : undefined)}/></label>)}
+      {[['min_size','Minimum size (MB)'],['max_size','Maximum size (MB)']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="number" min="0" step="any" className="nx-input w-36" value={bytesToMb(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : mbToBytes(e.target.value))}/></label>)}
       {[['min_width','Minimum width'],['min_duration','Minimum seconds'],['max_duration','Maximum seconds']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="number" min="0" className="nx-input w-36" value={filters[key] ?? ''} onChange={e => choose(key,e.target.value === '' ? undefined : Number(e.target.value))}/></label>)}
       <button className="nx-button" onClick={() => setFilters({})}>Clear filters</button>
     </div>

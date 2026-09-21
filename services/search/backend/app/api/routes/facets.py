@@ -14,6 +14,10 @@ async def get_facets(
     dataset_id: Optional[List[str]] = Query(None),
     ai_generated: Optional[bool] = Query(None),
     pii_detected: Optional[bool] = Query(None),
+    resolution: Optional[List[str]] = Query(None, description="4k, 2k, fhd, hd, sd, unknown"),
+    size: Optional[List[str]] = Query(None, description="lt100k, 100k-1m, 1m-10m, 10m-100m, 100m-1g, gte1g"),
+    min_size: Optional[int] = Query(None, ge=0),
+    max_size: Optional[int] = Query(None, ge=0),
     facet_service: FacetService = Depends(get_facet_service)
 ):
     """
@@ -24,6 +28,10 @@ async def get_facets(
         categories=category,
         dataset_ids=dataset_id,
         ai_generated=ai_generated,
-        pii_detected=pii_detected
+        pii_detected=pii_detected,
+        resolutions=resolution,
+        size_buckets=size,
+        min_size=min_size,
+        max_size=max_size,
     )
     return await facet_service.get_facets(query=q or "", filters=filters)

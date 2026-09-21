@@ -25,6 +25,11 @@ def normalize_text(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
+def escape_like(text: str) -> str:
+    """Escapes LIKE wildcards so user input matches literally (use with ESCAPE '\\')."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def tokenize(text: str) -> List[str]:
     normalized = normalize_text(text)
     if not normalized:

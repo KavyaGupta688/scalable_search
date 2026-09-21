@@ -1,5 +1,7 @@
 import {useResource,ResourceState} from '../components/ResourceState';
 import {saveArchive} from '../services/http';
+import {ArchiveParts} from '../components/ArchiveParts';
+import {formatBytes} from '../services/sizes';
 import React, { useState } from 'react';
 import { DownloadIcon, ClockIcon, CheckCircleIcon, XCircleIcon, SpinnerIcon } from '../components/Icons';
 
@@ -13,9 +15,9 @@ export const UserDownloadsView = ({ showToast }) => {
   const [busy,setBusy] = useState(false);
   const history = useResource(`/downloads?limit=25&offset=${page*25}`, {poll:4000});
   const downloads = history.data?.downloads || [];
-  const handleOpenDownload = async dl => {
+  const handleOpenDownload = async (dl, part = 1) => {
     setBusy(true); setError('');
-    try {await saveArchive(dl.download_id);} catch (err) {setError(err.message);}
+    try {await saveArchive(dl.download_id, part, dl.part_count || 1);} catch (err) {setError(err.message);}
     finally {setBusy(false);}
   };
   const statusIcon = (status) => {
@@ -59,7 +61,7 @@ export const UserDownloadsView = ({ showToast }) => {
           {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-nexus-textPrimary truncate">
-              {dl.file_count} file{dl.file_count !== 1 ? 's' : ''}
+              {dl.file_count.toLocaleString()} file{dl.file_count !== 1 ? 's' : ''}{dl.status === 'ready' && dl.archive_bytes > 0 ? ` · ${formatBytes(dl.archive_bytes)}` : ''}
             </div>
             <div className="flex items-center gap-2 text-sm text-nexus-textMuted font-mono mt-0.5">
               <ClockIcon className="w-3 h-3" />
@@ -70,15 +72,17 @@ export const UserDownloadsView = ({ showToast }) => {
 
           <div className="download-progress text-sm text-nexus-textMuted"><p>{dl.progress ?? 0}/{dl.file_count} packaged</p>{dl.error && <p role="alert" className="text-nexus-danger">{dl.error}</p>}{dl.items?.filter(i => i.error).map(i => <p key={i.document_id} className="break-all">{i.document_id}: {i.error}</p>)}</div>
           {/* Action */}
-          {dl.status === 'ready' && (
-            <button
-              onClick={() => handleOpenDownload(dl)} disabled={busy}
-              className="flex items-center gap-1.5 px-3 h-8 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors shrink-0"
-            >
-              <DownloadIcon className="w-3.5 h-3.5" />
-              <span>Download</span>
-            </button>
-          )}
+          {dl.status === 'ready' && ((dl.parts || []).length > 1
+            ? <ArchiveParts job={dl} onSave={part => handleOpenDownload(dl, part)} busy={busy} />
+            : (
+              <button
+                onClick={() => handleOpenDownload(dl)} disabled={busy}
+                className="flex items-center gap-1.5 px-3 h-8 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors shrink-0"
+              >
+                <DownloadIcon className="w-3.5 h-3.5" />
+                <span>Download</span>
+              </button>
+            ))}
         </div>
       ))}
       <nav aria-label="Download pages" className="flex justify-between items-center text-sm"><button className="nx-button" disabled={!page || history.loading} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page+1} · up to 25 requests</span><button className="nx-button" disabled={downloads.length < 25 || history.loading} onClick={() => setPage(p => p + 1)}>Next</button></nav>

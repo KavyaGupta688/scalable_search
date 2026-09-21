@@ -9,7 +9,8 @@ from app.api.routes import (
     datasets,
     trending,
     suggestions,
-    events
+    events,
+    download_plan,
 )
 
 api_router = APIRouter()
@@ -20,6 +21,7 @@ api_router.include_router(text_search.router, prefix="/search/text", tags=["Keyw
 api_router.include_router(vector_search.router, prefix="/search/vector", tags=["Vector Similarity Search"])
 api_router.include_router(similar_search.router, prefix="/search/similar", tags=["Similar File Search"])
 api_router.include_router(facets.router, prefix="/search/facets", tags=["Faceted Search"])
+api_router.include_router(download_plan.router, prefix="/search/download-plan", tags=["Download Planning"])
 api_router.include_router(files.router, prefix="/files", tags=["File Metadata & Previews"])
 api_router.include_router(datasets.router, prefix="/datasets", tags=["Popular Datasets"])
 api_router.include_router(trending.router, prefix="/search/trending", tags=["Trending Searches"])

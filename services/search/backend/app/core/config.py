@@ -36,6 +36,16 @@ class Settings(BaseSettings):
     RRF_VECTOR_WEIGHT: float = 0.5
     DEFAULT_SEARCH_LIMIT: int = 20
     MAX_SEARCH_LIMIT: int = 100
+    # Vector relevance: only hits within VECTOR_SCORE_MARGIN (cosine) of the best hit
+    # are candidates, out of the VECTOR_CANDIDATES nearest. Without a cutoff every
+    # eligible document is returned for any query. CLIP text similarities are tightly
+    # clustered, so tune the margin against labelled queries before relying on it.
+    VECTOR_CANDIDATES: int = 200
+    VECTOR_SCORE_MARGIN: float = 0.08
+
+    # Ranked results scanned when planning a download of the top N. It also bounds how many
+    # files an oversized-file skip can look past.
+    DOWNLOAD_PLAN_SCAN: int = 30000
 
     # Embeddings
     EMBEDDING_MODEL_NAME: str = "clip-ViT-B-32"

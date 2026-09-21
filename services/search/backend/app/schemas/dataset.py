@@ -14,6 +14,7 @@ class DatasetSummary(BaseModel):
     view_count: int
     download_count: int
     popularity_score: float
+    view_count_7d: int = 0
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

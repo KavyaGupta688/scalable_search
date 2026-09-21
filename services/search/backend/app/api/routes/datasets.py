@@ -11,6 +11,7 @@ async def get_popular_datasets(
     popular_service: PopularDatasetService = Depends(get_popular_dataset_service)
 ):
     """
-    Returns dynamically ranked popular datasets calculated from recent 7-day usage events (views, downloads, previews).
+    Returns datasets ranked by cumulative popularity score (recorded views and downloads).
+    Each item also carries view_count_7d, the dataset opens recorded in the last 7 days.
     """
     return await popular_service.get_popular_datasets(limit=limit)

@@ -19,6 +19,35 @@ class SearchRequest(BaseModel):
     vector_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
 
 
+class DownloadPlanRequest(BaseModel):
+    """A search plus how many of its top results to download."""
+
+    query: str = Field(..., min_length=1)
+    filters: Optional[SearchFilters] = None
+    search_mode: Literal["hybrid", "vector", "text"] = "hybrid"
+    count: Optional[int] = Field(default=None, ge=0, le=1_000_000, description="Top N results; omit for as many as possible")
+    include_ids: bool = Field(default=False, description="Return the selected file ids (needed to start the download)")
+    rrf_k: Optional[int] = 60
+    keyword_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
+    vector_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class DownloadPlanResponse(BaseModel):
+    total_matches: int
+    requested: Optional[int] = None
+    count: int
+    available: int
+    total_bytes: int
+    estimated_parts: int
+    excluded_oversized: int
+    oversized_in_scan: int
+    within_limits: bool
+    fit_count: int
+    truncated: bool
+    limits: Dict[str, int]
+    file_ids: Optional[List[str]] = None
+
+
 class VectorSearchRequest(BaseModel):
     query: str = Field(
         ...,

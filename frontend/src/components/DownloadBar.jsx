@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Presence, FeedbackMotion } from './Motion';
 import {saveArchive} from '../services/http';
 import { createBatchDownload, getDownloadStatus } from '../services/downloadApi';
+import { ArchiveParts } from './ArchiveParts';
 import { DownloadIcon, SpinnerIcon, CloseIcon, CheckCircleIcon } from './Icons';
 
 /**
@@ -35,9 +36,9 @@ export const DownloadBar = ({
     catch (err) {setStatusError(err.message);}
     finally {setLoading(false);}
   };
-  const handleSave = async () => {
+  const handleSave = async (part = 1) => {
     setLoading(true);setStatusError('');
-    try {await saveArchive(job.download_id);} catch (err) {setStatusError(err.message);}
+    try {await saveArchive(job.download_id, part, job.part_count || 1);} catch (err) {setStatusError(err.message);}
     finally {setLoading(false);}
   };
   const handleReset = () => {setJob(null);setStatusError('');onClear?.();onComplete?.();};
@@ -102,7 +103,7 @@ export const DownloadBar = ({
             </button>
           )}
 
-          {downloadStatus === 'ready' && downloadUrl && <button className="nx-button nx-button--primary" onClick={handleSave} disabled={loading}>Save archive</button>}
+          {downloadStatus === 'ready' && downloadUrl && <ArchiveParts job={job} onSave={handleSave} busy={loading} />}
           {downloadStatus === 'ready' && (
             <button
               type="button"

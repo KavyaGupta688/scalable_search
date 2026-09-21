@@ -4,6 +4,8 @@ from modules.shared.catalog import VISIBLE_SQL
 from qdrant_client.http import models as qmodels
 from app.models.file_metadata import FileMetadata
 from app.schemas.filters import SearchFilters
+from app.utils.resolution import resolution_clause
+from app.utils.size_buckets import size_clause
 
 
 def build_sqlalchemy_filters(filters: Optional[SearchFilters]) -> List[Any]:
@@ -47,6 +49,18 @@ def build_sqlalchemy_filters(filters: Optional[SearchFilters]) -> List[Any]:
 
     if filters.date_to:
         clauses.append(FileMetadata.ingested_at <= filters.date_to)
+
+    if filters.resolutions:
+        clauses.append(resolution_clause(filters.resolutions))
+
+    if filters.size_buckets:
+        clauses.append(size_clause(filters.size_buckets))
+
+    if filters.min_size is not None:
+        clauses.append(FileMetadata.file_size >= filters.min_size)
+
+    if filters.max_size is not None:
+        clauses.append(FileMetadata.file_size <= filters.max_size)
 
     if filters.min_width:
         clauses.append(FileMetadata.width >= filters.min_width)

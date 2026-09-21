@@ -4,6 +4,11 @@ import {useCatalog,CatalogPagination,CatalogFilters} from '../components/Catalog
 import { TrendingSearches } from '../components/TrendingSearches';
 import { PopularDatasets } from '../components/PopularDatasets';
 import { SearchResultCard } from '../components/SearchResultCard';
+import { SuggestionOptions } from '../components/SuggestionOptions';
+import { ResolutionFilter } from '../components/ResolutionFilter';
+import { SizeFilter } from '../components/SizeFilter';
+import { BulkDownload } from '../components/BulkDownload';
+import { MODALITIES, modalityCounts, formatCount } from '../services/facets';
 import { DownloadBar } from '../components/DownloadBar';
 import { ModalDetail } from '../components/ModalDetail';
 import {
@@ -24,6 +29,8 @@ export const UserSearchView = ({ showToast }) => {
   const {query,setQuery,debouncedQuery,mode,setMode,results,totalCount,loading,error,selectedFileIds,setSelectedFileIds,activeDocId,setActiveDocId,suggestions,showSuggestions,setShowSuggestions,searchInputRef,handleSelectSuggestion,handleOpenDocument,toggleSelect,hasSearch} = catalog;
   const contentTypeFilter = catalog.filters.file_types?.[0] === 'csv' ? 'tabular' : catalog.filters.file_types?.[0] || '';
   const setContentTypeFilter = value => catalog.selectModality(value ? [value] : []);
+  const counts = modalityCounts(catalog.facets);
+  const allCount = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : undefined;
   const handleBrowseDataset = (id) => {catalog.setFilters(f => ({...f,dataset_ids:[id]})); setQuery('');};
 
   return (
@@ -102,31 +109,14 @@ export const UserSearchView = ({ showToast }) => {
             {/* Suggestions Dropdown */}
             <Presence>{showSuggestions && suggestions.length > 0 && (
               <FeedbackMotion id="user-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-nexus-surface border border-nexus-borderStrong rounded-sm shadow-xl z-40 overflow-hidden divide-y divide-nexus-borderSubtle">
-                {suggestions.map((s, idx) => (
-                  <button
-                    key={idx} id={`user-suggestion-${idx}`} role="option" aria-selected={catalog.highlight === idx}
-                    type="button"
-                    onMouseDown={e => e.preventDefault()} onClick={() => handleSelectSuggestion(typeof s === 'string' ? s : s.text || s.query)}
-                    className="w-full text-left px-3.5 py-2 text-sm text-nexus-textSecondary hover:text-nexus-textPrimary hover:bg-nexus-hover flex items-center justify-between transition-colors"
-                  >
-                    <span>{typeof s === 'string' ? s : s.text || s.query}</span>
-                    <ArrowUpLeftIcon className="w-3.5 h-3.5 text-nexus-textMuted" />
-                  </button>
-                ))}
+                <SuggestionOptions idPrefix="user-suggestion" items={suggestions} highlight={catalog.highlight} onSelect={handleSelectSuggestion} />
               </FeedbackMotion>
             )}</Presence>
           </div>
 
           {/* Content Type Filter Chips */}
           <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-            {[
-              { id: '', label: 'All Modalities' },
-              { id: 'image', label: 'Images' },
-              { id: 'video', label: 'Videos' },
-              { id: 'document', label: 'Documents' },
-              { id: 'audio', label: 'Audio' },
-              { id: 'tabular', label: 'Tabular' },
-            ].map((item) => {
+            {[{ id: '', label: 'All Modalities' }, ...MODALITIES].map((item) => {
               const active = contentTypeFilter === item.id;
               return (
                 <button
@@ -139,11 +129,13 @@ export const UserSearchView = ({ showToast }) => {
                       : 'bg-nexus-elevated text-nexus-textMuted border-nexus-border hover:border-nexus-borderStrong hover:text-nexus-textSecondary'
                   }`}
                 >
-                  {item.label}
+                  {item.label} <span className="font-mono">({formatCount(item.id ? counts?.[item.id] : allCount)})</span>
                 </button>
               );
             })}
           </div>
+          <ResolutionFilter catalog={catalog} layout="chips" />
+          <SizeFilter catalog={catalog} layout="chips" />
         </div>
 
         <CatalogFilters catalog={catalog}/>{error && <p role="alert" className="text-sm text-nexus-danger">{error}</p>}
@@ -171,6 +163,8 @@ export const UserSearchView = ({ showToast }) => {
                 </span>
               )}
             </div>
+
+            <BulkDownload catalog={catalog} />
 
             {/* Skeletons */}
             {loading && results.length === 0 && (

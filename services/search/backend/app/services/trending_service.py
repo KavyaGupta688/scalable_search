@@ -10,7 +10,7 @@ from app.schemas.search import (
     SuggestionsResponse,
 )
 from app.db.redis import get_cache_client
-from app.utils.query_normalizer import normalize_text
+from app.utils.query_normalizer import escape_like, normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -88,13 +88,15 @@ class TrendingService:
         from sqlalchemy import text
         from modules.shared.catalog import VISIBLE_SQL
 
+        # lower(title) LIKE matches the file_metadata_title_prefix_idx expression index
+        # (title ILIKE cannot use it). norm_q is already lower-case.
         rows = await self.analytics_repo.db.execute(
             text(
                 "SELECT DISTINCT title AS value FROM file_metadata WHERE "
                 + VISIBLE_SQL
-                + " AND title ILIKE :prefix ORDER BY value LIMIT :limit"
+                + " AND lower(title) LIKE :prefix ESCAPE '\\' ORDER BY value LIMIT :limit"
             ),
-            {"prefix": norm_q + "%", "limit": limit},
+            {"prefix": escape_like(norm_q) + "%", "limit": limit},
         )
         for row in rows:
             if row.value.lower() not in seen:
