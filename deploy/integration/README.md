@@ -10,6 +10,8 @@ Project `smsprsm-rds` owns separate Kafka, Redis, Qdrant, Vault and package volu
 
 ## Credentials and prerequisites
 
+For teammates running separate copies with the same accounts, follow [shared RDS authentication setup](../../docs/SHARED_AUTHENTICATION.md). Identity is already persisted in RDS; the optional `AUTH_DATABASE_URL_SYNC` setting allows module databases to remain separate. The integrated application no longer silently falls back to local JSON/SQLite authentication.
+
 Use Docker Compose v2, Node 20 or newer and the Python 3.11 container images. AI dependencies/checkpoints require substantial disk space. The tested Docker memory allocation is 7.6 GiB with serialized inference; it is not a throughput sizing recommendation.
 
 Create ignored `.integration/stack.env` with independent values for `INTERNAL_JWT_SECRET`, `NEXUS_JWT_SECRET`, `WATERMARK_SECRET_KEY`, `VAULT_TOKEN`, `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD`. Signing/watermark keys need at least 32 characters. `POSTGRES_PASSWORD` is required for base Compose interpolation although the local database is disabled. Keep secrets untracked and never print resolved Compose configuration.
