@@ -1,0 +1,40 @@
+const {chromium}=require('playwright');
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const env=Object.fromEntries(fs.readFileSync('.integration/stack.env','utf8').split(/\r?\n/).filter(l=>l.includes('=')&&!l.startsWith('#')).map(l=>{const i=l.indexOf('=');return [l.slice(0,i),l.slice(i+1)];}));
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true});
+ try {
+  const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+  page.setDefaultTimeout(45000);
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://localhost:18000/login/admin');
+  await page.getByLabel('Email address').fill(env.BOOTSTRAP_ADMIN_EMAIL);
+  await page.getByLabel('Password',{exact:true}).fill(env.BOOTSTRAP_ADMIN_PASSWORD);
+  await page.locator('button[type=submit]').click();await page.waitForURL('**/admin/overview');
+  const ready=page.waitForResponse(r=>r.url().includes('/api/admin/ingestion-summary')&&r.status()===200);
+  await page.goto('http://localhost:18000/admin/ingestion');
+  const summary=await (await ready).json();
+  assert.equal(typeof summary.recent_mib_per_second,'number');
+  assert(summary.validated_today>=20 && summary.duplicates>=2);
+  await page.getByText('Recent Ingest Speed',{exact:true}).waitFor();
+  const row=page.locator('tbody tr').filter({hasText:'NAS-First_attempt'}).first();
+  await row.waitFor();
+  await page.screenshot({path:'.integration/ingestion-metrics.png',fullPage:true});
+  const measured=page.waitForResponse(r=>r.url().includes('/pipeline')&&r.status()===200);
+  await row.getByRole('button',{name:'Details',exact:true}).click();
+  const pipeline=await (await measured).json();
+  assert.equal(pipeline.canonical_documents,18);
+  const dialog=page.getByRole('dialog',{name:'Ingestion details'});
+  await dialog.getByText('Source Folder:',{exact:true}).waitFor();
+  await dialog.getByText('0 discovered files awaiting an outcome',{exact:true}).waitFor();
+  await page.waitForFunction(()=>![...document.querySelectorAll('[aria-label="Ingestion details"] [role="status"]')].some(e=>e.textContent.includes('Loading')));
+  assert(!(await dialog.innerText()).includes('Unavailable'));
+  await page.screenshot({path:'.integration/ingestion-metrics-details.png'});
+  await page.setViewportSize({width:390,height:844});
+  await page.waitForFunction(()=>document.querySelector('.admin-sidebar').getBoundingClientRect().right<=0);
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+  await page.screenshot({path:'.integration/ingestion-metrics-mobile.png'});
+  assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({summary,pipeline,verified:'real metrics, live NAS details, desktop/mobile layout, no JavaScript errors'}));
+ } finally {await browser.close();}
+})().catch(e=>{console.error(e.message);process.exitCode=1;});

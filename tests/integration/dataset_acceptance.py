@@ -34,6 +34,8 @@ def main():
     p.add_argument("connector_id", type=uuid.UUID)
     p.add_argument("run_id", type=uuid.UUID)
     p.add_argument("--wait-seconds", type=int, default=10800)
+    p.add_argument("--query", default="test asset", help="Use '*' for a catalog without shared vendor keywords")
+    p.add_argument("--page-size", type=int, default=10)
     args = p.parse_args()
     cid, rid = str(args.connector_id), str(args.run_id)
     output = Path("/models/provisioning/dataset-" + cid + "-results.json")
@@ -110,17 +112,17 @@ def main():
         passed("real role permissions and incorrect-password rejection")
         for role, h in (("admin", admin), ("user", user)):
             for mode in ("text", "hybrid", "vector"):
-                result = call("POST", "/search", headers=h, json={"query": "test asset", "search_mode": mode, "filters": {"dataset_ids": [cid]}, "limit": 100}).json()
+                result = call("POST", "/search", headers=h, json={"query": args.query, "search_mode": mode, "filters": {"dataset_ids": [cid]}, "limit": 100}).json()
                 assert {r["file_id"] for r in result["results"]} == published, (role, mode, result["total"], len(published))
                 assert result["facets"]["total_matches"] == len(published)
             passed(role + " text, hybrid and vector discovery with dataset isolation")
         all_ids = []
-        for offset in range(0, len(published), 10):
-            data = call("POST", "/search", headers=user, json={"query": "test asset", "search_mode": "text", "filters": {"dataset_ids": [cid]}, "limit": 10, "offset": offset}).json()
+        for offset in range(0, len(published), args.page_size):
+            data = call("POST", "/search", headers=user, json={"query": args.query, "search_mode": "text", "filters": {"dataset_ids": [cid]}, "limit": args.page_size, "offset": offset}).json()
             all_ids.extend(r["file_id"] for r in data["results"])
         assert len(all_ids) == len(set(all_ids)) and set(all_ids) == published
         for modality in {r["file_type"] for r in indexed if r["published"]}:
-            data = call("POST", "/search", headers=user, json={"query": "test asset", "search_mode": "text", "filters": {"dataset_ids": [cid], "file_types": [modality]}, "limit": 100}).json()
+            data = call("POST", "/search", headers=user, json={"query": args.query, "search_mode": "text", "filters": {"dataset_ids": [cid], "file_types": [modality]}, "limit": 100}).json()
             expected = {r["file_id"] for r in indexed if r["published"] and r["file_type"] == modality}
             assert {r["file_id"] for r in data["results"]} == expected
         passed("pagination, facets and all available modality filters")
