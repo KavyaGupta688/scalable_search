@@ -19,11 +19,12 @@ class S3ConnectorFields(BaseModel):
 
     endpoint_url: str = Field(..., description="S3-compatible endpoint URL")
     bucket: str = Field(..., description="Source bucket name")
-    auth_mode: Literal["static_keys", "aws_assume_role"] = Field(
+    auth_mode: Literal["static_keys", "aws_assume_role", "anonymous"] = Field(
         "static_keys",
         description="Development static keys or production AWS STS AssumeRole",
     )
     access_key: Optional[str] = Field(None, description="AWS access key ID (static_keys only)")
+    metadata_mode: Literal["required", "optional", "none"] = "required"
     secret_key: Optional[str] = Field(None, description="AWS secret access key (static_keys only)")
     role_arn: Optional[str] = Field(None, description="Vendor IAM role ARN (aws_assume_role only)")
     external_id: Optional[str] = Field(
@@ -63,6 +64,10 @@ class S3ConnectorFields(BaseModel):
 
     @model_validator(mode="after")
     def validate_authentication(self):
+        if self.auth_mode == "anonymous":
+            if self.access_key or self.secret_key or self.role_arn or self.external_id:
+                raise ValueError("Public bucket access must not include credentials or a role")
+            return self
         if self.auth_mode == "static_keys":
             if not self.access_key or not self.secret_key:
                 raise ValueError("access_key and secret_key are required for static_keys")
@@ -89,7 +94,7 @@ class S3EnumerationScopeUpdate(BaseModel):
 class S3AuthenticationUpdate(BaseModel):
     """Replace one connector's S3 authentication without exposing old secrets."""
 
-    auth_mode: Literal["static_keys", "aws_assume_role"]
+    auth_mode: Literal["static_keys", "aws_assume_role", "anonymous"]
     access_key: Optional[str] = None
     secret_key: Optional[str] = None
     role_arn: Optional[str] = None
@@ -98,6 +103,10 @@ class S3AuthenticationUpdate(BaseModel):
 
     @model_validator(mode="after")
     def validate_authentication(self):
+        if self.auth_mode == "anonymous":
+            if self.access_key or self.secret_key or self.role_arn or self.external_id:
+                raise ValueError("Public bucket access must not include credentials or a role")
+            return self
         if self.auth_mode == "static_keys":
             if not self.access_key or not self.secret_key:
                 raise ValueError("access_key and secret_key are required for static_keys")
@@ -124,6 +133,18 @@ class NASConnectorFields(BaseModel):
         ge=1,
         description="Hard safety cap for NAS enumeration. Null permits the full configured path.",
     )
+
+    @model_validator(mode="after")
+    def validate_smb(self):
+        if self.protocol == "SMB":
+            normalized = self.mount_path.strip().replace("/", "\\").rstrip("\\")
+            parts = normalized[2:].split("\\")
+            if not normalized.startswith("\\\\") or len(parts) < 2 or any(p in ("", ".", "..") or ":" in p for p in parts):
+                raise ValueError("SMB mount_path must be a UNC server/share path without traversal")
+            if not self.username or not self.password:
+                raise ValueError("SMB username and password are required")
+            self.mount_path = normalized
+        return self
 
 
 class ConnectorCreate(BaseModel):
@@ -178,6 +199,7 @@ class ConnectorResponse(BaseModel):
     s3_role_arn: Optional[str] = None
     s3_session_duration_seconds: Optional[int] = None
     s3_prefix: Optional[str] = None
+    source_metadata_mode: str = "required"
     enumeration_max_objects: Optional[int] = None
     enumeration_page_size: Optional[int] = None
     status: str

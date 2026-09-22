@@ -168,7 +168,7 @@ async def run_consumer():
                             continue
 
                         creds = vault_service.get_connector_secret(connector_model.secret_path)
-                        connector = create_connector(connector_model, creds)
+                        connector = await asyncio.to_thread(create_connector, connector_model, creds)
                         connector_cache[job.connector_id] = connector
                     finally:
                         await session.close()

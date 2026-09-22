@@ -76,6 +76,7 @@ class Connector(Base):
     # ``max_objects=None`` means the connector is allowed to scan the whole
     # configured prefix (the production default).
     s3_prefix: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_metadata_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="required", server_default="required")
     enumeration_max_objects: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     enumeration_page_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -111,9 +112,10 @@ class Connector(Base):
             name="ck_connectors_status",
         ),
         CheckConstraint(
-            "s3_auth_mode IS NULL OR s3_auth_mode IN ('static_keys', 'aws_assume_role')",
+            "s3_auth_mode IS NULL OR s3_auth_mode IN ('static_keys', 'aws_assume_role', 'anonymous')",
             name="ck_connectors_s3_auth_mode",
         ),
+        CheckConstraint("source_metadata_mode IN ('required', 'optional', 'none')", name="ck_connectors_metadata_mode"),
         CheckConstraint(
             "s3_session_duration_seconds IS NULL OR s3_session_duration_seconds BETWEEN 900 AND 43200",
             name="ck_connectors_s3_session_duration",

@@ -26,6 +26,16 @@ EVENT = {
 
 
 class IngestionContractTests(unittest.TestCase):
+    def test_files_without_vendor_metadata_reach_ai(self):
+        event = IngestionDocumentEvent.model_validate({**EVENT, "metadata_available": False, "metadata": None})
+        self.assertEqual(document_from_event(event).metadata, {})
+
+    def test_declared_vendor_metadata_must_be_a_dictionary(self):
+        from pydantic import ValidationError
+        for invalid in (None, "not metadata", []):
+            with self.assertRaises(ValidationError):
+                IngestionDocumentEvent.model_validate({**EVENT, "metadata": invalid})
+
     def test_ingestion_event_preserves_identity_and_vendor_metadata(self) -> None:
         event = IngestionDocumentEvent.model_validate(EVENT)
         document = document_from_event(event)

@@ -7,6 +7,15 @@ import pytest
 from ingestion.connectors.s3 import S3Connector
 
 
+def test_public_bucket_does_not_sign_requests_or_assume_roles():
+    from botocore import UNSIGNED
+    connector = S3Connector(endpoint_url="https://s3.us-east-1.amazonaws.com",
+                            bucket="public-images", connector_id=uuid4(),
+                            access_key="", secret_key="", auth_mode="anonymous")
+    assert connector.client.meta.config.signature_version is UNSIGNED
+    assert connector.client_for_entitlement(300) is connector.client
+
+
 class FakeS3Client:
     def __init__(self, pages: list[dict]):
         self.pages = pages

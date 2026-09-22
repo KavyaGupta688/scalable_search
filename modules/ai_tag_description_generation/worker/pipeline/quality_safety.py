@@ -9,6 +9,7 @@ from modules.ai_tag_description_generation.worker.pipeline import model_manager
 from modules.ai_tag_description_generation.worker.pipeline.ocr_stt import extract_ocr_lines
 from modules.ai_tag_description_generation.worker.pipeline.retry_handler import TransientError
 from modules.ai_tag_description_generation.app.config import settings
+from modules.ai_tag_description_generation.worker.pipeline.nsfw_policy import explicit_nudity_score
 
 logger = logging.getLogger(__name__)
 
@@ -264,18 +265,13 @@ def assess_nsfw(images: List[Image.Image]) -> float:
         try:
             img_np = np.array(img)
             detections = nudenet.detect(img_np)
-            # NudeDetector.detect() returns a list of dicts with 'class' and 'score'
-            # Aggregate: any detection with an unsafe class contributes to the score
-            for det in detections:
-                score = det.get('score', 0.0)
-                if score > max_unsafe:
-                    max_unsafe = score
+            max_unsafe = max(max_unsafe, explicit_nudity_score(detections))
         except Exception as e:
             logger.warning(f"NSFW detection failed for an image: {e}")
             failures += 1
 
-    if failures == len(images):
-        raise TransientError("NSFW detection failed for every image")
+    if failures:
+        raise TransientError("NSFW detection did not complete for every image")
 
     return max_unsafe
 

@@ -119,7 +119,7 @@ class SearchService:
 
         # 5. Facet Computation
         facets = await self.facet_service.get_facets(
-            query=req.query, filters=active_filters
+            query=req.query if mode == "text" else "", filters=active_filters
         )
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0

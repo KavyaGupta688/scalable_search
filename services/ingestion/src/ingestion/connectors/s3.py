@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import boto3
 from botocore.config import Config
+from botocore import UNSIGNED
 from botocore.exceptions import BotoCoreError, ClientError
 
 from ingestion.config import get_settings
@@ -45,6 +46,7 @@ class S3Connector(SourceConnector):
         prefix: str = "",
         max_objects: int | None = None,
         page_size: int = 1000,
+        metadata_mode: str = "required",
     ):
         self.bucket = bucket
         self.connector_id = connector_id
@@ -55,6 +57,7 @@ class S3Connector(SourceConnector):
         self.prefix = prefix
         self.max_objects = max_objects
         self.page_size = page_size
+        self.metadata_mode = metadata_mode
         settings = get_settings()
         if auth_mode == "static_keys" and not settings.source_access.allow_static_s3_credentials:
             raise ValueError("Static S3 credentials are disabled by configuration")
@@ -67,13 +70,13 @@ class S3Connector(SourceConnector):
         region_name = "us-east-1"
         if endpoint_url:
             hostname = urlparse(endpoint_url).hostname or ""
-            match = re.search(r"(?:^|\.)s3[.-]([a-z0-9-]+)\.amazonaws\.com$", hostname)
+            match = re.search(r"(?:^|\.)s3[.-]([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?$", hostname)
             if match:
                 region_name = match.group(1)
 
         self.boto_config = Config(
             s3={"addressing_style": addressing_style},
-            signature_version=signature_version,
+            signature_version=UNSIGNED if auth_mode == "anonymous" else signature_version,
             retries={"max_attempts": 8, "mode": "adaptive"},
             connect_timeout=10,
             read_timeout=120,
@@ -87,7 +90,9 @@ class S3Connector(SourceConnector):
         self._credentials_expire_at: datetime | None = None
         self._s3_client = None
 
-        if auth_mode == "static_keys":
+        if auth_mode == "anonymous":
+            self._s3_client = self._create_s3_client("", "")
+        elif auth_mode == "static_keys":
             if not access_key or not secret_key:
                 raise ValueError("Static S3 authentication requires access_key and secret_key")
             self._s3_client = self._create_s3_client(access_key, secret_key)
@@ -150,7 +155,7 @@ class S3Connector(SourceConnector):
     def client_for_entitlement(self, remaining_entitlement_seconds: int):
         """Issue a session that cannot extend beyond the entitlement clock."""
 
-        if self.auth_mode == "static_keys":
+        if self.auth_mode in ("static_keys", "anonymous"):
             return self.client
         duration = min(self.session_duration_seconds, remaining_entitlement_seconds)
         if duration < 900:
@@ -165,7 +170,7 @@ class S3Connector(SourceConnector):
     def client(self):
         """Return an S3 client, refreshing AssumeRole credentials before expiry."""
 
-        if self.auth_mode == "static_keys":
+        if self.auth_mode in ("static_keys", "anonymous"):
             return self._s3_client
         refresh_at = datetime.now(UTC) + timedelta(minutes=5)
         if self._s3_client is None or not self._credentials_expire_at or self._credentials_expire_at <= refresh_at:

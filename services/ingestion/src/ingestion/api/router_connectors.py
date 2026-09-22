@@ -6,6 +6,7 @@ Credentials are stored in Vault — never in Postgres.
 """
 
 from __future__ import annotations
+import asyncio
 
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -95,6 +96,7 @@ async def create_connector_endpoint(
         s3_role_arn=connector_in.s3.role_arn if connector_in.s3 else None,
         s3_session_duration_seconds=(connector_in.s3.session_duration_seconds if connector_in.s3 else None),
         s3_prefix=connector_in.s3.prefix if connector_in.s3 else None,
+        source_metadata_mode=connector_in.s3.metadata_mode if connector_in.s3 else "required",
         enumeration_max_objects=(
             connector_in.s3.max_objects if connector_in.s3 else connector_in.nas.max_files if connector_in.nas else None
         ),
@@ -254,7 +256,7 @@ async def test_connector(
         # Load credentials from Vault
         creds = vault.get_connector_secret(connector.secret_path)
         # Instantiate the real connector
-        source_connector = create_connector(connector, creds)
+        source_connector = await asyncio.to_thread(create_connector, connector, creds)
         # Call test_connection
         await source_connector.test_connection()
         connector.status = ConnectorStatus.VERIFIED

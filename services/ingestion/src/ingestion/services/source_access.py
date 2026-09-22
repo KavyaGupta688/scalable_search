@@ -57,7 +57,7 @@ async def load_source_connector(
     if connector_model is None:
         raise LookupError(f"Connector {asset.source_connector_id} no longer exists")
     credentials = vault.get_connector_secret(connector_model.secret_path)
-    return connector_model, create_connector(connector_model, credentials)
+    return connector_model, await asyncio.to_thread(create_connector, connector_model, credentials)
 
 
 def source_asset_job(asset: SourceAsset, connector: Connector) -> JobDescriptor:

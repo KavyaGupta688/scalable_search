@@ -75,7 +75,7 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
         creds = vault_service.get_connector_secret(connector_model.secret_path)
 
         # Instantiate the source connector
-        connector_instance = create_connector(connector_model, creds)
+        connector_instance = await asyncio.to_thread(create_connector, connector_model, creds)
 
         # Create Kafka producer
         producer = create_producer(settings.kafka)
@@ -101,7 +101,7 @@ async def run_enumeration(connector_id: UUID, run_id: UUID | None = None) -> Non
         async for job_descriptor, new_checkpoint_token in connector_instance.enumerate(checkpoint_token):
             job_descriptor.run_id = run_id
             job_descriptor.enumerated_at = datetime.now(timezone.utc)
-            if is_metadata_control_file(job_descriptor):
+            if is_metadata_control_file(job_descriptor, getattr(connector_instance, "metadata_mode", None)):
                 metadata_files_skipped += 1
                 if new_checkpoint_token is not None:
                     undelivered = await asyncio.to_thread(producer.flush, 30)

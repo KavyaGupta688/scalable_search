@@ -10,6 +10,22 @@ from ingestion.schemas.connector import S3AuthenticationUpdate, S3ConnectorField
 from ingestion.services.source_access import SourceAccessDeniedError, entitlement_url_lifetime
 
 
+@pytest.mark.parametrize('secret', ['access_key','secret_key','role_arn','external_id'])
+def test_anonymous_source_rejects_accidental_credentials(secret):
+    with pytest.raises(ValueError, match='must not include credentials'):
+        S3ConnectorFields(endpoint_url='https://s3.us-east-1.amazonaws.com', bucket='public',
+                          auth_mode='anonymous', **{secret:'must-not-leak'})
+    with pytest.raises(ValueError, match='must not include credentials'):
+        S3AuthenticationUpdate(auth_mode='anonymous', **{secret:'must-not-leak'})
+
+
+def test_metadata_policy_is_explicit_and_existing_sources_stay_required():
+    fields = S3ConnectorFields(endpoint_url='https://s3.us-east-1.amazonaws.com', bucket='public', auth_mode='anonymous')
+    assert fields.metadata_mode == 'required'
+    with pytest.raises(ValueError):
+        S3ConnectorFields(endpoint_url=fields.endpoint_url, bucket='public', auth_mode='anonymous', metadata_mode='invent')
+
+
 def test_static_keys_remain_supported_for_development():
     fields = S3ConnectorFields(
         endpoint_url="https://s3.ap-south-1.amazonaws.com",

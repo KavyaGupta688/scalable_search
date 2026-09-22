@@ -110,6 +110,8 @@ async def test_ai_event_uses_source_asset_and_never_contains_credentials_or_copy
     payload = enqueue.call_args.args[3]
     assert payload["source_asset_id"] == str(metadata.source_asset_id)
     assert payload["run_id"] == str(run_id)
+    assert payload["metadata_available"] is False
+    assert payload["metadata"] == {}
     assert "storage_path" not in payload
     assert "access_key" not in payload
     assert "secret_key" not in payload

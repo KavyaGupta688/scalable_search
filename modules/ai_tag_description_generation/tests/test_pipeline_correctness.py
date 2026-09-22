@@ -29,6 +29,23 @@ from modules.ai_tag_description_generation.worker.pipeline.tagging import (
 
 
 class PipelineCorrectnessTests(unittest.TestCase):
+    def test_nsfw_adapter_ignores_faces_but_preserves_explicit_flags(self):
+        from modules.ai_tag_description_generation.worker.pipeline.quality_safety import assess_nsfw
+        image = Image.new('RGB', (8, 8))
+        with patch.object(model_manager, 'get_model') as get_model:
+            get_model.return_value.detect.return_value = [{'class':'FACE_MALE','score':0.99}]
+            self.assertEqual(assess_nsfw([image]), 0)
+            get_model.return_value.detect.return_value.append({'class':'FEMALE_BREAST_EXPOSED','score':0.9})
+            self.assertEqual(assess_nsfw([image]), 0.9)
+
+    def test_nsfw_failure_on_one_video_frame_cannot_clear_the_video(self):
+        from modules.ai_tag_description_generation.worker.pipeline.quality_safety import assess_nsfw
+        image = Image.new('RGB', (8, 8))
+        with patch.object(model_manager, 'get_model') as get_model:
+            get_model.return_value.detect.side_effect = [[], RuntimeError('frame failed')]
+            with self.assertRaises(TransientError):
+                assess_nsfw([image, image])
+
     @staticmethod
     def _high_confidence_record(safety_labels: dict) -> dict:
         return {

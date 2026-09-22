@@ -55,7 +55,6 @@ class AnalyticsRepository:
             },
         )
         await self.db.commit()
-        await self.db.refresh(event)
         return event
 
     async def get_trending_queries(

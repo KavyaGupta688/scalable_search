@@ -34,6 +34,7 @@ open_clip_torch==2.29.0
 ultralytics>=8.0.0
 # Supports BLIP while retaining the Transformers API required by RAM++.
 transformers==4.28.1
+accelerate==0.20.3
 # Required by RAM++ for activation checkpointing.
 fairscale==0.4.13
 # KeyBERT 0.9's SentenceTransformers dependency still imports cached_download.

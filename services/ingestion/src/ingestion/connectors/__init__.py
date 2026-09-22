@@ -13,7 +13,9 @@ def _parse_smb_unc_path(mount_path: str) -> tuple[str, str, str]:
     if not normalized.startswith("\\\\"):
         raise ValueError("SMB mount_path must be a UNC path such as '\\\\server\\share'")
 
-    parts = [part for part in normalized[2:].split("\\") if part]
+    parts = normalized[2:].rstrip("\\").split("\\")
+    if any(part in ("", ".", "..") or ":" in part for part in parts):
+        raise ValueError("SMB path cannot contain empty, relative, or alternate-stream components")
     if len(parts) < 2:
         raise ValueError("SMB mount_path must include both a server and share name")
     return parts[0], parts[1], "\\".join(parts[2:])
@@ -42,6 +44,7 @@ def create_connector(connector: Connector, credentials: dict) -> SourceConnector
             prefix=connector.s3_prefix or "",
             max_objects=connector.enumeration_max_objects,
             page_size=connector.enumeration_page_size or 1000,
+            metadata_mode=getattr(connector, "source_metadata_mode", None) or "required",
         )
     elif connector.source_type == SourceType.NAS_SMB:
         server, share_name, root_path = _parse_smb_unc_path(connector.mount_path or "")

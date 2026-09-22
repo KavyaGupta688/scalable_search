@@ -117,6 +117,8 @@ def _chunk_text(text: str) -> list[str]:
     while start < len(text):
         end = start + CHUNK_SIZE_CHARS
         chunks.append(text[start:end])
+        if end >= len(text):
+            break
         start = end - CHUNK_OVERLAP_CHARS  # small overlap avoids cutting sentences/context at boundaries
     return chunks
 

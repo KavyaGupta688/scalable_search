@@ -6,7 +6,7 @@ Ensures consumers receive well-formed, strongly typed JSON payloads.
 from typing import Any, List
 from datetime import datetime, timezone
 from uuid import UUID
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 class EnrichmentRequest(BaseModel):
     """Request enrichment for a file already registered by ingestion."""
@@ -35,6 +35,15 @@ class IngestionDocumentEvent(BaseModel):
     effective_expiry_at: datetime
     metadata_available: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def absent_vendor_metadata(cls, values):
+        # Earlier ingestion events represented explicitly absent metadata as null.
+        # Keep malformed supplied metadata invalid; only normalize the absent case.
+        if isinstance(values, dict) and values.get("metadata") is None and not values.get("metadata_available", False):
+            return {**values, "metadata": {}}
+        return values
 
 class ProcessingSummary(BaseModel):
     stages_completed: List[str]

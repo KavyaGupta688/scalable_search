@@ -29,7 +29,7 @@ MODEL_VERSIONS = {
     "ram": "ram-plus-swin-l-14m",
     "paddleocr": "paddleocr-v4",
     "presidio": "presidio-analyzer-2.2",
-    "nudenet": "nudenet-v3",
+    "nudenet": "nudenet-v3-explicit-classes-v1",
     "bart_mnli": "bart-large-mnli",
     "spacy": "en_core_web_sm",
     "keybert": "keybert-base",
@@ -98,6 +98,8 @@ def get_model(name: str):
     if os.environ.get("AI_MODEL_CACHE_POLICY") == "single":
         release_models()
 
+    logging.getLogger(__name__).info("Loading model %s", name)
+
     if name == "clip":
         model = _load_clip()
     elif name == "yolo":
@@ -130,13 +132,7 @@ def get_model(name: str):
 
         model = NudeDetector()
     elif name == "bart_mnli":
-        from transformers import pipeline
-
-        model = pipeline(
-            "zero-shot-classification",
-            model="facebook/bart-large-mnli",
-            device=0 if DEVICE == "cuda" else -1,
-        )
+        model = _load_bart_pipeline("zero-shot-classification", "facebook/bart-large-mnli")
     elif name == "spacy":
         import spacy
 
@@ -146,13 +142,7 @@ def get_model(name: str):
 
         model = KeyBERT()
     elif name == "summarizer":
-        from transformers import pipeline
-
-        model = pipeline(
-            "summarization",
-            model="facebook/bart-large-cnn",
-            device=0 if DEVICE == "cuda" else -1,
-        )
+        model = _load_bart_pipeline("summarization", "facebook/bart-large-cnn")
     elif name == "face_detector":
         from retinaface import RetinaFace
 
@@ -177,6 +167,7 @@ def get_model(name: str):
         raise ValueError(f"Unknown model name: {name}")
 
     _model_cache[name] = model
+    logging.getLogger(__name__).info("Loaded model %s", name)
     return model
 
 
@@ -184,6 +175,33 @@ def _load_clip():
     from modules.shared.embeddings import clip_bundle
 
     return clip_bundle()
+
+
+def _load_bart_pipeline(task, model_name):
+    from transformers import AutoModelForSequenceClassification, AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
+    model_class = AutoModelForSequenceClassification if task == "zero-shot-classification" else AutoModelForSeq2SeqLM
+    model = model_class.from_pretrained(model_name, low_cpu_mem_usage=True)
+    # Transformers 4.28 can leave BART's encoder/decoder embedding aliases on
+    # meta after low-memory loading. Restore the architecture's shared weights,
+    # never initialize missing tensors randomly or silently change precision.
+    shared = model.get_input_embeddings()
+    if shared.weight.is_meta:
+        # The original BART-CNN .bin checkpoint materializes the decoder alias
+        # instead of model.shared. Reuse that loaded tensor, not a fresh weight.
+        candidates = (model.model.encoder.embed_tokens, model.model.decoder.embed_tokens)
+        shared = next((embedding for embedding in candidates if not embedding.weight.is_meta), None)
+        if shared is None:
+            raise RuntimeError("BART checkpoint did not materialize any shared embedding alias")
+    model.set_input_embeddings(shared)
+    model.tie_weights()
+    if any(value.is_meta for value in (*model.parameters(), *model.buffers())):
+        raise RuntimeError("BART checkpoint contains unmaterialized tensors")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    token_limit = int(os.environ.get("AI_TEXT_MAX_INPUT_TOKENS", "1024"))
+    if token_limit < 64:
+        raise ValueError("AI_TEXT_MAX_INPUT_TOKENS must be at least 64")
+    tokenizer.model_max_length = min(token_limit, tokenizer.model_max_length, model.config.max_position_embeddings)
+    return pipeline(task, model=model, tokenizer=tokenizer, device=0 if DEVICE == "cuda" else -1)
 
 
 def _load_yolo():
@@ -254,10 +272,12 @@ def _load_ram():
 
     image_size = 384
     model = ram_plus(
-        pretrained=settings.RAM_CHECKPOINT_PATH,
+        pretrained="",
         image_size=image_size,
         vit="swin_l",
     )
+    from modules.ai_tag_description_generation.worker.pipeline.ram_loader import load_checkpoint
+    load_checkpoint(model, settings.RAM_CHECKPOINT_PATH, image_size)
     model = model.eval().to(DEVICE)
     transform = get_transform(image_size=image_size)
     return {"model": model, "transform": transform}

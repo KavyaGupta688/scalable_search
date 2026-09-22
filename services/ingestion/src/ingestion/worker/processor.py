@@ -131,7 +131,7 @@ async def process_job(
     now = datetime.now(UTC)
 
     try:
-        if is_metadata_control_file(job):
+        if is_metadata_control_file(job, getattr(connector, "metadata_mode", None)):
             logger.info(
                 "Skipping vendor metadata control file as document content",
                 extra={"job_id": job.provisional_id, "source_ref": job.source_ref},

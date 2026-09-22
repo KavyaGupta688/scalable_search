@@ -6,7 +6,8 @@ import pytest
 
 from ingestion.connectors.base import PermanentConnectorError
 from ingestion.schemas.job import JobDescriptor
-from ingestion.storage.source_metadata import clear_metadata_cache, resolve_source_metadata
+from ingestion.storage.source_metadata import clear_metadata_cache, resolve_source_metadata, is_metadata_control_file
+from ingestion.worker.validator import PermanentProcessingError
 
 
 class MetadataConnector:
@@ -39,6 +40,41 @@ def empty_manifest_cache():
     clear_metadata_cache()
     yield
     clear_metadata_cache()
+
+
+def test_files_only_does_not_silently_discard_a_csv_named_metadata():
+    job = s3_job('data/metadata.csv')
+    assert not is_metadata_control_file(job, 'none')
+    assert is_metadata_control_file(job, 'required')
+    assert is_metadata_control_file(job, 'optional')
+
+
+@pytest.mark.asyncio
+async def test_optional_metadata_accepts_files_without_manifests():
+    connector = MetadataConnector({})
+    connector.metadata_mode = "optional"
+    assert await resolve_source_metadata(connector, s3_job("images/photo.jpg")) is None
+
+
+@pytest.mark.asyncio
+async def test_explicit_required_metadata_overrides_legacy_global_default(monkeypatch):
+    from ingestion.config import get_settings
+    monkeypatch.setattr(get_settings().external_metadata, 'required', False)
+    connector = MetadataConnector({})
+    connector.metadata_mode = 'required'
+    with pytest.raises(PermanentProcessingError, match='No vendor metadata matched'):
+        await resolve_source_metadata(connector, s3_job('images/photo.jpg'))
+
+
+@pytest.mark.asyncio
+async def test_files_only_never_reads_vendor_sidecars():
+    class FilesOnly:
+        metadata_mode = "none"
+
+        async def open_stream(self, job):
+            raise AssertionError("Files-only mode must not request sidecars")
+            yield
+    assert await resolve_source_metadata(FilesOnly(), s3_job("images/photo.jpg")) is None
 
 
 @pytest.mark.asyncio

@@ -50,7 +50,7 @@ async def publish_ai_processing_event(
         "first_successful_ingested_at": metadata.first_successful_ingested_at.isoformat(),
         "effective_expiry_at": metadata.effective_expiry_at.isoformat(),
         "metadata_available": structured_metadata is not None,
-        "metadata": structured_metadata.to_event_dict() if structured_metadata else None,
+        "metadata": structured_metadata.to_event_dict() if structured_metadata else {},
     }
 
     if session is None:

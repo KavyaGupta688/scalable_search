@@ -20,7 +20,7 @@ def test_parse_smb_unc_path_supports_a_root_subdirectory():
     )
 
 
-@pytest.mark.parametrize("path", ["server\\share", r"\\server", ""])
+@pytest.mark.parametrize("path", ["server\\share", r"\\server", "", r"\\server\share\..\private", r"\\server\share\file:stream"])
 def test_parse_smb_unc_path_rejects_invalid_paths(path):
     with pytest.raises(ValueError):
         _parse_smb_unc_path(path)
@@ -53,6 +53,11 @@ def test_factory_passes_identity_scope_and_domain_to_smb(monkeypatch):
     assert source.root_path == "incoming"
     assert source.max_files == 25
     assert sessions[0]["username"] == r"EXAMPLE\reader"
+    other = create_connector(model, {"username":"other", "password":"other-secret"})
+    assert sessions[0]['connection_cache'] is not sessions[1]['connection_cache']
+    assert sessions[0]['connection_timeout'] == 10
+    with pytest.raises(Exception, match='inside'):
+        source._safe_path(r'..\private')
 
 
 def test_schema_requires_nas_protocol_to_match_source_type():
@@ -74,7 +79,7 @@ async def test_smb_enumeration_streams_and_builds_a_valid_bounded_job(monkeypatc
     )
     walk_progress = []
 
-    def fake_walk(_path):
+    def fake_walk(_path, **kwargs):
         walk_progress.append("first")
         yield (r"\\server\share\incoming", [], ["b.jpg", "a.jpg"])
         walk_progress.append("second")
@@ -83,7 +88,7 @@ async def test_smb_enumeration_streams_and_builds_a_valid_bounded_job(monkeypatc
     monkeypatch.setattr("ingestion.connectors.nas_smb.smbclient.walk", fake_walk)
     monkeypatch.setattr(
         "ingestion.connectors.nas_smb.smbclient.stat",
-        lambda _path: SimpleNamespace(st_size=12, st_mtime=1_700_000_000),
+        lambda _path, **kwargs: SimpleNamespace(st_size=12, st_mtime=1_700_000_000),
     )
     source = NASConnectorSMB(
         server="server",

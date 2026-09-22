@@ -29,6 +29,11 @@ async def lifespan(app: FastAPI):
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1 FROM file_metadata LIMIT 1"))
     init_qdrant()
+    from starlette.concurrency import run_in_threadpool
+    from app.clients.embedding_client import get_embedding_client
+
+    # Pay model initialization during startup, before accepting search requests.
+    await run_in_threadpool(get_embedding_client().generate_text_embedding, "search readiness")
     logger.info("Multimodal Search Module ready for traffic.")
     yield
     logger.info("Shutting down Multimodal Search backend.")

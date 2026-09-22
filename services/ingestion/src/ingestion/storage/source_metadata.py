@@ -23,7 +23,9 @@ _MANIFEST_CACHE: OrderedDict[
 ] = OrderedDict()
 
 
-def is_metadata_control_file(job: JobDescriptor) -> bool:
+def is_metadata_control_file(job: JobDescriptor, metadata_mode: str | None = None) -> bool:
+    if metadata_mode == "none":
+        return False  # A plain CSV named metadata.csv is content in files-only mode.
     settings = get_settings().external_metadata
     name = PurePosixPath(_relative_path(job)).name
     return name in settings.manifest_name_list or name in settings.sidecar_name_list
@@ -277,6 +279,9 @@ def _apply_stock_csv(values: dict, row: dict[str, str]) -> None:
 async def resolve_source_metadata(
     connector: SourceConnector, job: JobDescriptor
 ) -> StructuredSourceMetadata | None:
+    mode = getattr(connector, "metadata_mode", None)
+    if mode == "none":
+        return None  # Technical object metadata remains; no vendor fields are invented.
     settings = get_settings().external_metadata
     filename = PurePosixPath(_relative_path(job)).name
     values: dict = {
@@ -336,7 +341,7 @@ async def resolve_source_metadata(
     values["metadata_formats"] = list(dict.fromkeys(values["metadata_formats"]))
     values["metadata_source_refs"] = list(dict.fromkeys(values["metadata_source_refs"]))
     if not values["metadata_formats"]:
-        if settings.required:
+        if mode == "required" or (mode is None and settings.required):
             raise PermanentProcessingError(
                 f"No vendor metadata matched source file {job.source_ref}"
             )

@@ -92,7 +92,7 @@ class VectorSearchService:
         try:
             # Check if query_points is supported (qdrant-client >= 1.10)
             if hasattr(self.qdrant, "query_points"):
-                response = self.qdrant.query_points(
+                response = await run_in_threadpool(self.qdrant.query_points,
                     collection_name=self.collection_name,
                     query=vector,
                     query_filter=qdrant_filter,
@@ -103,7 +103,7 @@ class VectorSearchService:
                     response.points if hasattr(response, "points") else response
                 )
             else:
-                search_result = self.qdrant.search(
+                search_result = await run_in_threadpool(self.qdrant.search,
                     collection_name=self.collection_name,
                     query_vector=vector,
                     query_filter=qdrant_filter,

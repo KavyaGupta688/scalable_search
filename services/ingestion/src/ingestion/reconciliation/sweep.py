@@ -11,6 +11,7 @@ Can be triggered via:
 from __future__ import annotations
 
 import time
+import asyncio
 from uuid import UUID
 
 from sqlalchemy import select
@@ -57,7 +58,7 @@ async def run_reconciliation_sweep(connector_id: UUID | None = None) -> None:
 
             try:
                 creds = vault_service.get_connector_secret(connector_model.secret_path)
-                connector_instance = create_connector(connector_model, creds)
+                connector_instance = await asyncio.to_thread(create_connector, connector_model, creds)
             except Exception as e:
                 logger.error(
                     f"Failed to initialize connector {connector_model.id}: {e}",
@@ -69,7 +70,7 @@ async def run_reconciliation_sweep(connector_id: UUID | None = None) -> None:
             source_jobs: dict[str, object] = {}
             try:
                 async for job_descriptor, _ in connector_instance.enumerate(None):
-                    if is_metadata_control_file(job_descriptor):
+                    if is_metadata_control_file(job_descriptor, getattr(connector_instance, "metadata_mode", None)):
                         continue
                     source_jobs[job_descriptor.source_ref] = job_descriptor
             except Exception as e:
