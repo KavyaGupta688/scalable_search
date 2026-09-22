@@ -9,7 +9,7 @@ from core import native_aac
 
 SECRET = "native-aac-development-secret-" * 3
 ID = "35b63f71-74d5-45dc-bdd7-7b5a00d227e9"
-pytestmark = pytest.mark.skipif(not (native_aac.ROOT / "work/native/ffmpeg-7.1/ffmpeg").is_file(), reason="Native AAC build required")
+pytestmark = pytest.mark.skipif(not (native_aac.NATIVE_ROOT / "ffmpeg-7.1/ffmpeg").is_file(), reason="Native AAC build required")
 
 
 @pytest.mark.parametrize("channels,container", [(1, "adts"), (2, "ipod")])

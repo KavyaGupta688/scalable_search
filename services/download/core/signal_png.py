@@ -44,6 +44,16 @@ def _blocks(y):
 
 def embed_bytes(data, download_id, secret):
     pixels, mode, info = _read(data)
+    output = embed_pixels(pixels, mode, download_id, secret)
+    buffer = io.BytesIO()
+    Image.fromarray(output).save(buffer, format="PNG", **info)
+    result = buffer.getvalue()
+    if extract_bytes(result, secret) != download_id.lower():
+        raise ValueError("PNG watermark did not survive pixel rounding/clipping; no output delivered")
+    return result
+
+
+def embed_pixels(pixels, mode, download_id, secret):
     y = _luminance(pixels, mode)
     low, detail, coeff = _blocks(y)
     rows, cols = coeff.shape[:2]
@@ -63,16 +73,15 @@ def embed_bytes(data, download_id, secret):
         output[:, :, 0] = np.clip(np.round(pixels[:, :, 0].astype(float) + delta), 0, 255).astype(np.uint8)
     else:
         output[:, :, :3] = np.clip(np.round(pixels[:, :, :3].astype(float) + delta[:, :, None]), 0, 255).astype(np.uint8)
-    buffer = io.BytesIO()
-    Image.fromarray(output).save(buffer, format="PNG", **info)
-    result = buffer.getvalue()
-    if extract_bytes(result, secret) != download_id.lower():
-        raise ValueError("PNG watermark did not survive pixel rounding/clipping; no output delivered")
-    return result
+    return output
 
 
 def extract_bytes(data, secret):
     pixels, mode, _ = _read(data)
+    return extract_pixels(pixels, mode, secret)
+
+
+def extract_pixels(pixels, mode, secret):
     _, _, coeff = _blocks(_luminance(pixels, mode))
     rows, cols = coeff.shape[:2]
     if rows * cols < BIT_COUNT * COPIES:

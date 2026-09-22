@@ -10,14 +10,14 @@ import soundfile as sf
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from core.native_aac import ROOT, _run
+from core.native_aac import NATIVE_ROOT, _run
 
 SECRET = "native-gateway-test-secret-" * 3
 
 
 @pytest.mark.parametrize("kind", ["mp3", "aac", "m4a", "h264", "hevc"])
 def test_native_download_and_inspect(kind, monkeypatch, tmp_path):
-    if not (ROOT / "work/native/ffmpeg-7.1/ffmpeg").exists():
+    if not (NATIVE_ROOT / "ffmpeg-7.1/ffmpeg").exists():
         pytest.skip("Native builds required")
     binary = imageio_ffmpeg.get_ffmpeg_exe()
     ext = "mp4" if kind in ("h264", "hevc") else kind

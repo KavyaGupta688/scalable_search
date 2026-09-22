@@ -6,3 +6,4 @@ PyWavelets==1.8.0
 soundfile==0.13.1
 
 imageio-ffmpeg==0.6.0
+pypng==0.20220715.0

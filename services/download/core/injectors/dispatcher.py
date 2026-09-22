@@ -39,13 +39,15 @@ def signal_method(file_identifier):
         return "JPEG-DCT-v1"
     if LOSSLESS_SIGNAL_WATERMARK and ext == ".png":
         return "PNG-DWT-DCT-v1"
+    if LOSSLESS_SIGNAL_WATERMARK and ext in (".bmp", ".tif", ".tiff", ".webp"):
+        return "Lossless-DWT-DCT-v1"
     if LOSSLESS_SIGNAL_WATERMARK and ext in (".wav", ".flac"):
         return "Audio-STFT-v1"
     if NATIVE_AUDIO_WATERMARK and ext in (".aac", ".m4a"):
         return "AAC-Native-MDCT-v1"
     if NATIVE_AUDIO_WATERMARK and ext == ".mp3":
         return "MP3-Native-MDCT-v1"
-    if NATIVE_VIDEO_WATERMARK and ext.lstrip(".") in VIDEO_EXTENSIONS:
+    if NATIVE_VIDEO_WATERMARK and ext in (".mp4", ".mov", ".m4v", ".mkv"):
         return "Video-Native-Coefficients-v1"
     return None
 
@@ -56,9 +58,15 @@ def inject_watermark_bytes(data: bytes, token_str: str, file_identifier: str = "
     """
     ext = Path(file_identifier).suffix.lstrip(".").lower() if file_identifier else ""
 
-    if NATIVE_VIDEO_WATERMARK and ext in VIDEO_EXTENSIONS:
-        if ext not in ("mp4", "m4v", "mov", "mkv"):
-            raise ValueError("Native video mode supports MP4/MOV/MKV containers with H.264/H.265 only")
+    if LOSSLESS_SIGNAL_WATERMARK and ext in ("bmp", "tif", "tiff", "webp"):
+        from core.signal_lossless import embed_bytes
+        from core.crypto import verify_watermark_token
+        valid, payload, message = verify_watermark_token(token_str)
+        if not valid:
+            raise ValueError(message)
+        return embed_bytes(data, payload["did"], CODEC_WATERMARK_SECRET)
+
+    if NATIVE_VIDEO_WATERMARK and ext in ("mp4", "m4v", "mov", "mkv"):
         from core.crypto import verify_watermark_token
         from core.native_video import embed_bytes
         valid, payload, message = verify_watermark_token(token_str)
@@ -84,7 +92,7 @@ def inject_watermark_bytes(data: bytes, token_str: str, file_identifier: str = "
     if data.startswith(PNG_SIGNATURE) or ext == "png":
         if LOSSLESS_SIGNAL_WATERMARK:
             from core.crypto import verify_watermark_token
-            from core.signal_png import embed_bytes
+            from core.signal_lossless import embed_bytes
             valid, payload, message = verify_watermark_token(token_str)
             if not valid:
                 raise ValueError(message)

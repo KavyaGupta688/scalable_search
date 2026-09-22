@@ -7,11 +7,11 @@ import tempfile
 import time
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, UploadFile, File
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, String, JSON, DateTime, select, text
@@ -36,6 +36,10 @@ class Job(Base):
     id = Column(String(36), primary_key=True)
     owner = Column(String(128), nullable=False, index=True)
     email = Column(String(255), nullable=False)
+    display_name = Column(String(255))
+    client_ip = Column(String(64))
+    execution_mode = Column(String(20))
+    delivery_started_at = Column(DateTime(timezone=True))
     file_ids = Column(JSON, nullable=False)
     status = Column(String(20), nullable=False, default="building")
     error = Column(String(255))
@@ -84,13 +88,14 @@ class BatchRequest(BaseModel):
     file_ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
 
 
-def response(job):
-    with Session(database_engine("download")) as session:
-        rows = session.scalars(select(JobItem).where(JobItem.job_id == job.id)).all()
-        items = [
-            {"document_id": r.document_id, "status": r.status, "error": r.error}
-            for r in rows
-        ]
+def response(job, rows=None):
+    if rows is None:
+        with Session(database_engine("download")) as session:
+            rows = session.scalars(select(JobItem).where(JobItem.job_id == job.id)).all()
+    items = [
+        {"document_id": r.document_id, "status": r.status, "error": r.error}
+        for r in rows
+    ]
     return {
         "items": items,
         "progress": sum(i["status"] == "packaged" for i in items),
@@ -101,6 +106,7 @@ def response(job):
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "error": job.error,
+        "execution_mode": job.execution_mode,
         "download_url": f"/downloads/{job.id}/content"
         if job.status == "ready"
         else None,
@@ -120,7 +126,7 @@ def health():
 
 
 @app.post("/downloads/batch", status_code=202)
-def create_batch(body: BatchRequest, user=Depends(identity)):
+def create_batch(body: BatchRequest, background: BackgroundTasks, user=Depends(identity)):
     ids = list(dict.fromkeys(str(i) for i in body.file_ids))
     require_downloadable(ids)
     with Session(database_engine("download"), expire_on_commit=False) as session:
@@ -128,6 +134,9 @@ def create_batch(body: BatchRequest, user=Depends(identity)):
             id=str(uuid.uuid4()),
             owner=user["sub"],
             email=user.get("email", ""),
+            display_name=user.get("display_name", ""),
+            client_ip=user.get("client_ip", ""),
+            execution_mode="queued",
             file_ids=ids,
             status="building",
         )
@@ -149,6 +158,8 @@ def create_batch(body: BatchRequest, user=Depends(identity)):
             },
         )
         session.commit()
+        from dispatch import dispatch
+        dispatch(job.id, ids, background)
         return response(job)
 
 
@@ -166,7 +177,11 @@ def history(
             .limit(limit)
             .offset(offset)
         ).all()
-        return {"downloads": [response(j) for j in jobs]}
+        grouped = {j.id: [] for j in jobs}
+        if grouped:
+            for item in session.scalars(select(JobItem).where(JobItem.job_id.in_(grouped))).all():
+                grouped[item.job_id].append(item)
+        return {"downloads": [response(j, grouped[j.id]) for j in jobs]}
 
 
 @app.get("/downloads/{download_id}")
@@ -186,6 +201,9 @@ def content(download_id: uuid.UUID, user=Depends(identity)):
         if not path.is_file():
             raise HTTPException(410, "Download package has expired; create a new batch")
         record("DOWNLOAD_DELIVERY_STARTED", user["sub"], "download", job.id)
+        if not job.delivery_started_at:
+            job.delivery_started_at = datetime.now(timezone.utc)
+            session.commit()
         return FileResponse(
             path,
             filename="assets-" + job.id + ".zip",
@@ -201,7 +219,8 @@ async def verify(
     data = await file.read(64 * 1024**2 + 1)
     if len(data) > 64 * 1024**2:
         raise HTTPException(413, "Verification limit is 64 MiB")
-    token, detected = extract_token_from_bytes(data)
+    from starlette.concurrency import run_in_threadpool
+    token, detected = await run_in_threadpool(extract_token_from_bytes, data)
     valid, payload, message = (
         verify_watermark_token(token)
         if token
@@ -220,11 +239,33 @@ async def verify(
     )
     from database.models import ForensicAuditLog
 
+    metadata_id = payload.get("did") if valid and isinstance(payload, dict) else None
+    signal_id = signal.get("download_id") if signal and signal.get("authenticated") else None
+    conflict = bool(metadata_id and signal_id and metadata_id != signal_id)
+    trail = None
     with Session(database_engine("download")) as session:
-        log = session.get(ForensicAuditLog, payload.get("did")) if valid else None
-        matched = bool(log and log.token_str == token)
+        log = session.get(ForensicAuditLog, signal_id or metadata_id) if not conflict and (signal_id or metadata_id) else None
+        matched = bool(log and (signal_id == log.download_id or (metadata_id == log.download_id and log.token_str == token)))
+        if matched:
+            job = session.get(Job, log.notes) if log.notes else None
+            _, stored_payload, _ = verify_watermark_token(log.token_str)
+            trail = {
+                "download_id": log.download_id, "document_id": log.s3_key,
+                "user_id": log.user_id, "user_email": log.user_email,
+                "display_name": job.display_name if job else None,
+                "client_ip": log.client_ip if log.client_ip != "internal" else None,
+                "packaged_at": log.iso_timestamp,
+                "requested_at": job.created_at if job else None,
+                "delivery_started_at": job.delivery_started_at if job else None,
+                "job_id": job.id if job else None,
+                "execution_mode": job.execution_mode if job else None,
+                "status": log.status, "file_size_bytes": log.file_size_bytes,
+                "watermark_methods": (stored_payload or {}).get("meta", {}).get("watermark_methods", []),
+            }
     return {
         "audit_match": matched,
+        "identity_conflict": conflict,
+        "forensic_audit_trail": trail,
         "signature_valid": valid,
         "decoded_payload": payload if valid else None,
         "detected_format": detected,
@@ -287,26 +328,31 @@ def package(job, session):
                     or "asset"
                 )
                 filename = document_id + "_" + name
+                from core.integrated_watermark import methods_for, watermark
+                methods = methods_for(name)
                 payload = create_tracking_payload(
                     user_id=job.owner,
                     user_email=job.email,
                     s3_key=document_id,
-                    client_ip="internal",
-                    extra_metadata={"job_id": job.id, "document_id": document_id},
+                    client_ip=job.client_ip or "unknown",
+                    extra_metadata={"job_id": job.id, "document_id": document_id, "watermark_methods": methods},
                 )
                 payload["did"] = str(uuid.uuid5(uuid.UUID(job.id), document_id))
                 token = generate_watermark_token(payload)
-                output = inject_watermark_bytes(bytes(raw), token, file_identifier=name)
+                output = watermark(bytes(raw), token, name)
                 file_progress(job.id, document_id, "packaged")
                 total += len(output)
                 if total > MAX_BATCH:
                     raise ValueError("Package exceeds its size limit")
                 z.writestr(filename, output)
+                if "sidecar-HMAC-SHA256" in methods:
+                    z.writestr(filename + ".watermark.json", json.dumps({"token": token, "sha256": digest.hexdigest(), "filename": filename}))
                 manifest.append(
                     {
                         "document_id": document_id,
                         "filename": filename,
                         "download_id": payload["did"],
+                        "watermark_methods": methods,
                     }
                 )
                 from database.models import ForensicAuditLog
@@ -321,7 +367,7 @@ def package(job, session):
                         iso_timestamp=datetime.fromtimestamp(
                             payload["ts"], timezone.utc
                         ).isoformat(),
-                        client_ip="internal",
+                        client_ip=job.client_ip or "unknown",
                         token_str=token,
                         token_signature=token.rsplit(".", 1)[1],
                         file_size_bytes=len(output),
@@ -350,17 +396,20 @@ def package(job, session):
         archive.replace(target)
 
 
-def work_once():
+def work_once(job_id=None, mode="celery"):
     with Session(database_engine("download")) as session, session.begin():
         job = session.scalar(
             select(Job)
             .where(Job.status == "building")
+            .where(Job.id == job_id if job_id else True)
+            .where(Job.created_at < datetime.now(timezone.utc) - timedelta(seconds=10) if not job_id else True)
             .order_by(Job.created_at)
             .with_for_update(skip_locked=True)
             .limit(1)
         )
         if not job:
             return False
+        job.execution_mode = mode
         try:
             package(job, session)
             job.status = "ready"
@@ -431,9 +480,7 @@ def work_once():
         return True
 
 
-if __name__ == "__main__":
-    while True:
-        work_once()
+def cleanup_packages():
         # Packages expire after one day. Existing external/vendor files are never touched.
         if ROOT.exists():
             for path in ROOT.glob("*.zip"):
@@ -451,7 +498,6 @@ if __name__ == "__main__":
                     continue
                 if path.resolve().is_relative_to(ROOT.resolve()):
                     shutil.rmtree(path)
-        time.sleep(2)
 
 
 @app.get("/ready")

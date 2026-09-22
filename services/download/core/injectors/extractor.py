@@ -213,6 +213,16 @@ def extract_token_from_mp4(data: bytes) -> Optional[str]:
 # ==============================================================================
 
 def extract_token_from_bytes(data: bytes) -> Tuple[Optional[str], str]:
+    if data.startswith(b"%PDF-"):
+        import io
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(data))
+            token = (reader.metadata or {}).get("/NexusWatermark")
+            if token:
+                return str(token), "PDF"
+        except Exception:
+            pass  # Legacy appended metadata may still be found by the generic scan.
     """
     Attempts format-specific header extraction across Images, Audio, Video,
     and generic binaries, followed by a raw cryptographic token scanner.

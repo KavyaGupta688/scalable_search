@@ -7,6 +7,9 @@ services:
     environment:
       AI_MAX_DOCUMENTS_PER_PROCESS: "1"
       AI_MODEL_CACHE_POLICY: single
+      # Bound attention activations for long documents; classification and
+      # summaries use the opening tokens, while extracted text stays complete.
+      AI_TEXT_MAX_INPUT_TOKENS: "512"
       AI_MODEL_EXECUTION_LOCK: /models/inference.lock
   ai-worker:
     mem_limit: 4g
@@ -16,4 +19,5 @@ services:
     command: [celery, -A, modules.ai_tag_description_generation.app.celery_app.celery_app, worker, --pool=prefork, --concurrency=1, --max-tasks-per-child=1, --loglevel=info]
     environment:
       AI_MODEL_CACHE_POLICY: single
+      AI_TEXT_MAX_INPUT_TOKENS: "512"
       AI_MODEL_EXECUTION_LOCK: /models/inference.lock

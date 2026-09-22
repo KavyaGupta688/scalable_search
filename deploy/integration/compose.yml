@@ -173,13 +173,29 @@ services:
     command: [python, -m, modules.shared.outbox_worker, enrichment]
   download:
     <<: *runtime
+    image: ${DOWNLOAD_IMAGE:-smsprsm-integration-download:local}
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.download
     working_dir: /app/services/download
+    environment: &download-env
+      <<: *env
+      JPEG_CODEC_WATERMARK: ${JPEG_CODEC_WATERMARK:-false}
+      LOSSLESS_SIGNAL_WATERMARK: ${LOSSLESS_SIGNAL_WATERMARK:-false}
+      NATIVE_AUDIO_WATERMARK: ${NATIVE_AUDIO_WATERMARK:-false}
+      NATIVE_VIDEO_WATERMARK: ${NATIVE_VIDEO_WATERMARK:-false}
+      CODEC_WATERMARK_SECRET: ${CODEC_WATERMARK_SECRET:-}
     command: [uvicorn, integrated:app, --host, 0.0.0.0, --port, "8000"]
     volumes: [packages:/packages]
   download-worker:
     <<: *runtime
+    image: ${DOWNLOAD_IMAGE:-smsprsm-integration-download:local}
+    build:
+      context: ../..
+      dockerfile: deploy/integration/Dockerfile.download
     working_dir: /app/services/download
-    command: [python, integrated.py]
+    environment: *download-env
+    command: [celery, -A, integrated_celery:app, worker, --beat, --schedule=/packages/celerybeat-schedule, --loglevel=INFO, --concurrency=2, -Q, downloads]
     volumes: [packages:/packages]
   download-outbox:
     <<: *runtime

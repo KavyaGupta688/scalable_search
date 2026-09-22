@@ -52,6 +52,30 @@ def login(client, role="user"):
     return {"Authorization": "Bearer " + r.json()["access_token"]}
 
 
+@pytest.mark.parametrize('path,function',[
+    ('/api/admin/ingestion-summary','ingestion_summary'),
+    ('/api/admin/ingestion-runs/3261f4cf-8733-48a9-8031-4705671cf6c3/pipeline','run_pipeline'),
+])
+def test_ingestion_telemetry_is_admin_only(browser,monkeypatch,path,function):
+    client,_,_=browser
+    monkeypatch.setattr('modules.shared.ingestion_observability.'+function,lambda *args:{'measured':True})
+    assert client.get(path).status_code==401
+    assert client.get(path,headers=login(client)).status_code==403
+    assert client.get(path,headers=login(client,'admin')).json()=={'measured':True}
+
+
+def test_session_checked_once_per_request_and_revocation_is_immediate(browser, monkeypatch):
+    from unittest.mock import Mock
+    client, auth, _ = browser
+    headers = login(client)
+    decode = Mock(wraps=auth.decode_token)
+    monkeypatch.setattr(auth, 'decode_token', decode)
+    assert client.get('/auth/me', headers=headers).status_code == 200
+    assert decode.call_count == 1
+    auth.revoke_token(headers['Authorization'][7:])
+    assert client.get('/auth/me', headers=headers).status_code == 401
+
+
 def test_monitoring_failure_has_no_fabricated_or_private_data(browser):
     client, _, _ = browser
     headers = login(client, 'admin')

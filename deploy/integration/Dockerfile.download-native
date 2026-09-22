@@ -1,0 +1,18 @@
+FROM smsprsm-integration-download:local AS native
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake pkg-config nasm ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY services/download/native /app/services/download/native
+COPY services/download/scripts /app/services/download/scripts
+RUN python scripts/build_native_aac.py --jobs 2
+RUN python scripts/build_native_mp3.py --jobs 2
+RUN python scripts/build_native_video.py h264 --jobs 2
+RUN python scripts/build_native_video.py h265 --jobs 2
+
+FROM smsprsm-integration-download:local
+COPY --from=native /app/services/download/work/native/ffmpeg-7.1/ffmpeg /opt/nexus-native/ffmpeg-7.1/ffmpeg
+COPY --from=native /app/services/download/work/native/ffmpeg-7.1/ffprobe /opt/nexus-native/ffmpeg-7.1/ffprobe
+COPY --from=native /app/services/download/work/native/lame-3.100/frontend/lame /opt/nexus-native/lame-3.100/frontend/lame
+COPY --from=native /app/services/download/work/native/x264/x264 /opt/nexus-native/x264/x264
+COPY --from=native /app/services/download/work/native/x265-build/x265 /opt/nexus-native/x265-build/x265
+ENV NATIVE_CODEC_ROOT=/opt/nexus-native
+RUN pip install --no-cache-dir pypng==0.20220715.0
+COPY services/download /app/services/download

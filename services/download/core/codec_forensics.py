@@ -20,18 +20,19 @@ def inspect_signal(data):
     if data.startswith(b"\xff\xd8"):
         return inspect_jpeg(data)
     is_png = data.startswith(b"\x89PNG\r\n\x1a\n")
+    is_lossless = data.startswith((b'BM', b'II*\x00', b'MM\x00*')) or (data.startswith(b'RIFF') and data[8:12] == b'WEBP')
     is_audio = data.startswith(b"fLaC") or (data.startswith(b"RIFF") and data[8:12] == b"WAVE")
     is_container = data[4:8] == b"ftyp" or data.startswith(b"\x1a\x45\xdf\xa3")
     is_aac = len(data) > 2 and data[0] == 0xff and data[1] & 0xf6 == 0xf0
     is_mp3 = data.startswith(b"ID3") or (len(data) > 2 and data[0] == 0xff and data[1] & 0xe0 == 0xe0 and not is_aac)
-    if not (is_png or is_audio or is_aac or is_mp3 or is_container):
+    if not (is_png or is_lossless or is_audio or is_aac or is_mp3 or is_container):
         return None
     if not CODEC_WATERMARK_SECRET:
         return {"checked": False, "reason": "Signal extraction secret is not configured"}
     try:
-        if is_png:
-            from core.signal_png import extract_bytes
-            method = "PNG-DWT-DCT-v1"
+        if is_png or is_lossless:
+            from core.signal_lossless import extract_bytes
+            method = "PNG-DWT-DCT-v1" if is_png else "Lossless-DWT-DCT-v1"
         elif is_audio:
             from core.signal_audio import extract_bytes
             method = "Audio-STFT-v1"

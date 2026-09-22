@@ -1,6 +1,6 @@
 """FastAPI dependency functions for authentication and role-based access control."""
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.exc import OperationalError, TimeoutError as DatabaseTimeoutError
 
@@ -45,6 +45,7 @@ def get_auth_service() -> AuthService:
 
 
 def get_current_user(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
     auth: AuthService = Depends(get_auth_service),
 ) -> UserInDB:
@@ -61,7 +62,8 @@ def get_current_user(
         )
 
     try:
-        payload = auth.decode_token(token)
+        verified = getattr(request.state, "verified_auth", None)
+        payload = verified[1] if verified and verified[0] == token else auth.decode_token(token)
     except (OperationalError, DatabaseTimeoutError):
         raise
     except Exception:

@@ -135,6 +135,8 @@ def main():
 
     DownloadBase.metadata.create_all(database_engine("download"))
     ForensicBase.metadata.create_all(database_engine("download"))
+    from integration_migrations import upgrade as upgrade_download
+    upgrade_download(database_engine("download"))
     from modules.shared.audit import migrate
 
     migrate()

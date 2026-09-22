@@ -26,6 +26,8 @@ def assertion(
     audience: str,
     *,
     email: str = "",
+    display_name: str = "",
+    client_ip: str = "",
     permissions: list[str] | None = None,
 ) -> str:
     now = int(time.time())
@@ -34,6 +36,8 @@ def assertion(
             "sub": subject,
             "role": role,
             "email": email,
+            "display_name": display_name,
+            "client_ip": client_ip,
             "permissions": permissions
             if permissions is not None
             else (["admin:*"] if role == "admin" else USER_PERMISSIONS),

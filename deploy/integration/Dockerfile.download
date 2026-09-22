@@ -1,0 +1,5 @@
+FROM smsprsm-integration-runtime:local
+COPY services/download/requirements-codec.txt /app/services/download/requirements-codec.txt
+RUN pip install --no-cache-dir -r /app/services/download/requirements-codec.txt 'pypdf>=5,<7'
+COPY services/download /app/services/download
+WORKDIR /app/services/download

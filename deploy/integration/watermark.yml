@@ -1,0 +1,19 @@
+# Build Dockerfile.download, then Dockerfile.download-native before enabling.
+# Keep CODEC_WATERMARK_SECRET in an ignored env file, shared by these two services.
+services:
+  download:
+    image: smsprsm-integration-download-native:local
+    environment:
+      JPEG_CODEC_WATERMARK: "true"
+      LOSSLESS_SIGNAL_WATERMARK: "true"
+      NATIVE_AUDIO_WATERMARK: "true"
+      NATIVE_VIDEO_WATERMARK: "true"
+      CODEC_WATERMARK_SECRET: ${CODEC_WATERMARK_SECRET:?required}
+  download-worker:
+    image: smsprsm-integration-download-native:local
+    environment:
+      JPEG_CODEC_WATERMARK: "true"
+      LOSSLESS_SIGNAL_WATERMARK: "true"
+      NATIVE_AUDIO_WATERMARK: "true"
+      NATIVE_VIDEO_WATERMARK: "true"
+      CODEC_WATERMARK_SECRET: ${CODEC_WATERMARK_SECRET:?required}

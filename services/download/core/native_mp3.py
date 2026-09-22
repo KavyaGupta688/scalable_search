@@ -10,7 +10,8 @@ DOMAIN = "mp3-native-mdct-v1"
 def embed_bytes(data, download_id, secret):
     if len(data) > 64 * 1024 * 1024:
         raise ValueError("Native MP3 input limit is 64 MiB")
-    lame = ROOT / "work/native/lame-3.100/frontend/lame"
+    from core.native_aac import NATIVE_ROOT
+    lame = NATIVE_ROOT / "lame-3.100/frontend/lame"
     if not lame.is_file():
         raise RuntimeError("Native MP3 backend not built; run scripts/build_native_mp3.py")
     with tempfile.TemporaryDirectory(prefix="native-mp3-") as directory:

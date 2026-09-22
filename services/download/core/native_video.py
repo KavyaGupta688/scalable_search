@@ -13,7 +13,7 @@ import tempfile
 
 import numpy as np
 
-from core.native_aac import ROOT, _run, _tool
+from core.native_aac import ROOT, NATIVE_ROOT, _run, _tool
 from core.signal_payload import BIT_COUNT, encode, decode, positions
 
 
@@ -105,13 +105,13 @@ def embed_bytes(data, download_id, secret, container="mp4"):
         _run([_tool("ffmpeg"), "-v", "error", "-i", str(source), "-map", "0:v:0", "-an", "-pix_fmt", "yuv420p",
               "-c:v", "rawvideo", "-f", "rawvideo", str(raw)])
         if codec == "h264":
-            encoder = ROOT / "work/native/x264/x264"
+            encoder = NATIVE_ROOT / "x264/x264"
             command = [str(encoder), "--demuxer", "raw", "--input-csp", "i420", "--input-res", f"{width}x{height}",
                        "--fps", fps, "--threads", "1", "--keyint", "1", "--bframes", "0", "--qp", "18",
                        "--partitions", "none", "--no-8x8dct", "--trellis", "0", "--no-dct-decimate", "--no-psy",
                        "--output", str(elementary), str(raw)]
         else:
-            encoder = ROOT / "work/native/x265-build/x265"
+            encoder = NATIVE_ROOT / "x265-build/x265"
             command = [str(encoder), "--input", str(raw), "--input-res", f"{width}x{height}", "--fps", fps,
                        "--input-csp", "i420", "--input-depth", "8", "--frame-threads", "1", "--pools", "none", "--no-wpp",
                        "--keyint", "1", "--bframes", "0", "--qp", "18", "--ctu", "16", "--max-tu-size", "16",

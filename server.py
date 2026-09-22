@@ -112,7 +112,9 @@ async def forward(request: Request, service: str, user):
         | {"authorization", "cookie", "x-user-id", "x-user-role", "x-user-name"}
     }
     headers["Authorization"] = "Bearer " + assertion(
-        user.id, str(user.role), service, email=user.email
+        user.id, str(user.role), service, email=user.email,
+        display_name=getattr(user, "display_name", "") or "",
+        client_ip=request.client.host if request.client else "",
     )
     headers["X-Correlation-ID"] = request.state.correlation_id
     url = SERVICES[service] + path
@@ -203,6 +205,18 @@ def overview(user=Depends(require_admin)):
     return overview_summary()
 
 
+@app.get("/api/admin/ingestion-summary")
+def ingestion_summary(timezone: str = 'UTC', user=Depends(require_admin)):
+    from modules.shared.ingestion_observability import ingestion_summary
+    return ingestion_summary(timezone)
+
+
+@app.get("/api/admin/ingestion-runs/{run_id}/pipeline")
+def ingestion_pipeline(run_id: uuid.UUID, user=Depends(require_admin)):
+    from modules.shared.ingestion_observability import run_pipeline
+    return run_pipeline(run_id)
+
+
 @app.get("/api/admin/documents/{document_id}/index")
 def index_details(document_id: uuid.UUID, user=Depends(require_admin)):
     from modules.shared.observability import document_index
@@ -230,6 +244,7 @@ async def audit_requests(request: Request, call_next):
     if token.startswith("Bearer "):
         try:
             claims = await run_in_threadpool(lambda: get_auth_service().decode_token(token[7:]))
+            request.state.verified_auth = (token[7:], claims)
             actor, role = claims["sub"], claims["role"]
         except (OperationalError, DatabaseTimeoutError):
             return database_unavailable(request)

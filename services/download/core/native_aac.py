@@ -16,12 +16,13 @@ import numpy as np
 from core.signal_payload import BIT_COUNT, encode, decode, positions, key_bytes
 
 ROOT = Path(__file__).resolve().parent.parent
+NATIVE_ROOT = Path(os.getenv("NATIVE_CODEC_ROOT", str(ROOT / "work/native")))
 DOMAIN = "aac-native-mdct-v1"
 STEP = 0.96
 
 
 def _tool(name):
-    path = ROOT / "work/native/ffmpeg-7.1" / name
+    path = NATIVE_ROOT / "ffmpeg-7.1" / name
     if not path.is_file():
         raise RuntimeError("Native AAC backend is not built; run scripts/build_native_aac.py")
     return str(path)

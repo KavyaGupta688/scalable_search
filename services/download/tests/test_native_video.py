@@ -14,7 +14,7 @@ ID = "35b63f71-74d5-45dc-bdd7-7b5a00d227e9"
 
 @pytest.mark.parametrize("codec", ["h264", "hevc"])
 def test_native_video_coefficients(codec, tmp_path):
-    encoder = native_video.ROOT / ("work/native/x264/x264" if codec == "h264" else "work/native/x265-build/x265")
+    encoder = native_aac.NATIVE_ROOT / ("x264/x264" if codec == "h264" else "x265-build/x265")
     if not encoder.exists():
         pytest.skip("Native encoder build required")
     source = tmp_path / "input.mp4"
