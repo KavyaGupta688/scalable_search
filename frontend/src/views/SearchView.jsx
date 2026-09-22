@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { PageHeading } from '../components/DesignSystem';
 import {useCatalog,CatalogPagination,CatalogFilters} from '../components/CatalogControls';
 import {DownloadBar} from '../components/DownloadBar';
+import {CatalogSelection} from '../components/CatalogSelection';
 import { ModalDetail } from '../components/ModalDetail';
 import { ModalityBadge } from '../components/ModalityBadge';
 import { SearchResultCard } from '../components/SearchResultCard';
@@ -261,12 +262,14 @@ export const SearchView = ({ showToast }) => {
             )}
 
             {/* Results Table View */}
+            <CatalogSelection catalog={catalog}/>
             {results.length > 0 && viewMode === 'table' && (
               <div aria-busy={loading} className="nx-panel overflow-x-auto">
                 <table className="w-full text-left text-sm border-collapse">
                   <thead>
                     <tr className="border-b border-nexus-border bg-nexus-elevated text-nexus-textMuted font-mono text-sm uppercase">
                       <th className="p-3">Filename / ID</th>
+                      <th className="p-3">Select</th>
                       <th className="p-3">Modality</th>
                       <th className="p-3">AI Finding / Description</th>
                       <th className="p-3">Match</th>
@@ -285,6 +288,13 @@ export const SearchView = ({ showToast }) => {
                           <span className="font-mono text-sm text-nexus-textMuted">
                             {(doc.file_id || doc.id).slice(0, 18)}...
                           </span>
+                        </td>
+                        <td className="p-3" onClick={event => event.stopPropagation()}>
+                          <input type="checkbox" className="h-4 w-4 accent-blue-600"
+                            aria-label={`Select ${doc.file_name || doc.name} for download`}
+                            checked={selectedFileIds.includes(doc.file_id)}
+                            disabled={selectedFileIds.length >= 100 && !selectedFileIds.includes(doc.file_id)}
+                            onChange={() => toggleSelect(doc.file_id)} />
                         </td>
                         <td className="p-3">
                           <ModalityBadge type={doc.content_type || doc.modality} />
@@ -314,6 +324,7 @@ export const SearchView = ({ showToast }) => {
                     key={doc.file_id || doc.id}
                     result={doc}
                     isSelected={selectedFileIds.includes(doc.file_id)}
+                    selectionDisabled={selectedFileIds.length >= 100}
                     onToggleSelect={() => toggleSelect(doc.file_id)}
                     onOpen={() => handleOpenDoc(doc.file_id || doc.id)}
                   />

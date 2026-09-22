@@ -5,6 +5,7 @@ import { TrendingSearches } from '../components/TrendingSearches';
 import { PopularDatasets } from '../components/PopularDatasets';
 import { SearchResultCard } from '../components/SearchResultCard';
 import { DownloadBar } from '../components/DownloadBar';
+import { CatalogSelection } from '../components/CatalogSelection';
 import { ModalDetail } from '../components/ModalDetail';
 import {
   SearchIcon,
@@ -173,6 +174,7 @@ export const UserSearchView = ({ showToast }) => {
             </div>
 
             {/* Skeletons */}
+            <CatalogSelection catalog={catalog}/>
             {loading && results.length === 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -208,6 +210,7 @@ export const UserSearchView = ({ showToast }) => {
                     key={doc.file_id || doc.id}
                     result={doc}
                     isSelected={selectedFileIds.includes(doc.file_id || doc.id)}
+                    selectionDisabled={selectedFileIds.length >= 100}
                     onToggleSelect={() => toggleSelect(doc.file_id || doc.id)}
                     onOpen={() => handleOpenDocument(doc.file_id || doc.id)}
                   />

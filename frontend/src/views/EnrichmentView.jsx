@@ -5,7 +5,6 @@ import {request} from '../services/http';
 import {StatusBadge} from '../components/StatusBadge';
 import {ProtectedPreview} from '../components/ProtectedPreview';
 import {
-  CpuIcon,
   RefreshIcon,
   CopyIcon,
   ImageIcon,
@@ -89,14 +88,6 @@ export const EnrichmentView = ({ showToast }) => {
             Automated neural tagging, OCR layout analysis, audio transcription, and 512-d vector embeddings.
           </p>
         </div>
-        <button
-          type="button"
-          disabled title="Model benchmarking is not exposed by the integrated API."
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-nexus-brand hover:bg-nexus-brandHover text-white text-sm font-semibold rounded-sm transition-colors self-start border border-nexus-brand"
-        >
-          <CpuIcon className="w-4 h-4" />
-          <span>Run Model Benchmark</span>
-        </button>
       </div>
 
       {/* Sequential 4-Stage Pipeline Flow */}
@@ -193,12 +184,12 @@ export const EnrichmentView = ({ showToast }) => {
 
       {/* Interactive S3 Object AI Enrichment Inspector */}
       <div className="nx-panel p-6 flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-nexus-border pb-3">
-          <div>
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 border-b border-nexus-border pb-3">
+          <div className="min-w-0 flex-1">
             <h3 className="panel-title">Interactive Object AI Inspector</h3>
             <p className="text-sm text-nexus-textMuted">Select an object to inspect its extracted neural metadata and vector representation</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 min-w-0 xl:w-1/2">
             <label htmlFor="inspect-doc-select" className="text-sm text-nexus-textMuted">Inspect Object:</label>
             <select
               id="inspect-doc-select"
@@ -207,7 +198,7 @@ export const EnrichmentView = ({ showToast }) => {
                 setSelectedDocId(e.target.value);
 
               }}
-              className="bg-nexus-elevated border border-nexus-border rounded-sm text-sm text-nexus-textPrimary px-2.5 py-1 outline-none"
+              className="w-full min-w-0 bg-nexus-elevated border border-nexus-border rounded-sm text-sm text-nexus-textPrimary px-2.5 py-1 outline-none"
             >
               <option value="" disabled>Select a task</option>{documents.map((d) => (
                 <option key={d.id} value={d.id}>
@@ -217,6 +208,14 @@ export const EnrichmentView = ({ showToast }) => {
             </select>
           </div>
         </div>
+
+        {index.data && !index.data.published && <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 p-3 text-sm text-amber-200" role="status">
+          <p className="font-semibold">Not available in Search</p>
+          <p>Task status: {(status.data?.status || selectedTask?.status || 'Loading').replaceAll('_',' ')}. Having a stored vector does not mean a file is published.</p>
+          {metadata.data?.privacy_safety_labels?.nsfw_flagged && <p>The safety model flagged possible explicit content. This may be a false positive; the file remains in administrator review until the assessment is resolved.</p>}
+          {metadata.data?.privacy_safety_labels?.analysis_incomplete && <p>One or more safety checks did not complete.</p>}
+          {metadata.data?.privacy_safety_labels?.analysis_errors?.map((message,i)=><p key={i}>{message}</p>)}
+        </div>}
 
         {/* Inspector Detail Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

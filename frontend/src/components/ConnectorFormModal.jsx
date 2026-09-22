@@ -19,7 +19,7 @@ export const ConnectorFormModal = ({ isOpen, onClose, onSuccess, showToast }) =>
   const close = () => { if (!pending.current) onClose(); };
   const submit = async (event, verify = false) => {
     event.preventDefault();
-    if (pending.current || nas || (!saved && !formRef.current.reportValidity())) return;
+    if (pending.current || (!saved && !formRef.current.reportValidity())) return;
     setError('');
     let payload;
     try { if (!saved) payload = connectorPayload(form); }
@@ -82,15 +82,22 @@ export const ConnectorFormModal = ({ isOpen, onClose, onSuccess, showToast }) =>
               <fieldset className="connector-option-group"><legend>Signature Version</legend><div>{radio('signatureVersion','SigV4','SigV4 (Recommended)')}{radio('signatureVersion','SigV2','SigV2')}</div></fieldset>
             </div>
             <fieldset className="connector-option-group connector-divider"><legend>Authentication &amp; Authorization</legend>
-              <div>{radio('authMethod','iam_role',<strong>IAM Role ARN (Recommended)</strong>)}{radio('authMethod','access_key','Access Key & Secret')}</div>
+              <div>{radio('authMethod','iam_role',<strong>IAM Role ARN (Recommended)</strong>)}{radio('authMethod','access_key','Access Key & Secret')}{radio('authMethod','anonymous','Public bucket (no credentials)')}</div>
               {form.authMethod === 'iam_role' ? <>
                 {field('iamRoleArn', 'Target IAM Role ARN (Cross-account or Task Role)', {...mono, id:'iam-role-arn', required:true, placeholder:'arn:aws:iam::123456789012:role/NexusS3IngestRole'})}
                 <details className="connector-advanced"><summary>External ID (optional)</summary>{field('externalId', 'Cross-account External ID', {...mono, type:'password', autoComplete:'off'})}</details>
-              </> : <div className="connector-columns">
+              </> : form.authMethod === 'anonymous' ? <p className="connector-help">Only works when the bucket grants public listing and object reads. No AWS credentials are sent.</p> : <div className="connector-columns">
                 {field('accessKeyId', 'Access Key ID', {...mono, id:'s3-key', required:true, autoComplete:'off', placeholder:'Enter your AWS access key ID'})}
                 {field('secretAccessKey', 'Secret Access Key', {...mono, id:'s3-secret', type:'password', required:true, autoComplete:'new-password', placeholder:'••••••••••••••••••••••••'})}
               </div>}
             </fieldset>
+            <label className="connector-field connector-divider"><span className="connector-label">Vendor metadata</span>
+              <select name="metadataMode" aria-label="Vendor metadata" aria-describedby="source-metadata-help" value={form.metadataMode} onChange={change} className="nx-input">
+                <option value="required">Require matching CSV or sidecars</option>
+                <option value="optional">Use CSV or sidecars when present</option>
+                <option value="none">Files only — no vendor manifest</option>
+              </select><span id="source-metadata-help" className="connector-help">Files-only ingestion keeps source details and generates AI metadata from the file. It does not invent vendor descriptions or tags.</span>
+            </label>
           </section> : <section className="connector-section" aria-label="NAS configuration">
             {field('sharePath', form.sourceType === 'nas_smb' ? 'SMB Share Path *' : 'Mounted NFS Path *', {...mono, id:'nas-share', placeholder:form.sourceType === 'nas_smb' ? '//nas-server.internal/shared-fab' : '/mnt/vendor-data'})}
             {field('maxFiles', 'Maximum files', {...mono, id:'nas-limit', type:'number', min:1}, 'Keep a limit for tests. Clear only when you intentionally want to scan the complete share.')}
@@ -100,12 +107,12 @@ export const ConnectorFormModal = ({ isOpen, onClose, onSuccess, showToast }) =>
             </div> : <p className="connector-help">NFS must be mounted on the ingestion host. Authentication is configured on that mount.</p>}
           </section>}
         </fieldset>
-        {nas && <p className="connector-help" role="status">NAS integration is deferred. These fields are available for review; saving and testing NAS sources will be enabled when the source is connected.</p>}
+        {nas && <p className="connector-help" role="status">The ingestion service must be able to reach this share. NAS sources currently require matching vendor CSV or sidecar metadata. Credentials are stored in Vault.</p>}
         <div className="connector-security"><ShieldIcon /><p><strong>Secure Vault Storage</strong><span>Secret keys and passwords are write-only to HashiCorp Vault. They will never be echoed back in API responses.</span></p></div>
       </form>
       <footer className="connector-footer">
-        <button type="button" disabled={busy || nas} onClick={event => submit(event, true)} title={nas ? 'NAS integration is deferred' : undefined}>{busy && <SpinnerIcon className="animate-spin" />}{saved ? 'Retry Test' : 'Save & Test'}</button>
-        <button type={saved ? 'button' : 'submit'} form="connector-form" className="connector-save" onClick={saved ? close : undefined} disabled={busy || nas} title={nas ? 'NAS integration is deferred' : undefined}>{saved ? 'Done' : 'Save Connector'}</button>
+        <button type="button" disabled={busy} onClick={event => submit(event, true)}>{busy && <SpinnerIcon className="animate-spin" />}{saved ? 'Retry Test' : 'Save & Test'}</button>
+        <button type={saved ? 'button' : 'submit'} form="connector-form" className="connector-save" onClick={saved ? close : undefined} disabled={busy}>{saved ? 'Done' : 'Save Connector'}</button>
       </footer>
     </div>
   </DialogBackdrop>}</Presence>;

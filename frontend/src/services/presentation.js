@@ -46,7 +46,8 @@ export function runView(run, connectors = []) {
     dataVolume: bytes(run.bytes_processed), validatedCount: run.succeeded_count,
     discoveredCount: run.enumerated_count,
     progress: run.enumeration_completed_at && run.enumerated_count > 0 ? Math.min(100, Math.round(run.terminal_count / run.enumerated_count * 100)) : null,
-    prefix: connector?.s3_prefix || '—', activeWorkers: unavailable,
+    prefix: run.source_type === 'S3' ? connector?.s3_prefix || '(bucket root)' : connector?.mount_path || 'Source folder not recorded',
+    remainingItems: Math.max(0, (run.enumerated_count ?? 0) - (run.terminal_count ?? 0)),
   };
 }
 export function auditView(event) {

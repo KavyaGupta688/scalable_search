@@ -6,6 +6,13 @@ import {connectorPayload, defaultConnectorForm} from '../src/services/connectorF
 
 global.localStorage = {getItem: key => key === 'nexus_token' ? 'test-session' : null};
 
+test('public S3 never sends stale credentials and makes metadata policy explicit', () => {
+  const body = connectorPayload({...defaultConnectorForm, name:'Public photographs', bucketName:'public-data', authMethod:'anonymous', metadataMode:'none', accessKeyId:'stale', secretAccessKey:'stale', iamRoleArn:'stale'});
+  assert.equal(body.s3.auth_mode, 'anonymous');
+  assert.equal(body.s3.metadata_mode, 'none');
+  for (const key of ['access_key','secret_key','role_arn','external_id']) assert.equal(body.s3[key], undefined);
+});
+
 test('connector form preserves S3 prefix, bounds, region and mutually exclusive credentials', () => {
   const role = {...defaultConnectorForm, name:'Source', bucketName:'bucket', iamRoleArn:'arn:aws:iam::123456789012:role/Ingest', prefix:'datasets/meld/images/', pageSize:'250', secretAccessKey:'must-not-leak'};
   const body = connectorPayload(role);
@@ -17,14 +24,24 @@ test('connector form preserves S3 prefix, bounds, region and mutually exclusive 
   assert.equal(keys.s3.addressing_style, 'path'); assert.equal(keys.s3.auth_mode, 'static_keys');
 });
 
-test('connector form rejects invalid bounds, missing authentication and deferred NAS', () => {
+test('connector form rejects invalid bounds, missing authentication and invalid NAS paths', () => {
   const form = {...defaultConnectorForm, name:'Source', bucketName:'bucket', iamRoleArn:'arn:aws:iam::123456789012:role/Ingest'};
   for (const maxFiles of ['0', '-1', '1.5', 'oops']) assert.throws(() => connectorPayload({...form,maxFiles}), /Maximum objects/);
   for (const pageSize of ['', '0', '1001', '1.5']) assert.throws(() => connectorPayload({...form,pageSize}), /Listing page size/);
   assert.throws(() => connectorPayload({...form,iamRoleArn:''}), /IAM Role ARN/);
   assert.throws(() => connectorPayload({...form,authMethod:'access_key'}), /Access key/);
-  assert.throws(() => connectorPayload({...form,sourceType:'nas_smb'}), /deferred/);
+  assert.throws(() => connectorPayload({...form,sourceType:'nas_smb'}), /UNC/);
   assert.throws(() => connectorPayload({...form,endpointUrl:'https://user:secret@example.test'}), /embedded credentials/);
+});
+
+test('NAS form keeps bounded SMB subfolders and excludes irrelevant source secrets', () => {
+  const form={...defaultConnectorForm,name:'NAS',sourceType:'nas_smb',sharePath:'//host/share/folder',nasUsername:'DOMAIN\\reader',nasPassword:'test-only',maxFiles:'20',secretAccessKey:'stale'};
+  const body=connectorPayload(form);
+  assert.equal(body.source_type,'NAS_SMB');assert.equal(body.nas.mount_path,'\\\\host\\share\\folder');
+  assert.equal(body.nas.max_files,20);assert.equal(body.nas.username,'DOMAIN\\reader');assert.equal(body.s3,undefined);
+  assert.throws(()=>connectorPayload({...form,sharePath:'//host/share/../other'}),/UNC/);
+  assert.throws(()=>connectorPayload({...form,nasPassword:''}),/password/);
+  assert.equal(connectorPayload({...form,sourceType:'nas_nfs',sharePath:'/mnt/demo'}).nas.password,undefined);
 });
 
 test('display adapters distinguish missing data from measured zero', () => {

@@ -11,6 +11,7 @@ export const SearchResultCard = ({
   result,
   isSelected = false,
   onToggleSelect,
+  selectionDisabled = false,
   onOpen,
   index = 0,
 }) => {
@@ -39,10 +40,10 @@ export const SearchResultCard = ({
     >
       <div className="result-preview"><PreviewIcon/><span className="modality-label">{modality}</span></div>
       {/* Card Header Bar */}
-      <div className="p-3 border-b border-nexus-borderSubtle flex items-center justify-between gap-2 bg-nexus-input">
+      <div className="p-3 border-b border-nexus-borderSubtle flex flex-wrap items-center justify-between gap-2 bg-nexus-input">
         <ModalityBadge type={modality} />
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {score != null && (
             <span className="text-sm font-mono font-bold text-nexus-brandText bg-nexus-brandSubtle border border-nexus-border px-1.5 py-0.5 rounded-xs">
               Relevance {score}
@@ -53,6 +54,7 @@ export const SearchResultCard = ({
           {onToggleSelect && (
             <button
               type="button"
+              disabled={selectionDisabled && !isSelected}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleSelect();
@@ -60,13 +62,14 @@ export const SearchResultCard = ({
               title={isSelected ? 'Deselect file' : 'Select for batch download'}
               aria-label={isSelected ? 'Deselect file' : 'Select for batch download'}
               aria-pressed={isSelected}
-              className={`p-1 rounded-xs border transition-colors ${
+              className={`flex items-center gap-1 p-1 rounded-xs border transition-colors disabled:opacity-40 ${
                 isSelected
                   ? 'bg-nexus-brand text-white border-nexus-brand'
                   : 'bg-nexus-input text-nexus-textMuted border-nexus-border hover:border-nexus-borderStrong hover:text-nexus-textPrimary'
               }`}
             >
               <CheckSquareIcon className="w-3.5 h-3.5" />
+              <span className="text-xs">{isSelected ? 'Selected' : 'Select'}</span>
             </button>
           )}
         </div>

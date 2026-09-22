@@ -1,13 +1,14 @@
 import {useResource,ResourceState} from '../components/ResourceState';
 import {saveArchive} from '../services/http';
 import React, { useState } from 'react';
+import {WatermarkTracker} from '../components/WatermarkTracker';
 import { DownloadIcon, ClockIcon, CheckCircleIcon, XCircleIcon, SpinnerIcon } from '../components/Icons';
 
 /**
  * UserDownloadsView — Shows the user's pending and recent downloads.
  * Polls the backend for status of in-progress downloads.
  */
-export const UserDownloadsView = ({ showToast }) => {
+export const UserDownloadsView = ({ showToast, administrator = false }) => {
   const [page,setPage] = useState(0);
   const [error,setError] = useState('');
   const [busy,setBusy] = useState(false);
@@ -36,6 +37,7 @@ export const UserDownloadsView = ({ showToast }) => {
         <div><h1 className="page-title">Downloads</h1><p className="text-sm text-nexus-textMuted mt-2">Your file packages, progress, and download history.</p></div>
         <span className="text-sm text-nexus-textMuted">{downloads.length} request{downloads.length !== 1 ? 's' : ''} on this page</span>
       </header>
+      {administrator && <WatermarkTracker />}
 
       <ResourceState error={error || history.error} loading={history.loading}/>
       {!history.loading && !history.error && downloads.length === 0 && (

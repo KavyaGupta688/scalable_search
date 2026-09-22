@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { getConnectors, testConnector, startScan, archiveConnector, deleteConnector } from '../services/adminApi';
 import { ConnectorFormModal } from '../components/ConnectorFormModal';
 import { StatusBadge } from '../components/StatusBadge';
+import { CopyableId } from '../components/CopyableId';
 import {
   DatabaseIcon,
   NASIcon,
@@ -289,6 +290,8 @@ export const DataSourcesView = ({ showToast }) => {
                 Storage Parameters
               </span>
               <div className="grid grid-cols-[130px_1fr] gap-2.5 text-sm bg-nexus-elevated p-3.5 rounded-sm border border-nexus-borderSubtle">
+                <span className="text-nexus-textMuted">Connector ID:</span>
+                <CopyableId label="connector ID" value={selectedConnector.id} />
                 <span className="text-nexus-textMuted">Status:</span>
                 <StatusBadge status={selectedConnector.status || 'Unknown'} size="sm" />
 
@@ -310,6 +313,7 @@ export const DataSourcesView = ({ showToast }) => {
                   {selectedConnector.authType || 'HashiCorp Vault Managed'}
                 </span>
               </div>
+              <p className="text-xs text-nexus-textMuted">Search uses this connector ID as the dataset ID for documents originating from this source. Each manual scan has a separate run ID in Ingestion.</p>
             </div>
 
             <div className="flex flex-col gap-2">

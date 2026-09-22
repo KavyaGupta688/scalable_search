@@ -151,7 +151,7 @@ export const ModalDetail = ({ docId, onClose, showToast, onSelectResult, filters
             {doc.tags && doc.tags.length > 0 && (
               <div className="flex flex-col gap-1.5">
                 <span className="text-sm font-bold text-nexus-textMuted uppercase tracking-wider font-mono">
-                  AI Tags
+                  AI & Vendor Tags
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {doc.tags.map((t) => (
