@@ -68,7 +68,8 @@ export const BulkDownload = ({ catalog }) => {
   };
   const save = async part => {
     setBusy(true); setError('');
-    try { await saveArchive(job.download_id, part, job.part_count || 1); }
+    const partBytes = job.parts?.find(item => item.index === part)?.size_bytes;
+    try { await saveArchive(job.download_id, part, job.part_count || 1, partBytes); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   };
   const reset = () => { setJob(null); setError(''); };
@@ -98,10 +99,11 @@ export const BulkDownload = ({ catalog }) => {
             {!plan && !planError && <p className="text-nexus-textMuted">Estimating size…</p>}
             {plan && plan.count > 0 && (
               <p className="text-nexus-textPrimary">
-                <strong>≈ {formatBytes(plan.total_bytes)}</strong> · {plural(plan.count, 'file')}
+                <strong>≈ {formatBytes(plan.total_bytes)} source data</strong> · {plural(plan.count, 'file')}
                 {plan.estimated_parts > 1 && ` · ${plan.estimated_parts} archive parts of up to ${formatBytes(plan.limits.part_bytes)}`}
               </p>
             )}
+            {plan && plan.count > 0 && <p className="text-xs text-nexus-textMuted">Estimate uses original file sizes; watermarking and ZIP packaging can change the final archive sizes.</p>}
             {plan && plan.count === 0 && (
               <p className="text-nexus-textMuted">
                 {plan.oversized_in_scan > 0

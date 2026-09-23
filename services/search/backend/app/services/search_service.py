@@ -74,8 +74,9 @@ class SearchService:
                 limit=settings.VECTOR_CANDIDATES,
                 offset=0,
             )
-            scope_ids = [r.id for r in relevant]
-            fused_results = [
+            files_map = {}
+            await self._attach_files(relevant, files_map)
+            ranked_all = self.ranking_service.rank_and_adjust([
                 FusionResult(
                     id=r.id,
                     rrf_score=r.raw_score,
@@ -83,18 +84,19 @@ class SearchService:
                     vector_similarity=r.raw_score,
                     match_sources=["vector"],
                 )
-                for r in relevant[req.offset : req.offset + req.limit]
-            ]
-            files_map = {}
+                for r in relevant
+            ], files_map)
+            scope_ids = [r.id for r in ranked_all]
+            fused_results = ranked_all[req.offset : req.offset + req.limit]
 
         elif mode == "text":
             ranked_txt, total_hits, files_map = await self.text_service.search(
                 query=req.query,
                 filters=active_filters,
-                limit=req.limit,
-                offset=req.offset,
+                limit=max(settings.VECTOR_CANDIDATES, req.offset + req.limit),
+                offset=0,
             )
-            fused_results = [
+            ranked_all = self.ranking_service.rank_and_adjust([
                 FusionResult(
                     id=r.id,
                     rrf_score=r.raw_score,
@@ -103,7 +105,8 @@ class SearchService:
                     match_sources=["keyword"],
                 )
                 for r in ranked_txt
-            ]
+            ], files_map)
+            fused_results = ranked_all[req.offset : req.offset + req.limit]
             total = total_hits
 
         else:
@@ -181,17 +184,41 @@ class SearchService:
         processed = self.query_processor.process_query(req.query, req.filters)
         filters = req.filters or processed.get("filters")
         mode = req.search_mode.lower()
-        repo = self.metadata_service.file_repo
         scan = settings.DOWNLOAD_PLAN_SCAN
 
         if mode == "text":
-            ranked, total = await repo.ranked_sizes(req.query, filters, scan)
+            text_results, total, files_map = await self.text_service.search(
+                query=req.query, filters=filters, limit=scan, offset=0
+            )
+            ordered = self.ranking_service.rank_and_adjust([
+                FusionResult(
+                    id=result.id,
+                    rrf_score=result.raw_score,
+                    keyword_rank=result.rank,
+                    text_score=result.raw_score,
+                    match_sources=["keyword"],
+                )
+                for result in text_results
+            ], files_map)
+            ranked = [(result.id, int(files_map[result.id].file_size)) for result in ordered]
         elif mode == "vector":
             relevant, total = await self.vector_service.search_by_query(
                 query=req.query, filters=filters, limit=settings.VECTOR_CANDIDATES, offset=0
             )
-            sizes = await repo.sizes_for([r.id for r in relevant])
-            ranked = [(r.id, sizes[r.id]) for r in relevant if r.id in sizes]
+            files_map = {}
+            await self._attach_files(relevant, files_map)
+            ordered = self.ranking_service.rank_and_adjust([
+                FusionResult(
+                    id=result.id,
+                    rrf_score=result.raw_score,
+                    vector_rank=result.rank,
+                    vector_similarity=result.raw_score,
+                    match_sources=["vector"],
+                )
+                for result in relevant
+                if result.id in files_map
+            ], files_map)
+            ranked = [(result.id, int(files_map[result.id].file_size)) for result in ordered]
         else:
             fused, files_map = await self.hybrid_service.fuse_candidates(
                 query=req.query,

@@ -34,12 +34,9 @@ export async function protectedBlob(path, { signal, maximum = 2 * 1024 ** 3 } = 
   return new Blob(chunks, { type: response.headers.get('content-type') || 'application/octet-stream' });
 }
 
-// One archive part is at most 2 GiB before zipping; leave headroom for zip overhead.
-const ARCHIVE_PART_LIMIT = 2 * 1024 ** 3 + 64 * 1024 ** 2;
-
-export async function saveArchive(id, part = 1, parts = 1) {
+export async function saveArchive(id, part = 1, parts = 1, maximumBytes = 2 * 1024 ** 3 + 64 * 1024 ** 2) {
   const query = parts > 1 || part > 1 ? `?part=${part}` : '';
-  const blob = await protectedBlob(`/downloads/${encodeURIComponent(id)}/content${query}`, { maximum: ARCHIVE_PART_LIMIT });
+  const blob = await protectedBlob(`/downloads/${encodeURIComponent(id)}/content${query}`, { maximum: maximumBytes });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = parts > 1 ? `assets-${id}-part${part}.zip` : `assets-${id}.zip`; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);

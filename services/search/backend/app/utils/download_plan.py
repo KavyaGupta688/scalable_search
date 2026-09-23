@@ -65,6 +65,7 @@ def build_plan(
         "count": len(selected),
         "available": len(eligible),
         "total_bytes": total_bytes,
+        "size_basis": "source",
         "estimated_parts": _part_count(sizes, part_bytes),
         # Oversized files that sat above the last selected file, i.e. were skipped over.
         "excluded_oversized": sum(1 for position in oversized_positions if position < len(selected)),

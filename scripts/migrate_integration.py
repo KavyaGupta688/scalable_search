@@ -12,6 +12,57 @@ from modules.shared.integration import database_engine
 from modules.shared.delivery import DeliveryBase
 
 
+QUERY_INDEXES = (
+    (
+        "file_metadata_title_prefix_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS file_metadata_title_prefix_idx "
+        "ON file_metadata (lower(title) text_pattern_ops)",
+    ),
+    (
+        "file_metadata_tags_gin_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS file_metadata_tags_gin_idx "
+        "ON file_metadata USING gin ((tags::jsonb))",
+    ),
+    (
+        "file_metadata_dataset_published_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS file_metadata_dataset_published_idx "
+        "ON file_metadata (dataset_id) WHERE published",
+    ),
+    (
+        "search_events_dataset_views_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS search_events_dataset_views_idx "
+        "ON search_events (event_type, dataset_id, created_at)",
+    ),
+)
+
+
+def create_query_indexes(engine):
+    """Build indexes without blocking writes or running inside a transaction.
+
+    A cancelled CREATE INDEX CONCURRENTLY can leave an invalid index behind. Remove an
+    invalid index on retry instead of letting IF NOT EXISTS mistake it for a usable one.
+    """
+    with engine.connect() as raw_connection:
+        connection = raw_connection.execution_options(isolation_level="AUTOCOMMIT")
+        schema = connection.execute(text("SELECT current_schema()")).scalar_one()
+        for name, ddl in QUERY_INDEXES:
+            valid = connection.execute(
+                text(
+                    "SELECT index_info.indisvalid "
+                    "FROM pg_class AS index_relation "
+                    "JOIN pg_namespace AS index_schema ON index_schema.oid = index_relation.relnamespace "
+                    "JOIN pg_index AS index_info ON index_info.indexrelid = index_relation.oid "
+                    "WHERE index_schema.nspname = :schema AND index_relation.relname = :name"
+                ),
+                {"schema": schema, "name": name},
+            ).scalar_one_or_none()
+            if valid is True:
+                continue
+            if valid is False:
+                connection.execute(text(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"'))
+            connection.execute(text(ddl))
+
+
 def main():
     engine = create_engine(os.environ["DATABASE_URL_SYNC"])
     with engine.begin() as conn:
@@ -129,24 +180,8 @@ def main():
         conn.execute(
             text("ALTER TABLE datasets ALTER COLUMN total_size_bytes TYPE bigint")
         )
-        # Query-path indexes. IF NOT EXISTS keeps repeated migrations idempotent.
-        # On a large existing catalog build these with CREATE INDEX CONCURRENTLY
-        # outside a transaction instead, to avoid blocking writes.
-        for ddl in (
-            # Suggestions: lower(title) LIKE 'prefix%'
-            "CREATE INDEX IF NOT EXISTS file_metadata_title_prefix_idx "
-            "ON file_metadata (lower(title) text_pattern_ops)",
-            # Tag filter: CAST(tags AS JSONB) @> '["tag"]'
-            "CREATE INDEX IF NOT EXISTS file_metadata_tags_gin_idx "
-            "ON file_metadata USING gin ((tags::jsonb))",
-            # Dataset filters and per-dataset visible counts only touch published rows.
-            "CREATE INDEX IF NOT EXISTS file_metadata_dataset_published_idx "
-            "ON file_metadata (dataset_id) WHERE published",
-            # Popular datasets: DATASET_OPEN counts per dataset in the last 7 days.
-            "CREATE INDEX IF NOT EXISTS search_events_dataset_views_idx "
-            "ON search_events (event_type, dataset_id, created_at)",
-        ):
-            conn.execute(text(ddl))
+    # Build query-path indexes concurrently after the schema transaction commits.
+    create_query_indexes(database_engine("search"))
     sys.path.insert(0, str(ROOT / "services/download"))
     from integrated import Base as DownloadBase
     from database.models import Base as ForensicBase

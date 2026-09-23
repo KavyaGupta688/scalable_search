@@ -59,20 +59,9 @@ class VectorSearchService:
         )
 
     async def _best_score(self, vector: List[float]) -> float:
-        """Best similarity for the vector among all published, unexpired documents."""
-        from starlette.concurrency import run_in_threadpool
-
-        def query():
-            response = self.qdrant.query_points(
-                collection_name=self.collection_name,
-                query=vector,
-                query_filter=build_qdrant_filter(None),
-                limit=1,
-            )
-            points = response.points if hasattr(response, "points") else response
-            return float(points[0].score) if points else float("-inf")
-
-        return await run_in_threadpool(query)
+        """Best similarity among documents currently visible in the authoritative database."""
+        best, _ = await self.search_by_vector(vector, filters=None, limit=1, offset=0)
+        return best[0].raw_score if best else float("-inf")
 
     async def search_by_vector(
         self,

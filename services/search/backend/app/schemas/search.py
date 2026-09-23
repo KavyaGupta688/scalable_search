@@ -38,6 +38,7 @@ class DownloadPlanResponse(BaseModel):
     count: int
     available: int
     total_bytes: int
+    size_basis: str = "source"
     estimated_parts: int
     excluded_oversized: int
     oversized_in_scan: int

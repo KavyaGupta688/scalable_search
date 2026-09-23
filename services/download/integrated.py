@@ -436,7 +436,7 @@ def publish(job_id, parts):
 def package(job, session):
     require_downloadable(job.file_ids)
     ROOT.mkdir(parents=True, exist_ok=True)
-    total = 0
+    source_total = 0
     # All-or-nothing: parts are built in a temporary directory and only exposed once every
     # file is packaged; failed packages are never exposed.
     with tempfile.TemporaryDirectory(prefix=job.id + "-", dir=ROOT) as temporary:
@@ -459,7 +459,7 @@ def package(job, session):
                     meta_response.raise_for_status()
                     meta = meta_response.json()
                     size = meta["size_bytes"]
-                    if size > MAX_FILE or total + size > MAX_TOTAL:
+                    if size > MAX_FILE or source_total + size > MAX_TOTAL:
                         raise ValueError("Selected files exceed download size limits")
                     raw = bytearray()
                     digest = hashlib.sha256()
@@ -476,6 +476,7 @@ def package(job, session):
                             digest.update(chunk)
                     if len(raw) != size or digest.hexdigest() != meta["checksum_sha256"]:
                         raise ValueError("Source integrity check failed")
+                    source_total += size
                     name = Path(meta["source_ref"].replace("\\", "/")).name
                     name = (
                         "".join(c if c.isalnum() or c in "._- " else "_" for c in name)[
@@ -501,9 +502,6 @@ def package(job, session):
                     payload["did"] = str(uuid.uuid5(uuid.UUID(job.id), document_id))
                     token = generate_watermark_token(payload)
                     output = watermark(bytes(raw), token, name)
-                    total += len(output)
-                    if total > MAX_TOTAL:
-                        raise ValueError("Package exceeds its size limit")
                     writer.add(
                         filename,
                         output,

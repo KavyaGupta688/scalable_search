@@ -54,7 +54,7 @@ def test_resolution_filter_compiles_to_a_long_edge_range():
 def test_top_tier_has_no_upper_bound_and_unknown_needs_media_type():
     assert "<" not in sql(resolution_clause(["4k"]))
     unknown = sql(resolution_clause(["unknown"]))
-    assert "IS NULL" in unknown and "file_type IN" in unknown
+    assert "IS NULL" in unknown and "<= 0" in unknown and "file_type IN" in unknown
 
 
 def test_resolution_filter_is_part_of_the_search_conditions():

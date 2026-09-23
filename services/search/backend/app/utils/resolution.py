@@ -52,7 +52,9 @@ def resolution_clause(tiers: List[str]):
             condition = and_(condition, edge < RESOLUTION_TIERS[index - 1][2])
         conditions.append(condition)
     if UNKNOWN in tiers:
-        conditions.append(and_(F.file_type.in_(MEDIA_TYPES), edge.is_(None)))
+        conditions.append(
+            and_(F.file_type.in_(MEDIA_TYPES), or_(edge.is_(None), edge <= 0))
+        )
     return or_(*conditions)
 
 

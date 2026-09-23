@@ -22,7 +22,8 @@ def _int(name: str, default: int) -> int:
 MAX_FILE_BYTES = _int("DOWNLOAD_MAX_FILE_BYTES", 128 * MiB)
 # Size of one archive part. A larger selection is split into several parts of this size.
 PART_BYTES = _int("DOWNLOAD_MAX_BATCH_BYTES", 2 * GiB)
-# Whole-request ceilings. They bound staging disk use and packaging time.
+# Whole-request ceilings apply to original source bytes. Watermark and ZIP overhead can
+# change delivered archive sizes; each finished part reports its exact compressed size.
 MAX_FILES = _int("DOWNLOAD_MAX_FILES", 10_000)
 MAX_TOTAL_BYTES = _int("DOWNLOAD_MAX_TOTAL_BYTES", 20 * GiB)
 
