@@ -129,6 +129,24 @@ def main():
         conn.execute(
             text("ALTER TABLE datasets ALTER COLUMN total_size_bytes TYPE bigint")
         )
+        # Query-path indexes. IF NOT EXISTS keeps repeated migrations idempotent.
+        # On a large existing catalog build these with CREATE INDEX CONCURRENTLY
+        # outside a transaction instead, to avoid blocking writes.
+        for ddl in (
+            # Suggestions: lower(title) LIKE 'prefix%'
+            "CREATE INDEX IF NOT EXISTS file_metadata_title_prefix_idx "
+            "ON file_metadata (lower(title) text_pattern_ops)",
+            # Tag filter: CAST(tags AS JSONB) @> '["tag"]'
+            "CREATE INDEX IF NOT EXISTS file_metadata_tags_gin_idx "
+            "ON file_metadata USING gin ((tags::jsonb))",
+            # Dataset filters and per-dataset visible counts only touch published rows.
+            "CREATE INDEX IF NOT EXISTS file_metadata_dataset_published_idx "
+            "ON file_metadata (dataset_id) WHERE published",
+            # Popular datasets: DATASET_OPEN counts per dataset in the last 7 days.
+            "CREATE INDEX IF NOT EXISTS search_events_dataset_views_idx "
+            "ON search_events (event_type, dataset_id, created_at)",
+        ):
+            conn.execute(text(ddl))
     sys.path.insert(0, str(ROOT / "services/download"))
     from integrated import Base as DownloadBase
     from database.models import Base as ForensicBase

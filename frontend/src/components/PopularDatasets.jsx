@@ -29,7 +29,10 @@ export const PopularDatasets = ({ onBrowse }) => {
   }, []);
 
   const handleBrowse = (ds) => {
-
+    // Feeds the popularity ranking. Analytics must never block browsing.
+    postSearchEvent('DATASET_OPEN', { dataset_id: ds.id }).catch((err) =>
+      console.warn('Dataset view was not recorded:', err.message)
+    );
     if (onBrowse) onBrowse(ds.id, ds.name);
   };
 
@@ -74,7 +77,7 @@ export const PopularDatasets = ({ onBrowse }) => {
                     ? `${ds.file_count.toLocaleString()} files`
                     : ds.file_count || '0 files'}
                 </span>
-                {ds.view_count_7d && (
+                {ds.view_count_7d > 0 && (
                   <span>· {ds.view_count_7d.toLocaleString()} views this week</span>
                 )}
               </div>

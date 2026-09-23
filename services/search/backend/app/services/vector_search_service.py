@@ -7,6 +7,7 @@ from app.db.qdrant import get_qdrant_client
 from app.core.config import get_settings
 from app.schemas.filters import SearchFilters
 from app.utils.filters import build_qdrant_filter
+from app.utils.relevance import within_margin
 from app.utils.rrf import RankedItem
 
 logger = logging.getLogger(__name__)
@@ -27,16 +28,51 @@ class VectorSearchService:
         offset: int = 0,
     ) -> Tuple[List[RankedItem], int]:
         """
-        Generates query embedding and searches Qdrant vector index with filters.
+        Generates the query embedding and returns the relevant filtered hits.
+
+        Only hits within VECTOR_SCORE_MARGIN of the best one count, out of a bounded
+        window of nearest neighbours. The window is independent of the requested page,
+        so the cutoff and the returned total are stable across pages. The total is the
+        number of relevant hits, not the number of documents that pass the filters.
         """
         from starlette.concurrency import run_in_threadpool
 
         query_vector = await run_in_threadpool(
             self.embedder.generate_text_embedding, query
         )
-        return await self.search_by_vector(
-            query_vector, filters=filters, limit=limit, offset=offset
+        window = max(settings.VECTOR_CANDIDATES, limit + offset)
+        nearest, _ = await self.search_by_vector(
+            query_vector, filters=filters, limit=window, offset=0
         )
+        reference = None
+        if nearest and self._narrows(filters):
+            # Relevance is judged against the best match in the whole catalog, not the
+            # best of what the filters left.
+            reference = max(nearest[0].raw_score, await self._best_score(query_vector))
+        relevant = within_margin(nearest, settings.VECTOR_SCORE_MARGIN, reference)
+        return relevant[offset : offset + limit], len(relevant)
+
+    @staticmethod
+    def _narrows(filters: Optional[SearchFilters]) -> bool:
+        return bool(filters) and any(
+            value not in (None, [], "") for value in filters.model_dump().values()
+        )
+
+    async def _best_score(self, vector: List[float]) -> float:
+        """Best similarity for the vector among all published, unexpired documents."""
+        from starlette.concurrency import run_in_threadpool
+
+        def query():
+            response = self.qdrant.query_points(
+                collection_name=self.collection_name,
+                query=vector,
+                query_filter=build_qdrant_filter(None),
+                limit=1,
+            )
+            points = response.points if hasattr(response, "points") else response
+            return float(points[0].score) if points else float("-inf")
+
+        return await run_in_threadpool(query)
 
     async def search_by_vector(
         self,

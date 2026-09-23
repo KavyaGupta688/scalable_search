@@ -61,7 +61,10 @@ def index_document(document_id):
         filename = PurePosixPath(row["source_ref"].replace("\\", "/")).name
         if filename.lower().endswith(".csv"):
             file_type = "csv"
-        technical = row.get("additional_metadata") or {}
+        # Pixel size and duration measured by the AI pipeline win over vendor values;
+        # ingestion drops vendor width/height, so they are normally absent.
+        measured = (row.get("quality_labels") or {}).get("technical") or {}
+        technical = {**(row.get("additional_metadata") or {}), **measured}
         values = dict(
             width=technical.get("width"),
             height=technical.get("height"),

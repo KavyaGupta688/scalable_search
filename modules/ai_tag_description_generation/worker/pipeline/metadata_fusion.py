@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,8 @@ def fuse_metadata(
     quality_labels: Any, 
     safety_labels: Any, 
     modality: str, 
-    model_versions: Dict[str, str]
+    model_versions: Dict[str, str],
+    technical: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Normalize and merge all metadata into final schema.
@@ -95,7 +96,9 @@ def fuse_metadata(
             'overall_quality': quality_labels.overall_quality,
             'is_blurry': quality_labels.is_blurry,
             'low_light': quality_labels.low_light,
-            'noisy_audio': quality_labels.noisy_audio
+            'noisy_audio': quality_labels.noisy_audio,
+            # Pixel size / duration / fps, read by the search indexer for resolution filters.
+            'technical': dict(technical or {}),
         },
         'safety_labels': {
             'contains_pii': safety_labels.contains_pii,
