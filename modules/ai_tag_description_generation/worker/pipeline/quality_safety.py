@@ -281,7 +281,7 @@ def assess_nsfw(images: List[Image.Image]) -> float:
 
 def assess_ai_generated(images: List[Image.Image]) -> float:
     """
-    CLIP zero-shot AI-generated image detection.
+    Community Forensics AI-generated image detection.
     Returns the maximum AI-generated score across all images (0.0–1.0).
     """
     if not images:

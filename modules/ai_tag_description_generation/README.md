@@ -43,6 +43,12 @@ Copy `.env.example` to `.env` for host execution or `.env.docker.example` to
 - Qdrant URL, API key, collection name, cosine distance, and vector size 512.
 - Model checkpoints and model-cache storage.
 
+AI-generated image detection uses `OwensLab/commfor-model-384` by default.
+The worker downloads its MIT-licensed checkpoint from Hugging Face on first
+use and then reuses the shared model cache. `AI_GENERATED_MODEL_NAME` selects
+the checkpoint and `AI_GENERATED_THRESHOLD` controls the generated-image flag;
+the default threshold is `0.5` for the checkpoint's sigmoid output.
+
 Do not configure vendor S3 keys, NAS passwords, Vault tokens, or presigned URLs
 in this module.
 
