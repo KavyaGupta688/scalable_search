@@ -40,6 +40,9 @@ export function WatermarkTracker() {
     ['Delivery started', date(trail.delivery_started_at)], ['Processing', trail.execution_mode || 'Historical worker'],
     ['Document ID', trail.document_id], ['Watermark ID', trail.download_id],
     ['Package ID', trail.job_id], ['Watermarks used', trail.watermark_methods?.join(', ') || 'Not recorded'],
+    ['Project', trail.request_details?.project_name], ['Purpose of usage', trail.request_details?.usage_purpose],
+    ['Licence expiry', date(trail.request_details?.licence_expiry)],
+    ['Metadata CSV', trail.request_details ? (trail.request_details.include_metadata_csv ? 'Included' : 'Not included') : 'Not recorded'],
   ] : [];
   return <section className="nx-panel p-5 sm:p-6 space-y-5" aria-label="Administrator watermark tracker">
     <div className="flex items-start gap-3">

@@ -1,3 +1,4 @@
+import { SearchTiming } from '../components/SearchTiming';
 import { Presence } from '../components/Motion';
 import React, { useState, useEffect, useCallback } from 'react';
 import { PageHeading } from '../components/DesignSystem';
@@ -10,8 +11,6 @@ import { SearchResultCard } from '../components/SearchResultCard';
 import { TrendingSearches } from '../components/TrendingSearches';
 import { PopularDatasets } from '../components/PopularDatasets';
 import { SuggestionOptions } from '../components/SuggestionOptions';
-import { ResolutionFilter } from '../components/ResolutionFilter';
-import { SizeFilter } from '../components/SizeFilter';
 import { BulkDownload } from '../components/BulkDownload';
 import { MODALITIES, modalityCounts, formatCount } from '../services/facets';
 import {
@@ -201,8 +200,6 @@ export const SearchView = ({ showToast }) => {
               </div>
             </div>
 
-            <div className="border-b border-nexus-borderSubtle pb-3"><ResolutionFilter catalog={catalog} layout="list" /></div>
-            <div className="border-b border-nexus-borderSubtle pb-3"><SizeFilter catalog={catalog} layout="list" /></div>
             <CatalogFilters catalog={catalog}/>
             {/* Minimum Confidence Slider */}
             <div className="flex flex-col gap-2">
@@ -334,7 +331,7 @@ export const SearchView = ({ showToast }) => {
                           <span className="font-mono text-nexus-brandText">{doc.scoreLabel}</span>
                         </td>
                         <td className="p-3 font-mono text-nexus-textMuted text-sm">
-                          {doc.created_at ? doc.created_at.slice(0, 10) : '—'}
+                          {doc.created_at ? doc.created_at.slice(0, 10) : 'â€”'}
                         </td>
                       </tr>
                     ))}
@@ -359,6 +356,7 @@ export const SearchView = ({ showToast }) => {
                 ))}
               </div>
             )}
+            <SearchTiming catalog={catalog} />
             <CatalogPagination catalog={catalog}/>
           </section>
         </div>

@@ -43,7 +43,7 @@ class RankingService:
             item.rrf_score *= boost
 
         # Re-sort after fine-tuning
-        fused_results.sort(key=lambda x: x.rrf_score, reverse=True)
+        fused_results.sort(key=lambda x: (x.relevance_score if x.relevance_score is not None else x.rrf_score, x.rrf_score), reverse=True)
         return fused_results
 
 _ranking_service = RankingService()

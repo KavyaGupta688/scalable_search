@@ -62,7 +62,18 @@ def document_index(document_id: UUID):
             raise HTTPException(404, "Document not found")
         indexed = c.execute(text("SELECT published,enrichment_status FROM search.file_metadata WHERE file_id=:id"), {"id": did}).mappings().first()
     try:
-        records = provision(create=False).retrieve(collection(), ids=[point_id(did)], with_vectors=True, with_payload=False)
+        q = provision(create=False)
+        records = q.retrieve(collection(), ids=[point_id(did)], with_vectors=True, with_payload=False)
+        from modules.shared.semantic_index import collection_name
+        representations = []
+        visual_status = "not_indexed"
+        if q.collection_exists(collection_name()):
+            semantic = q.retrieve(collection_name(), ids=[point_id(did)], with_vectors=True, with_payload=True)
+            if semantic:
+                visual_status = semantic[0].payload.get("visual_status", "not_indexed")
+                for name, vectors in semantic[0].vector.items():
+                    representations.append({"name": name, "count": len(vectors),
+                        "dimensions": len(vectors[0]) if vectors else 0})
     except Exception:
         raise HTTPException(503, "Vector index is temporarily unavailable") from None
     vector = records[0].vector if records else None
@@ -72,4 +83,5 @@ def document_index(document_id: UUID):
             "indexed": vector is not None, "published": bool(indexed and indexed["published"]),
             "dimensions": len(vector) if vector is not None else None,
             "norm": math.sqrt(sum(v*v for v in vector)) if vector is not None else None,
-            "vector": vector, "model": "CLIP ViT-B/32", "measured_at": datetime.now(timezone.utc).isoformat()}
+            "representations": representations, "visual_status": visual_status,
+            "vector": vector, "model": "Legacy CLIP ViT-B/32", "measured_at": datetime.now(timezone.utc).isoformat()}

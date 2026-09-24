@@ -49,7 +49,7 @@ test('display adapters distinguish missing data from measured zero', () => {
   assert.equal(bytes(2048), '2.0 KiB'); assert.equal(number(null), '—'); assert.equal(number(0), '0');
   const row = fileView({file_id:'canonical-id',file_type:'csv',file_name:'table.csv',tags:[{tag:'data'}],score_info:{rrf_score:0.01234}});
   assert.equal(row.id,'canonical-id'); assert.equal(row.modality,'tabular');
-  assert.equal(row.score,null); assert.equal(row.scoreLabel,'0.0123');
+  assert.equal(row.score,null); assert.equal(row.scoreLabel,'—');
   assert.equal(row.fileSize,'—'); assert.equal(row.sourceUri,''); assert.deepEqual(row.tags,['data']);
 });
 
@@ -98,4 +98,11 @@ test('sources surface permission and service failures instead of prototype fixtu
   await assert.rejects(getConnectors(),/Administrator permission required/);
   global.fetch=async()=>Response.json({detail:'Source service unavailable'},{status:503});
   await assert.rejects(getConnectors(),/Source service unavailable/);
+});
+
+
+test('relevance labels describe matching evidence rather than a confidence percentage', () => {
+  assert.equal(fileView({score_info:{rrf_score:0.0083,match_sources:['keyword']}}).scoreLabel,'Keyword match');
+  assert.equal(fileView({score_info:{rrf_score:0.0136,match_sources:['vector']}}).scoreLabel,'Semantic match');
+  assert.equal(fileView({score_info:{match_sources:['keyword','vector']}}).scoreLabel,'Keyword + semantic match');
 });

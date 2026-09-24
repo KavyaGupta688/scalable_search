@@ -61,7 +61,7 @@ class SearchService:
         active_filters = req.filters or processed.get("filters")
 
         # 2. Mode Routing (Hybrid RRF / Vector / Text)
-        mode = req.search_mode.lower()
+        mode = "text" if req.query.strip().lower() in ("", "*", "all") else req.search_mode.lower()
         # Ids of every document this search matched. Hybrid and vector matches cannot be
         # derived from the keyword query, so their facets are counted over exactly this
         # set. None means the keyword query itself defines the matches (text mode).
@@ -81,11 +81,16 @@ class SearchService:
                     id=r.id,
                     rrf_score=r.raw_score,
                     vector_rank=r.rank,
-                    vector_similarity=r.raw_score,
+                    vector_similarity=r.metadata.get("text_similarity", r.raw_score),
+                    visual_similarity=r.metadata.get("visual_similarity"),
+                    semantic_similarity=r.metadata.get("text_similarity"),
+                    matched_passage=r.metadata.get("matched_passage"),
                     match_sources=["vector"],
                 )
                 for r in relevant
             ], files_map)
+            ranked_all = await self._verify_relevance(req.query, ranked_all, files_map)
+            total = len(ranked_all)
             scope_ids = [r.id for r in ranked_all]
             fused_results = ranked_all[req.offset : req.offset + req.limit]
 
@@ -96,7 +101,7 @@ class SearchService:
                 limit=max(settings.VECTOR_CANDIDATES, req.offset + req.limit),
                 offset=0,
             )
-            ranked_all = self.ranking_service.rank_and_adjust([
+            ranked_all = [
                 FusionResult(
                     id=r.id,
                     rrf_score=r.raw_score,
@@ -105,7 +110,7 @@ class SearchService:
                     match_sources=["keyword"],
                 )
                 for r in ranked_txt
-            ], files_map)
+            ]
             fused_results = ranked_all[req.offset : req.offset + req.limit]
             total = total_hits
 
@@ -116,8 +121,8 @@ class SearchService:
                 query=req.query,
                 filters=active_filters,
                 rrf_k=req.rrf_k or 60,
-                keyword_weight=req.keyword_weight or 0.5,
-                vector_weight=req.vector_weight or 0.5,
+                keyword_weight=req.keyword_weight if req.keyword_weight is not None else 0.5,
+                vector_weight=req.vector_weight if req.vector_weight is not None else 0.5,
             )
             await self._attach_files(fused_all, files_map)
             ranked_all = self.ranking_service.rank_and_adjust(
@@ -183,14 +188,14 @@ class SearchService:
         """
         processed = self.query_processor.process_query(req.query, req.filters)
         filters = req.filters or processed.get("filters")
-        mode = req.search_mode.lower()
+        mode = "text" if req.query.strip().lower() in ("", "*", "all") else req.search_mode.lower()
         scan = settings.DOWNLOAD_PLAN_SCAN
 
         if mode == "text":
             text_results, total, files_map = await self.text_service.search(
                 query=req.query, filters=filters, limit=scan, offset=0
             )
-            ordered = self.ranking_service.rank_and_adjust([
+            ordered = [
                 FusionResult(
                     id=result.id,
                     rrf_score=result.raw_score,
@@ -199,7 +204,7 @@ class SearchService:
                     match_sources=["keyword"],
                 )
                 for result in text_results
-            ], files_map)
+            ]
             ranked = [(result.id, int(files_map[result.id].file_size)) for result in ordered]
         elif mode == "vector":
             relevant, total = await self.vector_service.search_by_query(
@@ -212,20 +217,25 @@ class SearchService:
                     id=result.id,
                     rrf_score=result.raw_score,
                     vector_rank=result.rank,
-                    vector_similarity=result.raw_score,
+                    vector_similarity=result.metadata.get("text_similarity", result.raw_score),
+                    visual_similarity=result.metadata.get("visual_similarity"),
+                    semantic_similarity=result.metadata.get("text_similarity"),
+                    matched_passage=result.metadata.get("matched_passage"),
                     match_sources=["vector"],
                 )
                 for result in relevant
                 if result.id in files_map
             ], files_map)
+            ordered = await self._verify_relevance(req.query, ordered, files_map)
+            total = len(ordered)
             ranked = [(result.id, int(files_map[result.id].file_size)) for result in ordered]
         else:
             fused, files_map = await self.hybrid_service.fuse_candidates(
                 query=req.query,
                 filters=filters,
                 rrf_k=req.rrf_k or 60,
-                keyword_weight=req.keyword_weight or 0.5,
-                vector_weight=req.vector_weight or 0.5,
+                keyword_weight=req.keyword_weight if req.keyword_weight is not None else 0.5,
+                vector_weight=req.vector_weight if req.vector_weight is not None else 0.5,
             )
             await self._attach_files(fused, files_map)
             ordered = self.ranking_service.rank_and_adjust(
@@ -256,12 +266,23 @@ class SearchService:
             relevant, _ = await self.vector_service.search_by_query(
                 query=req.query, filters=relaxed, limit=settings.VECTOR_CANDIDATES, offset=0
             )
-            return [r.id for r in relevant]
+            files_map = {}
+            await self._attach_files(relevant, files_map)
+            candidates = [FusionResult(id=r.id, rrf_score=r.raw_score, vector_similarity=r.metadata.get("text_similarity", r.raw_score),
+                    visual_similarity=r.metadata.get("visual_similarity"),
+                    semantic_similarity=r.metadata.get("text_similarity"),
+                    matched_passage=r.metadata.get("matched_passage"), match_sources=["vector"]) for r in relevant]
+            return [r.id for r in await self._verify_relevance(req.query, candidates, files_map)]
         fused, _ = await self.hybrid_service.fuse_candidates(
             query=req.query,
             filters=relaxed,
             rrf_k=req.rrf_k or 60,
-            keyword_weight=req.keyword_weight or 0.5,
-            vector_weight=req.vector_weight or 0.5,
+            keyword_weight=req.keyword_weight if req.keyword_weight is not None else 0.5,
+            vector_weight=req.vector_weight if req.vector_weight is not None else 0.5,
         )
         return [r.id for r in fused]
+
+    async def _verify_relevance(self, query, items, files):
+        from starlette.concurrency import run_in_threadpool
+        from app.services.relevance_service import rerank
+        return await run_in_threadpool(rerank, query, items, files)

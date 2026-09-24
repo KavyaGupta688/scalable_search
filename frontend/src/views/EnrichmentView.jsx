@@ -85,7 +85,7 @@ export const EnrichmentView = ({ showToast }) => {
         <div>
           <h1 className="page-title">AI Enrichment</h1>
           <p className="text-sm text-nexus-textMuted mt-0.5">
-            Automated neural tagging, OCR layout analysis, audio transcription, and 512-d vector embeddings.
+            Automated neural tagging, OCR layout analysis, audio transcription, and text and visual search embeddings.
           </p>
         </div>
       </div>
@@ -249,7 +249,7 @@ export const EnrichmentView = ({ showToast }) => {
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-nexus-textPrimary">512-d Vector Embedding</span>
+                <span className="text-sm font-bold text-nexus-textPrimary">Legacy CLIP embedding</span>
                 <span className="text-sm font-sans text-nexus-textMuted bg-nexus-elevated border border-nexus-borderSubtle px-1.5 py-0.2 rounded-xs">{index.loading ? 'Checking index' : index.error ? 'Index check failed' : index.data?.indexed ? (index.data.published ? 'Indexed · published' : 'Indexed · not published') : 'Not indexed'}</span>
               </div>
               <button
@@ -262,6 +262,12 @@ export const EnrichmentView = ({ showToast }) => {
               </button>
             </div>
 
+            <div className="text-sm text-nexus-textMuted">
+              <strong>Search representations</strong>
+              {index.data?.representations?.map(item => <p key={item.name}>{item.name === 'visual' ? 'Image / video frames' : 'Text passages'}: {item.count} · {item.dimensions} dimensions</p>)}
+              {index.data?.visual_status === 'unavailable' && <p>Visual embedding unavailable. Text search representation is retained.</p>}
+              {!index.data?.representations?.length && <p>No new search representations available.</p>}
+            </div>
             {/* Embedding Vector Visualizer Matrix */}
             <div className="bg-nexus-input p-3 rounded-sm border border-nexus-border font-mono text-sm text-nexus-textMuted flex flex-col gap-2">
               <div className="flex items-center justify-between border-b border-nexus-borderSubtle pb-1.5">

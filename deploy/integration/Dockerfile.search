@@ -1,6 +1,6 @@
 FROM smsprsm-integration-runtime:local
 RUN pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir open_clip_torch==2.29.0
+RUN pip install --no-cache-dir open_clip_torch==2.29.0 transformers==4.44.2
 ENV HF_HOME=/models/huggingface TORCH_HOME=/models/torch
 
 RUN pip install --no-cache-dir qdrant-client==1.11.1

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Presence, FeedbackMotion } from './Motion';
-import {saveArchive} from '../services/http';
-import { createBatchDownload, getDownloadStatus } from '../services/downloadApi';
-import { ArchiveParts } from './ArchiveParts';
+import { getDownloadStatus } from '../services/downloadApi';
+import { DownloadDialog } from './DownloadDialog';
+import { ArchiveDownload, PreparationStats } from './ArchiveDownload';
 import { DownloadIcon, SpinnerIcon, CloseIcon, CheckCircleIcon } from './Icons';
 
 /**
@@ -15,6 +15,7 @@ export const DownloadBar = ({
   onComplete,
 }) => {
   const [job,setJob] = useState(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [loading,setLoading] = useState(false);
   const [statusError,setStatusError] = useState('');
   const downloadStatus = job?.status || null;
@@ -31,20 +32,12 @@ export const DownloadBar = ({
     return () => {stopped=true;clearTimeout(timer);};
   }, [job?.download_id,job?.status]);
   const handleStartDownload = async () => {
-    setLoading(true);setStatusError('');
-    try {setJob(await createBatchDownload(selectedFileIds));}
-    catch (err) {setStatusError(err.message);}
-    finally {setLoading(false);}
-  };
-  const handleSave = async (part = 1) => {
-    setLoading(true);setStatusError('');
-    try {await saveArchive(job.download_id, part, job.part_count || 1);} catch (err) {setStatusError(err.message);}
-    finally {setLoading(false);}
+    setDialogOpen(true);
   };
   const handleReset = () => {setJob(null);setStatusError('');onClear?.();onComplete?.();};
 
   return (
-    <Presence>{(selectedFileIds.length > 0 || downloadStatus) &&
+    <><Presence>{(selectedFileIds.length > 0 || downloadStatus) &&
     <div className="download-float" role="status" aria-live="polite">
       <FeedbackMotion className="download-surface max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
@@ -78,6 +71,7 @@ export const DownloadBar = ({
           </div>
         </div>
 
+        {job && <PreparationStats job={job} />}
         {(statusError || job?.error) && <p role="alert" className="text-sm text-nexus-danger">{statusError || job.error}</p>}
         <div className="flex items-center gap-2.5">
           {(
@@ -103,7 +97,7 @@ export const DownloadBar = ({
             </button>
           )}
 
-          {downloadStatus === 'ready' && downloadUrl && <ArchiveParts job={job} onSave={handleSave} busy={loading} />}
+          {downloadStatus === 'ready' && downloadUrl && <ArchiveDownload job={job} />}
           {downloadStatus === 'ready' && (
             <button
               type="button"
@@ -118,5 +112,6 @@ export const DownloadBar = ({
       </FeedbackMotion>
     </div>
     }</Presence>
+    {dialogOpen && <DownloadDialog fileIds={selectedFileIds} onClose={() => setDialogOpen(false)} onCreated={next => { setJob(next); setDialogOpen(false); }} />}</>
   );
 };

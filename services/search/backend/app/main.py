@@ -34,6 +34,13 @@ async def lifespan(app: FastAPI):
 
     # Pay model initialization during startup, before accepting search requests.
     await run_in_threadpool(get_embedding_client().generate_text_embedding, "search readiness")
+    from app.services.relevance_service import bundle
+    await run_in_threadpool(bundle)
+    from app.core.config import get_settings
+    if get_settings().USE_MULTIMODAL_INDEX:
+        from modules.shared.semantic_index import text_bundle, provision
+        await run_in_threadpool(provision, False)
+        await run_in_threadpool(text_bundle)
     logger.info("Multimodal Search Module ready for traffic.")
     yield
     logger.info("Shutting down Multimodal Search backend.")

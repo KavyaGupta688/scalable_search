@@ -2,7 +2,8 @@ import React, {useState, useEffect, useRef} from 'react';
 import {search, getSuggestions, getFacets} from '../services/searchApi';
 import {fileView, backendModality} from '../services/presentation';
 import {facetCount} from '../services/facets';
-import {bytesToMb, mbToBytes} from '../services/sizes';
+import { ResolutionFilter } from './ResolutionFilter';
+import { SizeFilter } from './SizeFilter';
 
 export function useCatalog({browse = false, limit = 24} = {}) {
   const [query, setQueryValue] = useState('');
@@ -54,8 +55,9 @@ export function useCatalog({browse = false, limit = 24} = {}) {
     setData(null); setError('');
     if (!hasSearch) {setLoading(false); return () => controller.abort();}
     setLoading(true);
+    const started = performance.now();
     search(debouncedQuery.trim() || '*', debouncedQuery.trim() ? mode : 'text', filters, limit, page * limit, controller.signal)
-      .then(response => {if (!controller.signal.aborted) {setData({...response, results:response.results.map(fileView)}); setLastFacets(response.facets || null);}})
+      .then(response => {if (!controller.signal.aborted) {setData({...response, elapsed_ms: performance.now() - started, results:response.results.map(fileView)}); setLastFacets(response.facets || null);}})
       .catch(e => {if (!controller.signal.aborted) setError(e.message);})
       .finally(() => {if (!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
@@ -93,21 +95,30 @@ export function CatalogFilters({catalog}) {
   const {filters,setFilters,facets} = catalog;
   const choose = (key,value) => setFilters(f => ({...f,[key]:value}));
   const countLabel = count => typeof count === 'number' ? ` (${count.toLocaleString()})` : '';
-  return <details open className="text-sm border-t border-nexus-borderSubtle pt-3">
-    <summary className="cursor-pointer font-semibold text-nexus-textSecondary">More filters</summary>
-    <div className="flex flex-wrap gap-3 mt-3">
-      {[['dataset_ids','Dataset','datasets'],['categories','Category','categories'],['tags','Tag','top_tags']].map(([key,label,source]) => {
-        const values = facets?.[source] || [], selected = filters[key]?.[0];
-        return <label key={key} className="flex flex-col gap-1 min-w-0">{label}<select className="nx-input max-w-full" aria-label={label} value={selected || ''} onChange={e => choose(key,e.target.value ? [e.target.value] : undefined)}>
-          <option value="">All</option>{selected && !values.some(v => v.value === selected) && <option value={selected}>{selected}</option>}
-          {values.map(v => <option value={v.value} key={v.value}>{v.label || v.value} ({v.count})</option>)}</select></label>;
-      })}
-      {[['ai_generated','AI-origin flag'],['pii_detected','PII detected']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<select className="nx-input" value={filters[key] == null ? '' : String(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : e.target.value === 'true')}><option value="">Any</option><option value="true">{`Yes${countLabel(facetCount(facets,key,true))}`}</option><option value="false">{`No${countLabel(facetCount(facets,key,false))}`}</option></select></label>)}
-      <p className="text-xs text-nexus-textMuted">AI-origin flags are model estimates. Not flagged includes missed detections or missing assessments; it does not confirm human origin.</p>
-      {[['date_from','Ingested from'],['date_to','Ingested until']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="date" className="nx-input" value={filters[key]?.slice(0,10) || ''} onChange={e => choose(key,e.target.value ? `${e.target.value}${key === 'date_to' ? 'T23:59:59Z' : 'T00:00:00Z'}` : undefined)}/></label>)}
-      {[['min_size','Minimum size (MB)'],['max_size','Maximum size (MB)']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="number" min="0" step="any" className="nx-input w-36" value={bytesToMb(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : mbToBytes(e.target.value))}/></label>)}
-      {[['min_width','Minimum width'],['min_duration','Minimum seconds'],['max_duration','Maximum seconds']].map(([key,label]) => <label key={key} className="flex flex-col gap-1">{label}<input type="number" min="0" className="nx-input w-36" value={filters[key] ?? ''} onChange={e => choose(key,e.target.value === '' ? undefined : Number(e.target.value))}/></label>)}
-      <button className="nx-button" onClick={() => setFilters({})}>Clear filters</button>
+  return <details open className="catalog-filters nx-panel p-5 text-sm">
+    <summary className="cursor-pointer font-semibold text-nexus-textPrimary">Filters</summary>
+    <div className="flex flex-col gap-5 mt-5">
+      <div className="catalog-filter-grid">
+        {[['dataset_ids','Dataset','datasets'],['categories','Category','categories'],['tags','Tag','top_tags']].map(([key,label,source]) => {
+          const values = facets?.[source] || [], selected = filters[key]?.[0];
+          return <label key={key} className="flex flex-col gap-2 min-w-0 text-nexus-textSecondary">{label}<select className="nx-input w-full min-w-0" aria-label={label} value={selected || ''} onChange={e => choose(key,e.target.value ? [e.target.value] : undefined)}>
+            <option value="">All</option>{selected && !values.some(v => v.value === selected) && <option value={selected}>{selected}</option>}
+            {values.map(v => <option value={v.value} key={v.value}>{v.label || v.value} ({v.count})</option>)}</select></label>;
+        })}
+      </div>
+      <div className="border-t border-nexus-borderSubtle pt-4"><ResolutionFilter catalog={catalog} /></div>
+      <div className="border-t border-nexus-borderSubtle pt-4"><SizeFilter catalog={catalog} /></div>
+      <div className="catalog-filter-grid border-t border-nexus-borderSubtle pt-4">
+        {[['date_from','Ingested from'],['date_to','Ingested until']].map(([key,label]) => <label key={key} className="flex flex-col gap-2 min-w-0 text-nexus-textSecondary">{label}<input type="date" className="nx-input w-full min-w-0" value={filters[key]?.slice(0,10) || ''} onChange={e => choose(key,e.target.value ? `${e.target.value}${key === 'date_to' ? 'T23:59:59Z' : 'T00:00:00Z'}` : undefined)}/></label>)}
+        {[['min_width','Minimum width (px)'],['min_duration','Minimum duration (s)'],['max_duration','Maximum duration (s)']].map(([key,label]) => <label key={key} className="flex flex-col gap-2 min-w-0 text-nexus-textSecondary">{label}<input type="number" min="0" className="nx-input w-full min-w-0" value={filters[key] ?? ''} onChange={e => choose(key,e.target.value === '' ? undefined : Number(e.target.value))}/></label>)}
+      </div>
+      <div className="border-t border-nexus-borderSubtle pt-4">
+        <div className="catalog-filter-grid">
+          {[['ai_generated','AI-origin flag'],['pii_detected','PII detected']].map(([key,label]) => <label key={key} className="flex flex-col gap-2 min-w-0 text-nexus-textSecondary">{label}<select className="nx-input w-full" value={filters[key] == null ? '' : String(filters[key])} onChange={e => choose(key,e.target.value === '' ? undefined : e.target.value === 'true')}><option value="">Any</option><option value="true">{`Yes${countLabel(facetCount(facets,key,true))}`}</option><option value="false">{`No${countLabel(facetCount(facets,key,false))}`}</option></select></label>)}
+        </div>
+        <p className="text-xs text-nexus-textMuted mt-3 leading-relaxed">AI-origin flags are model estimates. An unflagged file is not confirmed to be human-created.</p>
+      </div>
+      <div className="flex justify-end border-t border-nexus-borderSubtle pt-4"><button type="button" className="nx-button" onClick={() => setFilters({})}>Clear filters</button></div>
     </div>
   </details>;
 }

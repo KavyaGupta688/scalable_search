@@ -139,3 +139,11 @@ def test_everything_oversized_is_distinguishable_from_no_results():
     assert result["count"] == 0 and result["available"] == 0
     assert result["oversized_in_scan"] == 2 and result["excluded_oversized"] == 0
     assert plan([], None)["oversized_in_scan"] == 0
+
+
+def test_unlimited_per_file_plan_keeps_large_files():
+    from app.utils.download_plan import build_plan
+    plan = build_plan([("large", 256 * 1024**2), ("small", 1000)], total_matches=2, count=1,
+                      limits={"max_file_bytes":0, "part_bytes":2*1024**3, "max_files":10000, "max_total_bytes":20*1024**3}, include_ids=True)
+    assert plan["file_ids"] == ["large"]
+    assert plan["available"] == 2 and plan["oversized_in_scan"] == 0 and plan["within_limits"]

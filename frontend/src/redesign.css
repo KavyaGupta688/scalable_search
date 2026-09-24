@@ -367,3 +367,10 @@ button:disabled, input:disabled, select:disabled { cursor:not-allowed; }
 .download-progress { max-width:55%; overflow-wrap:anywhere; }
 .downloads-page nav { gap:12px; padding-top:4px; }
 @media(max-width:640px) { .download-progress { max-width:100%; width:100%; }.downloads-page nav { flex-wrap:wrap; }.downloads-page nav span { order:3; width:100%; text-align:center; } }
+
+.catalog-filter-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr)); gap:16px; }
+.catalog-filters { min-width:0; }
+.file-size-range { appearance:none; -webkit-appearance:none; width:100%; height:6px; border:0; padding:0; border-radius:99px; cursor:pointer; margin:10px 0; }
+.file-size-range::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; height:22px; width:22px; background:#38bdf8; border:5px solid #304962; border-radius:50%; box-shadow:0 0 0 1px #52718a; }
+.file-size-range::-moz-range-thumb { height:12px; width:12px; background:#38bdf8; border:5px solid #304962; border-radius:50%; }
+.file-size-range:focus-visible { outline:2px solid #38bdf8; outline-offset:8px; }

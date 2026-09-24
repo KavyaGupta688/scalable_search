@@ -90,6 +90,8 @@ class MetadataService:
                 vector_rank=item.vector_rank,
                 vector_similarity=round(item.vector_similarity, 3) if item.vector_similarity is not None else None,
                 text_score=round(item.text_score, 2) if item.text_score is not None else None,
+                visual_similarity=item.visual_similarity,
+                semantic_similarity=item.semantic_similarity,
                 match_sources=item.match_sources
             )
 

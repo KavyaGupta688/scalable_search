@@ -1,10 +1,10 @@
 import re
 
-from sqlalchemy import select, func, or_, update, desc, cast, String, case, text
+from sqlalchemy import select, func, or_, and_, update, desc, cast, String, case, text, false
 from app.models.file_metadata import FileMetadata as F
 from app.schemas.filters import FacetsResponse, FacetCountItem
 from app.utils.filters import build_sqlalchemy_filters
-from app.utils.query_normalizer import extract_significant_tokens, tokenize
+from app.utils.query_normalizer import extract_significant_tokens, tokenize, term_pattern
 from app.utils.resolution import (
     LABELS,
     MEDIA_TYPES,
@@ -32,7 +32,12 @@ def word_start(field, token):
     return field.op("~*")(r"\y" + re.escape(token))
 
 
-def conditions(query, filters):
+def word_match(field, token):
+    """Whole terms with simple plurals: ball matches balls, never balloon."""
+    return field.op("~*")(r"(?<![[:alnum:]])" + term_pattern(token) + r"(?![[:alnum:]])")
+
+
+def conditions(query, filters, match_all=True):
     clauses = build_sqlalchemy_filters(filters)
     if query.strip().lower() in ("", "*", "all"):
         tokens = []
@@ -52,15 +57,9 @@ def conditions(query, filters):
         cast(F.tags, String),
     ]
     if tokens:
-        clauses.append(
-            or_(
-                *(
-                    word_start(field, token)
-                    for token in tokens
-                    for field in fields
-                )
-            )
-        )
+        clauses.append((and_ if match_all else or_)(*(or_(*(word_match(field, token) for field in fields)) for token in tokens)))
+    elif query.strip().lower() not in ("", "*", "all"):
+        clauses.append(false())
     return clauses, tokens, fields
 
 
@@ -92,7 +91,7 @@ class FileRepository:
         weights = [5, 2, 3, 4, 2, 1, 1, 3, 3]
         score = sum(
             (
-                case((word_start(field, token), weight), else_=0)
+                case((word_match(field, token), weight), else_=0)
                 for token in tokens
                 for field, weight in zip(fields, weights)
             ),
@@ -127,8 +126,8 @@ class FileRepository:
         )
         return {row[0]: int(row[1]) for row in rows}
 
-    async def search_keyword(self, query, filters=None, limit=50, offset=0):
-        clauses, tokens, fields = conditions(query, filters)
+    async def search_keyword(self, query, filters=None, limit=50, offset=0, match_all=True):
+        clauses, tokens, fields = conditions(query, filters, match_all=match_all)
         total = await self.db.scalar(
             select(func.count()).select_from(F).where(*clauses)
         )

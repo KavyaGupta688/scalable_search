@@ -1,5 +1,7 @@
 # Shared accounts for teammates running separate copies
 
+For a new teammate, start with [the environment generator and setup guide](TEAMMATE_SETUP.md). It creates private local keys without copying another developer's full environment, and identifies the shared credentials that still need secure distribution.
+
 The application verifies credentials in its gateway process, while **accounts, password hashes, roles and revocable sessions live in AWS RDS**. This PC uses database `smsprsm_integration`, schema `identity`, over TLS. The relevant tables are `identity.platform_users` and `identity.auth_tokens`. Shared `samsungdb` is unchanged.
 
 Each teammate can run their own frontend/gateway and use the same account. They do not need to connect to this PC's localhost or copy its `users.json`, SQLite files, browser storage or Docker auth volume. Registering an account through one configured copy makes it available to the others. Each browser normally signs in separately; logout revokes that session, not every session belonging to the account.

@@ -1,4 +1,4 @@
-from modules.shared.vector_store import provision
+from modules.shared.vector_store import provision, client
 
 
 def init_qdrant():
@@ -6,4 +6,5 @@ def init_qdrant():
 
 
 def get_qdrant_client():
-    return provision()
+    # Schema validation runs at startup, not on every keyword-only request.
+    return client()

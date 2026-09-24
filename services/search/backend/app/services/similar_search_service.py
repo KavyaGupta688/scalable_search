@@ -37,6 +37,11 @@ class SimilarSearchService:
         if not target_file:
             raise ResourceNotFoundException("File", file_id)
 
+        if settings.USE_MULTIMODAL_INDEX:
+            from starlette.concurrency import run_in_threadpool
+            return await run_in_threadpool(self.vector_search_service._multimodal_search,
+                target_file.title, filters, limit, 0, file_id)
+
         vector = None
         # Try finding vector in Qdrant by payload match
         try:

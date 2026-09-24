@@ -2,7 +2,7 @@
 SQLAlchemy ORM Models for PostgreSQL / SQLite Forensic Database.
 """
 import datetime
-from sqlalchemy import Column, String, Integer, DateTime, Text, BigInteger
+from sqlalchemy import Column, String, Integer, DateTime, Text, BigInteger, JSON
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -26,6 +26,8 @@ class ForensicAuditLog(Base):
     file_size_bytes = Column(BigInteger, default=0)
     status = Column(String(64), default="DELIVERED")
     notes = Column(Text, default="")
+    job_id = Column(String(36), nullable=True, index=True)
+    request_details = Column(JSON, nullable=True)
 
     def to_dict(self):
         return {
@@ -40,7 +42,9 @@ class ForensicAuditLog(Base):
             "token_signature": self.token_signature,
             "file_size_bytes": self.file_size_bytes,
             "status": self.status,
-            "notes": self.notes
+            "notes": self.notes,
+            "job_id": self.job_id,
+            "request_details": self.request_details
         }
 
 

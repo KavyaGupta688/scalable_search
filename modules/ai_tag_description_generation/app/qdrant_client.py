@@ -16,7 +16,7 @@ class QdrantManager:
     def __init__(self):
         # We initialize synchronously.
         self.client = QdrantClient(
-            url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY or None
+            url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY or None, timeout=30
         )
         self.collection_name = settings.QDRANT_COLLECTION_NAME
         self.vector_size = settings.QDRANT_VECTOR_SIZE

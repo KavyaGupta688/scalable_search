@@ -19,7 +19,7 @@ STOP_WORDS: Set[str] = {
 def normalize_text(text: str) -> str:
     if not text:
         return ""
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("utf-8", "ignore")
+    text = unicodedata.normalize("NFKC", text)
     text = text.lower()
     text = re.sub(r"[^\w\s-]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -34,8 +34,8 @@ def tokenize(text: str) -> List[str]:
     normalized = normalize_text(text)
     if not normalized:
         return []
-    tokens = normalized.split()
-    return [t for t in tokens if len(t) > 1]
+    tokens = re.findall(r"[^\W_]+", normalized, flags=re.UNICODE)
+    return tokens
 
 def extract_significant_tokens(text: str) -> List[str]:
     tokens = tokenize(text)
@@ -47,3 +47,38 @@ def normalize_query_for_trending(query: str) -> str:
     """
     normalized = normalize_text(query)
     return normalized
+
+
+def term_pattern(term):
+    """Conservative, symmetric English plurals; preserve identifiers and other scripts."""
+    if term in ('person', 'people'):
+        return '(?:person|people|man|men|woman|women|child|children)'
+    for group in [('man', 'men'), ('woman', 'women'), ('person', 'people'), ('child', 'children')]:
+        if term in group:
+            return '(?:' + '|'.join(group) + ')'
+    base = term
+    if term.isascii() and term.isalpha() and len(term) > 3:
+        if term.endswith('ies'):
+            return '(?:' + re.escape(term) + '|' + re.escape(term[:-3] + 'y') + ')'
+        if term.endswith('s') and not term.endswith(('ss', 'us', 'is')):
+            base = term[:-1]
+    variants = {term, base}
+    if base.isascii() and base.isalpha() and len(base) > 2:
+        variants.add(base + 's')
+        if base.endswith('y'):
+            variants.add(base[:-1] + 'ies')
+    return '(?:' + '|'.join(re.escape(value) for value in sorted(variants)) + ')'
+
+
+def retrieval_query(query):
+    """Remove request wording, while retaining descriptive modifiers and negations."""
+    return re.sub(r'^\s*(?:please\s+)?(?:show\s+me|find(?:\s+me)?|search\s+for|give\s+me)\s+', '', query, flags=re.I).strip()
+
+
+def search_intent(query):
+    """Recognize a trailing explicit exclusion, without discarding it as a stop word."""
+    query = retrieval_query(query)
+    parts = re.split(r"\b(?:without|excluding|except|but not|not)\s+", query, maxsplit=1, flags=re.I)
+    positive = parts[0].strip()
+    excluded = extract_significant_tokens(parts[1]) if len(parts) > 1 else []
+    return positive, excluded

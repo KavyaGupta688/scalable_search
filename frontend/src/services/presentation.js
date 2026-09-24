@@ -13,6 +13,13 @@ export function tags(values) {
 }
 export const modality = value => value === 'csv' ? 'tabular' : value;
 export const backendModality = value => value === 'tabular' ? 'csv' : value;
+export function matchLabel(info) {
+  const sources = info?.match_sources || [];
+  if (sources.includes('keyword') && sources.includes('vector')) return 'Keyword + semantic match';
+  if (sources.includes('keyword')) return 'Keyword match';
+  if (sources.includes('vector')) return 'Semantic match';
+  return '';
+}
 export function fileView(file) {
   return {
     ...file,
@@ -25,7 +32,7 @@ export function fileView(file) {
     canonicalCaption: file.caption || file.ai_enrichment?.caption,
     ocrText: file.ai_enrichment?.ocr_text, tags: tags(file.tags),
     // RRF is a ranking score, not a confidence probability.
-    score: null, scoreLabel: file.score_info?.rrf_score == null ? '—' : file.score_info.rrf_score.toFixed(4),
+    score: null, scoreLabel: matchLabel(file.score_info) || '—',
   };
 }
 export function connectorView(connector) {

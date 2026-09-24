@@ -18,8 +18,8 @@ def _int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-# A single file above this is never packaged. Selections leave such files out.
-MAX_FILE_BYTES = _int("DOWNLOAD_MAX_FILE_BYTES", 128 * MiB)
+# No per-file ceiling. Zero is the public API sentinel for unlimited.
+MAX_FILE_BYTES = 0
 # Size of one archive part. A larger selection is split into several parts of this size.
 PART_BYTES = _int("DOWNLOAD_MAX_BATCH_BYTES", 2 * GiB)
 # Whole-request ceilings apply to original source bytes. Watermark and ZIP overhead can

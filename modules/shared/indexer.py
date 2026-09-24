@@ -130,6 +130,14 @@ def index_document(document_id):
             q.set_payload(
                 collection(), payload=payload, points=[point_id(document_id)], wait=True
             )
+        # Publish the new representations only through the canonical projection.
+        from modules.shared.semantic_index import collection_name
+        if q.collection_exists(collection_name()):
+            semantic = q.retrieve(collection_name(), ids=[point_id(document_id)])
+            if published and not semantic:
+                raise RuntimeError("Semantic representations are not durable yet; rebuild or retry enrichment")
+            if semantic:
+                q.set_payload(collection_name(), payload=payload, points=[point_id(document_id)], wait=True)
         conn.execute(
             text("""INSERT INTO datasets(id,name,category,file_count,total_size_bytes,view_count,download_count,search_hit_count,popularity_score,created_at,updated_at)
             VALUES (:id,:name,:category,0,0,0,0,0,0,now(),now()) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name"""),

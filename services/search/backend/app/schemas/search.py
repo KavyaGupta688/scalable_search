@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Literal, Optional, List, Dict, Any
 from datetime import datetime
 from app.schemas.filters import SearchFilters, FacetsResponse
@@ -14,9 +14,16 @@ class SearchRequest(BaseModel):
     )
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0, le=10000)
-    rrf_k: Optional[int] = Field(default=60, description="RRF smoothing constant k")
+    rrf_k: Optional[int] = Field(default=60, ge=1, le=1000, description="RRF smoothing constant k")
     keyword_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
     vector_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode='after')
+    def valid_weights(self):
+        if self.search_mode == 'hybrid' and self.keyword_weight == 0 and self.vector_weight == 0:
+            raise ValueError('At least one search weight must be positive')
+        return self
+
 
 
 class DownloadPlanRequest(BaseModel):
@@ -27,9 +34,16 @@ class DownloadPlanRequest(BaseModel):
     search_mode: Literal["hybrid", "vector", "text"] = "hybrid"
     count: Optional[int] = Field(default=None, ge=0, le=1_000_000, description="Top N results; omit for as many as possible")
     include_ids: bool = Field(default=False, description="Return the selected file ids (needed to start the download)")
-    rrf_k: Optional[int] = 60
+    rrf_k: Optional[int] = Field(default=60, ge=1, le=1000)
     keyword_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
     vector_weight: Optional[float] = Field(default=0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode='after')
+    def valid_weights(self):
+        if self.search_mode == 'hybrid' and self.keyword_weight == 0 and self.vector_weight == 0:
+            raise ValueError('At least one search weight must be positive')
+        return self
+
 
 
 class DownloadPlanResponse(BaseModel):
@@ -37,6 +51,7 @@ class DownloadPlanResponse(BaseModel):
     requested: Optional[int] = None
     count: int
     available: int
+    available_bytes: int
     total_bytes: int
     size_basis: str = "source"
     estimated_parts: int
@@ -71,6 +86,8 @@ class SearchResultScoreInfo(BaseModel):
     keyword_rank: Optional[int] = None
     vector_rank: Optional[int] = None
     vector_similarity: Optional[float] = None
+    visual_similarity: Optional[float] = None
+    semantic_similarity: Optional[float] = None
     text_score: Optional[float] = None
     match_sources: List[str] = []
 

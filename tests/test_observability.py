@@ -53,6 +53,7 @@ def test_index_uses_canonical_point_and_checks_dimensions(monkeypatch, vector, e
         {'source_ref':'s3://source/file.txt','mime_type':'text/plain'}, {'published':True}]
     monkeypatch.setattr(observability, 'database_engine', lambda *a: engine)
     q = Mock()
+    q.collection_exists.return_value = False
     q.retrieve.return_value = [] if vector is None else [SimpleNamespace(vector=vector)]
     monkeypatch.setattr(vector_store, 'provision', lambda **kw: q)
     did = uuid4()

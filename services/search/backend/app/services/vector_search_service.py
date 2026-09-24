@@ -7,7 +7,6 @@ from app.db.qdrant import get_qdrant_client
 from app.core.config import get_settings
 from app.schemas.filters import SearchFilters
 from app.utils.filters import build_qdrant_filter
-from app.utils.relevance import within_margin
 from app.utils.rrf import RankedItem
 
 logger = logging.getLogger(__name__)
@@ -30,38 +29,81 @@ class VectorSearchService:
         """
         Generates the query embedding and returns the relevant filtered hits.
 
-        Only hits within VECTOR_SCORE_MARGIN of the best one count, out of a bounded
-        window of nearest neighbours. The window is independent of the requested page,
-        so the cutoff and the returned total are stable across pages. The total is the
-        number of relevant hits, not the number of documents that pass the filters.
+        Retrieves a stable bounded window. The caller verifies query/document relevance
+        after hydration, before computing totals, facets, or download selection.
         """
         from starlette.concurrency import run_in_threadpool
 
-        query_vector = await run_in_threadpool(
-            self.embedder.generate_text_embedding, query
-        )
+        from app.utils.query_normalizer import search_intent, tokenize
+        positive, _ = search_intent(query)
+        if not tokenize(positive):
+            return [], 0
+        if settings.USE_MULTIMODAL_INDEX:
+            return await run_in_threadpool(self._multimodal_search, positive, filters, limit, offset)
+        query_vector = await run_in_threadpool(self.embedder.generate_text_embedding, positive)
+        return await self.search_by_vector(query_vector, filters=filters, limit=limit, offset=offset)
+
+    def _multimodal_search(self, query, filters, limit, offset, source_id=None):
+        from modules.shared.semantic_index import collection_name, encode_passages, VERSION
+        from modules.shared.integration import database_engine
+        from app.models.file_metadata import FileMetadata
+        from app.utils.filters import build_sqlalchemy_filters
+        from sqlalchemy import select
+        from fastapi import HTTPException
+        # Canonical SQL remains authoritative for entitlement and every user filter.
+        with database_engine("search").connect() as conn:
+            eligible = list(conn.execute(select(FileMetadata.file_id).where(*build_sqlalchemy_filters(filters)).limit(100001)).scalars())
+        eligible = [file_id for file_id in eligible if file_id != source_id]
+        if len(eligible) > 100000:
+            raise HTTPException(422, "Narrow the search filters; candidate limit exceeded")
+        if not eligible:
+            return [], 0
+        return self._retrieve_multimodal(query, eligible, limit, offset, source_id)
+
+    def _retrieve_multimodal(self, query, eligible, limit, offset, source_id=None):
+        """Retrieve only caller-authorized IDs; also usable for offline quality evaluation."""
+        from modules.shared.semantic_index import collection_name, encode_passages, VERSION
+        from fastapi import HTTPException
+        if not eligible:
+            return [], 0
+        allowed = qmodels.Filter(must=[qmodels.HasIdCondition(has_id=eligible),
+            qmodels.FieldCondition(key="representation_version", match=qmodels.MatchValue(value=VERSION))])
         window = max(settings.VECTOR_CANDIDATES, limit + offset)
-        nearest, _ = await self.search_by_vector(
-            query_vector, filters=filters, limit=window, offset=0
-        )
-        reference = None
-        if nearest and self._narrows(filters):
-            # Relevance is judged against the best match in the whole catalog, not the
-            # best of what the filters left.
-            reference = max(nearest[0].raw_score, await self._best_score(query_vector))
-        relevant = within_margin(nearest, settings.VECTOR_SCORE_MARGIN, reference)
-        return relevant[offset : offset + limit], len(relevant)
-
-    @staticmethod
-    def _narrows(filters: Optional[SearchFilters]) -> bool:
-        return bool(filters) and any(
-            value not in (None, [], "") for value in filters.model_dump().values()
-        )
-
-    async def _best_score(self, vector: List[float]) -> float:
-        """Best similarity among documents currently visible in the authoritative database."""
-        best, _ = await self.search_by_vector(vector, filters=None, limit=1, offset=0)
-        return best[0].raw_score if best else float("-inf")
+        queries = None
+        if source_id:
+            points = self.qdrant.retrieve(collection_name(), ids=[source_id], with_vectors=True)
+            if points:
+                vectors = points[0].vector
+                name = "visual" if vectors.get("visual") else "text"
+                if vectors.get(name):
+                    queries = [(name, vectors[name][0])]
+        if queries is None:
+            queries = [("text", encode_passages([query])[0]),
+                       ("visual", self.embedder.generate_text_embedding(query))]
+        candidates = {}
+        try:
+            for name, vector in queries:
+                hits = self.qdrant.query_points(collection_name(), using=name, query=[vector],
+                    query_filter=allowed, limit=window, with_payload=True,
+                    with_vectors=["text"] if name == "text" else False,
+                    score_threshold=None if source_id else (settings.SEMANTIC_CANDIDATE_MIN if name == "text" else settings.VISUAL_CANDIDATE_MIN)).points
+                for rank, hit in enumerate(hits, 1):
+                    item = candidates.setdefault(str(hit.id), {"score": 0.0, "metadata": {}})
+                    item["score"] += 1 / (60 + rank)
+                    item["metadata"][name + "_similarity"] = float(hit.score)
+                    if name == "text":
+                        chunks = (hit.payload or {}).get("passages", [])
+                        vectors = (hit.vector or {}).get("text", [])
+                        if chunks and len(chunks) == len(vectors):
+                            best = max(range(len(vectors)), key=lambda i: sum(a*b for a,b in zip(vector, vectors[i])))
+                            item["metadata"]["matched_passage"] = chunks[best]
+            ordered = sorted(candidates.items(), key=lambda pair: (-pair[1]["score"], pair[0]))
+            ranked = [RankedItem(id=key, rank=rank, raw_score=value["score"], metadata=value["metadata"])
+                      for rank, (key, value) in enumerate(ordered, 1)]
+            return ranked[offset:offset+limit], len(ranked)
+        except Exception as exc:
+            logger.exception("Multimodal retrieval failed")
+            raise HTTPException(503, "Multimodal search index is unavailable") from exc
 
     async def search_by_vector(
         self,

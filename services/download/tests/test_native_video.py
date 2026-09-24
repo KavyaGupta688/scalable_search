@@ -48,3 +48,21 @@ def test_native_video_coefficients(codec, tmp_path):
     from unittest.mock import patch
     with patch("core.codec_forensics.CODEC_WATERMARK_SECRET", SECRET):
         assert inspect_signal(stripped.read_bytes())["authenticated"]
+
+
+def test_native_video_file_path_accepts_source_above_128mb(tmp_path):
+    if not (native_video.NATIVE_ROOT / "x264/x264").exists():
+        pytest.skip("Native encoder build required")
+    source, output = tmp_path / "large.mp4", tmp_path / "marked.mp4"
+    native_aac._run([imageio_ffmpeg.get_ffmpeg_exe(), "-v", "error", "-f", "lavfi", "-i",
+                    "testsrc2=size=192x192:rate=10:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)])
+    # A valid sparse MP4 free box makes the source large without changing its video signal.
+    with source.open("r+b") as target:
+        target.seek(0, 2)
+        box_size = 129 * 1024**2
+        target.write(box_size.to_bytes(4, "big") + b"free")
+        target.seek(box_size - 9, 1)
+        target.write(b"\0")
+    assert source.stat().st_size > 128 * 1024**2
+    assert native_video.embed_file(source, output, ID, SECRET) == output
+    assert native_video.extract_bytes(output.read_bytes(), SECRET) == ID

@@ -1,6 +1,8 @@
 """Canonical-document downloads, using ingestion's licensed source boundary."""
 
 import hashlib
+import csv
+import io
 import json
 import os
 import tempfile
@@ -13,7 +15,7 @@ from pathlib import Path
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import Column, String, JSON, DateTime, func, select, text
 from sqlalchemy.orm import declarative_base, Session
 
@@ -41,6 +43,7 @@ class Job(Base):
     execution_mode = Column(String(20))
     delivery_started_at = Column(DateTime(timezone=True))
     file_ids = Column(JSON, nullable=False)
+    request_details = Column(JSON, nullable=True)
     status = Column(String(20), nullable=False, default="building")
     error = Column(String(255))
     created_at = Column(
@@ -89,6 +92,70 @@ identity = internal_user("download", "data:download")
 
 class BatchRequest(BaseModel):
     file_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_FILES)
+    project_name: str = Field(min_length=1, max_length=200)
+    usage_purpose: str = Field(min_length=1, max_length=2000)
+    include_metadata_csv: bool = True
+    source_context: str = Field(default="Selected files", max_length=500)
+    displayed_available_count: int | None = Field(default=None, ge=0)
+    displayed_available_bytes: int | None = Field(default=None, ge=0)
+
+    @field_validator("project_name", "usage_purpose")
+    @classmethod
+    def required_text(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("This field is required")
+        return value
+
+
+class PreviewRequest(BaseModel):
+    file_ids: list[uuid.UUID] = Field(min_length=1, max_length=30000)
+
+
+def catalog_details(ids):
+    from sqlalchemy import bindparam
+
+    statement = text(
+        "SELECT f.file_id, f.file_name, f.title, f.tags, f.category, f.width, f.height, "
+        "f.file_size, f.dataset_name, e.expires_at AS licence_expiry "
+        "FROM search.file_metadata f JOIN ingestion.documents d ON d.id::text=f.file_id "
+        "JOIN ingestion.license_entitlements e ON e.id=d.entitlement_id WHERE f.file_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    with database_engine("search").connect() as conn:
+        rows = [dict(row) for row in conn.execute(statement, {"ids": ids}).mappings()]
+    for row in rows:
+        row["licence_expiry"] = row["licence_expiry"].isoformat()
+    return {row["file_id"]: row for row in rows}
+
+
+def selection_summary(ids):
+    details = catalog_details(ids)
+    if len(details) != len(ids):
+        raise HTTPException(409, "The selection changed; refresh and try again")
+    rows = list(details.values())
+    expiries = sorted(row["licence_expiry"] for row in rows)
+    total = sum(row["file_size"] for row in rows)
+    oversized = [{"file_id": row["file_id"], "file_name": row["file_name"], "size_bytes": row["file_size"]}
+                 for row in rows if MAX_FILE and row["file_size"] > MAX_FILE]
+    return {
+        "count": len(ids), "total_bytes": total, "size_basis": "source",
+        "average_bytes": total / len(ids),
+        "oversized_files": oversized,
+        "eligible_file_ids": [file_id for file_id in ids if not MAX_FILE or details[file_id]["file_size"] <= MAX_FILE],
+        "licence_expiry": expiries[0], "latest_licence_expiry": expiries[-1],
+        "datasets": sorted(set(row["dataset_name"] for row in rows)),
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "within_limits": len(ids) <= MAX_FILES and total <= MAX_TOTAL
+        and all(not MAX_FILE or row["file_size"] <= MAX_FILE for row in rows),
+        "limits": download_limits.limits(),
+    }
+
+
+@app.post("/downloads/preview")
+def preview(body: PreviewRequest, user=Depends(identity)):
+    ids = list(dict.fromkeys(str(i) for i in body.file_ids))
+    require_downloadable(ids)
+    return selection_summary(ids)
 
 
 # Jobs at most this large list every file in `items`. Larger jobs list only the files that
@@ -142,6 +209,7 @@ def response(job, rows=None, estimated_bytes=None):
         "updated_at": job.updated_at,
         "error": job.error,
         "execution_mode": job.execution_mode,
+        "request_details": job.request_details,
         "download_url": f"/downloads/{job.id}/content"
         if job.status == "ready"
         else None,
@@ -179,7 +247,7 @@ def selection_size(ids):
 
     statement = text(
         "SELECT coalesce(sum(file_size), 0), coalesce(max(file_size), 0), "
-        "count(*) FILTER (WHERE file_size > :limit) "
+        "count(*) FILTER (WHERE :limit > 0 AND file_size > :limit) "
         "FROM search.file_metadata WHERE file_id IN :ids"
     ).bindparams(bindparam("ids", expanding=True))
     with database_engine("search").connect() as conn:
@@ -210,7 +278,7 @@ def create_batch(body: BatchRequest, background: BackgroundTasks, user=Depends(i
     import shutil
 
     ROOT.mkdir(parents=True, exist_ok=True)
-    if shutil.disk_usage(ROOT).free < total + 3 * MAX_FILE:
+    if shutil.disk_usage(ROOT).free < total + 3 * largest:
         raise HTTPException(
             503, "Not enough temporary storage to prepare this download right now."
         )
@@ -223,6 +291,13 @@ def create_batch(body: BatchRequest, background: BackgroundTasks, user=Depends(i
             client_ip=user.get("client_ip", ""),
             execution_mode="queued",
             file_ids=ids,
+            request_details={**{key: value for key, value in selection_summary(ids).items()
+                                if key not in ("eligible_file_ids", "oversized_files")},
+                "project_name": body.project_name, "usage_purpose": body.usage_purpose,
+                "include_metadata_csv": body.include_metadata_csv,
+                "source_context": body.source_context,
+                "displayed_available_count": body.displayed_available_count,
+                "displayed_available_bytes": body.displayed_available_bytes},
             status="building",
         )
         session.add(job)
@@ -239,7 +314,7 @@ def create_batch(body: BatchRequest, background: BackgroundTasks, user=Depends(i
                 "actor": job.owner,
                 "entity_type": "download",
                 "entity_id": job.id,
-                "metadata": {"file_count": len(ids)},
+                "metadata": {"file_count": len(ids), "project_name": body.project_name},
             },
         )
         session.commit()
@@ -342,7 +417,8 @@ async def verify(
         log = session.get(ForensicAuditLog, signal_id or metadata_id) if not conflict and (signal_id or metadata_id) else None
         matched = bool(log and (signal_id == log.download_id or (metadata_id == log.download_id and log.token_str == token)))
         if matched:
-            job = session.get(Job, log.notes) if log.notes else None
+            job_id = log.job_id or log.notes
+            job = session.get(Job, job_id) if job_id else None
             _, stored_payload, _ = verify_watermark_token(log.token_str)
             trail = {
                 "download_id": log.download_id, "document_id": log.s3_key,
@@ -356,6 +432,7 @@ async def verify(
                 "execution_mode": job.execution_mode if job else None,
                 "status": log.status, "file_size_bytes": log.file_size_bytes,
                 "watermark_methods": (stored_payload or {}).get("meta", {}).get("watermark_methods", []),
+                "request_details": log.request_details or (job.request_details if job else None),
             }
     return {
         "audit_match": matched,
@@ -376,20 +453,35 @@ class PartWriter:
     unpacked independently.
     """
 
-    def __init__(self, directory, limit):
+    def __init__(self, directory, limit, include_metadata_csv=False):
         self.directory, self.limit = directory, limit
+        self.include_metadata_csv = include_metadata_csv
         self.paths, self._zip, self._used, self._manifest = [], None, 0, []
+
+    def _write(self, name, data):
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        if isinstance(data, Path):
+            digest = hashlib.sha256()
+            with data.open("rb") as source, self._zip.open(name, "w", force_zip64=True) as target:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    target.write(chunk)
+                    digest.update(chunk)
+            self._checksums.append(f"{digest.hexdigest()}  {name}\n")
+            return
+        self._zip.writestr(name, data)
+        self._checksums.append(f"{hashlib.sha256(data).hexdigest()}  {name}\n")
 
     def add(self, filename, data, entry, sidecars=None):
         sidecars = sidecars or []
-        size = len(data) + sum(len(contents) for _, contents in sidecars)
+        size = (data.stat().st_size if isinstance(data, Path) else len(data)) + sum(len(contents) for _, contents in sidecars)
         if self._zip is not None and self._used + size > self.limit:
             self._finish()
         if self._zip is None:
             self._start()
-        self._zip.writestr(filename, data)
+        self._write(filename, data)
         for sidecar_name, contents in sidecars:
-            self._zip.writestr(sidecar_name, contents)
+            self._write(sidecar_name, contents)
         self._used += size
         self._manifest.append(entry)
 
@@ -398,9 +490,27 @@ class PartWriter:
         self.paths.append(path)
         self._zip = zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED)
         self._used, self._manifest = 0, []
+        self._checksums = []
 
     def _finish(self):
-        self._zip.writestr("manifest.json", json.dumps(self._manifest, indent=2))
+        self._write("manifest.json", json.dumps(self._manifest, indent=2))
+        if self.include_metadata_csv:
+            output = io.StringIO(newline="")
+            fields = ["document_id", "filename", "title", "tags", "category", "width", "height", "file_size", "dataset_name", "licence_expiry"]
+            writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+            writer.writeheader()
+            for entry in self._manifest:
+                row = {**entry.get("metadata", {}), "document_id": entry.get("document_id"), "filename": entry.get("filename")}
+                for key, value in row.items():
+                    if isinstance(value, (list, dict)):
+                        value = json.dumps(value, ensure_ascii=False)
+                    # Prevent spreadsheet formula execution in vendor-controlled metadata.
+                    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r", "\n")):
+                        value = "'" + value
+                    row[key] = value
+                writer.writerow(row)
+            self._write("metadata.csv", output.getvalue())
+        self._zip.writestr("SHA256SUMS.txt", "".join(self._checksums))
         self._zip.close()
         self._zip = None
 
@@ -440,7 +550,9 @@ def package(job, session):
     # All-or-nothing: parts are built in a temporary directory and only exposed once every
     # file is packaged; failed packages are never exposed.
     with tempfile.TemporaryDirectory(prefix=job.id + "-", dir=ROOT) as temporary:
-        writer = PartWriter(Path(temporary), MAX_BATCH)
+        request_details = job.request_details or {}
+        metadata_by_id = catalog_details(job.file_ids) if request_details.get("include_metadata_csv") else {}
+        writer = PartWriter(Path(temporary), MAX_BATCH, request_details.get("include_metadata_csv", False))
         try:
             with httpx.Client(timeout=120) as client:
                 for document_id in job.file_ids:
@@ -448,8 +560,6 @@ def package(job, session):
                     file_progress(job.id, document_id, "processing")
                     import shutil
 
-                    if shutil.disk_usage(ROOT).free < 3 * MAX_FILE:
-                        raise ValueError("Insufficient temporary storage")
                     headers = service_headers(
                         "ingestion", ["data:read", "data:download"], "download-worker"
                     )
@@ -458,23 +568,28 @@ def package(job, session):
                     )
                     meta_response.raise_for_status()
                     meta = meta_response.json()
+                    job._active_file_name = Path(meta["source_ref"].replace("\\", "/")).name[:100]
                     size = meta["size_bytes"]
-                    if size > MAX_FILE or source_total + size > MAX_TOTAL:
+                    if source_total + size > MAX_TOTAL:
                         raise ValueError("Selected files exceed download size limits")
-                    raw = bytearray()
+                    if shutil.disk_usage(ROOT).free < 3 * size:
+                        raise ValueError("Insufficient temporary storage")
+                    source_path = Path(temporary) / "source.bin"
+                    received = 0
                     digest = hashlib.sha256()
                     with client.stream(
                         "GET",
                         INGESTION + "/documents/" + document_id + "/content",
                         headers=headers,
-                    ) as stream:
+                    ) as stream, source_path.open("wb") as source_file:
                         stream.raise_for_status()
                         for chunk in stream.iter_bytes():
-                            if len(raw) + len(chunk) > min(size, MAX_FILE):
+                            if received + len(chunk) > size:
                                 raise ValueError("Source size changed")
-                            raw.extend(chunk)
+                            source_file.write(chunk)
+                            received += len(chunk)
                             digest.update(chunk)
-                    if len(raw) != size or digest.hexdigest() != meta["checksum_sha256"]:
+                    if received != size or digest.hexdigest() != meta["checksum_sha256"]:
                         raise ValueError("Source integrity check failed")
                     source_total += size
                     name = Path(meta["source_ref"].replace("\\", "/")).name
@@ -497,11 +612,19 @@ def package(job, session):
                             "job_id": job.id,
                             "document_id": document_id,
                             "watermark_methods": methods,
+                            "request_details_sha256": hashlib.sha256(json.dumps(request_details, sort_keys=True).encode()).hexdigest(),
                         },
                     )
                     payload["did"] = str(uuid.uuid5(uuid.UUID(job.id), document_id))
                     token = generate_watermark_token(payload)
-                    output = watermark(bytes(raw), token, name)
+                    # Sidecar formats can be packaged without loading large originals into RAM.
+                    if "Video-Native-Coefficients-v1" in methods:
+                        from core.native_video import embed_file
+                        from config import CODEC_WATERMARK_SECRET
+                        output = embed_file(source_path, Path(temporary) / "watermarked.bin", payload["did"],
+                                            CODEC_WATERMARK_SECRET, "matroska" if Path(name).suffix.lower() == ".mkv" else "mp4")
+                    else:
+                        output = source_path if "sidecar-HMAC-SHA256" in methods else watermark(source_path.read_bytes(), token, name)
                     writer.add(
                         filename,
                         output,
@@ -510,6 +633,7 @@ def package(job, session):
                             "filename": filename,
                             "download_id": payload["did"],
                             "watermark_methods": methods,
+                            "metadata": metadata_by_id.get(document_id, {}),
                         },
                         sidecars=[
                             (
@@ -526,11 +650,17 @@ def package(job, session):
                         if "sidecar-HMAC-SHA256" in methods
                         else None,
                     )
+                    output_size = output.stat().st_size if isinstance(output, Path) else len(output)
+                    source_path.unlink(missing_ok=True)
+                    if isinstance(output, Path):
+                        output.unlink(missing_ok=True)
                     file_progress(job.id, document_id, "packaged")
                     from database.models import ForensicAuditLog
 
                     session.merge(
                         ForensicAuditLog(
+                            job_id=job.id,
+                            request_details=request_details,
                             download_id=payload["did"],
                             user_id=job.owner,
                             user_email=job.email,
@@ -542,7 +672,7 @@ def package(job, session):
                             client_ip=job.client_ip or "unknown",
                             token_str=token,
                             token_signature=token.rsplit(".", 1)[1],
-                            file_size_bytes=len(output),
+                            file_size_bytes=output_size,
                             status="PACKAGED",
                             notes=job.id,
                         )
@@ -615,7 +745,8 @@ def work_once(job_id=None, mode="celery"):
             if isinstance(exc, HTTPException):
                 reason = str(exc.detail)
             elif isinstance(exc, httpx.HTTPStatusError):
-                reason = f"Source service returned HTTP {exc.response.status_code}"
+                reason = (f"Original file {getattr(job, '_active_file_name', getattr(job, '_active_document_id', ''))} is unavailable (HTTP {exc.response.status_code}). "
+                          "Check the source storage connection and file access, then retry.")
             elif isinstance(exc, ValueError):
                 reason = str(exc)
             else:

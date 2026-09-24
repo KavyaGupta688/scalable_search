@@ -91,15 +91,14 @@ def _recover(path, tmp, codec, secret):
     return None
 
 
-def embed_bytes(data, download_id, secret, container="mp4"):
-    if len(data) > 64 * 1024 * 1024:
-        raise ValueError("Native video input limit is 64 MiB")
+def embed_file(source, output, download_id, secret, container="mp4"):
+    """Native video watermark using disk paths, without an input-byte ceiling."""
     if container not in ("mp4", "matroska"):
         raise ValueError("Native video output must use MP4 or Matroska")
-    with tempfile.TemporaryDirectory(prefix="native-video-") as directory:
+    source, output = Path(source), Path(output)
+    with tempfile.TemporaryDirectory(prefix="native-video-", dir=output.parent) as directory:
         tmp = Path(directory)
-        source, raw, elementary, output, config = (tmp / p for p in ("input.bin", "frames.yuv", "coded.bin", "output.bin", "embed-video.cfg"))
-        source.write_bytes(data)
+        raw, elementary, config = (tmp / p for p in ("frames.yuv", "coded.bin", "embed-video.cfg"))
         codec, width, height, fps, has_audio = _probe(source)
         _config(config, codec, secret, download_id)
         _run([_tool("ffmpeg"), "-v", "error", "-i", str(source), "-map", "0:v:0", "-an", "-pix_fmt", "yuv420p",
@@ -123,10 +122,20 @@ def embed_bytes(data, download_id, secret, container="mp4"):
         _run([_tool("ffmpeg"), "-v", "error", "-fflags", "+genpts", "-r", fps, "-f", "h264" if codec == "h264" else "hevc",
               "-i", str(elementary), "-i", str(source), "-map", "0:v:0", "-map", "1:a:0?", "-c", "copy",
               "-map_metadata", "-1", "-f", container, str(output)])
-        if output.stat().st_size > 64 * 1024 * 1024:
-            raise ValueError("All-intra output exceeds the 64 MiB forensic limit")
         if _recover(output, tmp, codec, secret) != download_id.lower():
             raise ValueError("Native video watermark recovery failed; no output delivered")
+    return output
+
+
+def embed_bytes(data, download_id, secret, container="mp4"):
+    if len(data) > 64 * 1024 * 1024:
+        raise ValueError("Native video in-memory input limit is 64 MiB; use file processing")
+    with tempfile.TemporaryDirectory(prefix="native-video-") as directory:
+        source, output = Path(directory) / "input.bin", Path(directory) / "output.bin"
+        source.write_bytes(data)
+        embed_file(source, output, download_id, secret, container)
+        if output.stat().st_size > 64 * 1024 * 1024:
+            raise ValueError("Native video in-memory output limit is 64 MiB; use file processing")
         return output.read_bytes()
 
 

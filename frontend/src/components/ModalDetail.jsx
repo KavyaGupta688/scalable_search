@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {ProtectedPreview} from './ProtectedPreview';
 import {getCurrentUser} from '../services/auth';
 import { getFile } from '../services/searchApi';
-import { createBatchDownload } from '../services/downloadApi';
+import { DownloadDialog } from './DownloadDialog';
 import { SimilarSearchButton } from './SimilarSearchButton';
 import { ModalityBadge } from './ModalityBadge';
 import {
@@ -27,7 +27,7 @@ export const ModalDetail = ({ docId, onClose, showToast, onSelectResult, filters
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error,setError] = useState('');
-  const [busy,setBusy] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const bookmarkKey = `nexus_saved_docs:${getCurrentUser()?.email || 'session'}`;
   const [isSaved, setIsSaved] = useState(false);
 
@@ -66,12 +66,11 @@ export const ModalDetail = ({ docId, onClose, showToast, onSelectResult, filters
     catch {setError('Unable to copy to clipboard.');}
   };
   const handleDownload = async () => {
-    setBusy(true); setError('');
-    try {await createBatchDownload([docId]);showToast?.('Download requested. Follow its progress in Downloads.','info');}
-    catch (err) {setError(err.message);}
-    finally {setBusy(false);}
+    setDownloadOpen(true);
   };
   const renderMediaViewer = () => <ProtectedPreview documentId={docId} modality={doc.modality} name={doc.filename} text={doc.ocrText}/>;
+
+  if (downloadOpen) return <DownloadDialog fileIds={[docId]} onClose={() => setDownloadOpen(false)} />;
 
   return (
     <DialogBackdrop onClose={onClose}
@@ -222,7 +221,7 @@ export const ModalDetail = ({ docId, onClose, showToast, onSelectResult, filters
               </button>
               <button
                 type="button"
-                onClick={handleDownload} disabled={busy}
+                onClick={handleDownload}
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-nexus-brand hover:bg-nexus-brandHover text-white rounded-sm text-sm font-semibold transition-colors"
               >
                 <DownloadIcon className="w-3.5 h-3.5" />

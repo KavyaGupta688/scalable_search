@@ -27,3 +27,9 @@ def canonical_file_id():
         "Populate isolated acceptance sources and run projection_workflow.py first"
     )
     return value
+
+
+@pytest.fixture
+def canonical_title(canonical_file_id):
+    with database_engine("search").connect() as conn:
+        return conn.execute(text("SELECT title FROM file_metadata WHERE file_id=:id"), {"id": canonical_file_id}).scalar_one()

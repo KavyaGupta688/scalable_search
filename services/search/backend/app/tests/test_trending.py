@@ -4,7 +4,7 @@ from app.main import app
 
 
 @pytest.mark.asyncio
-async def test_trending_searches_endpoint(search_headers, canonical_file_id):
+async def test_trending_searches_endpoint(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
@@ -18,12 +18,12 @@ async def test_trending_searches_endpoint(search_headers, canonical_file_id):
 
 
 @pytest.mark.asyncio
-async def test_suggestions_endpoint(search_headers, canonical_file_id):
+async def test_suggestions_endpoint(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
     ) as client:
-        response = await client.get("/search/suggestions?q=accept")
+        response = await client.get("/search/suggestions", params={"q": canonical_title[:5]})
         assert response.status_code == 200
         data = response.json()
         assert "suggestions" in data
@@ -31,7 +31,7 @@ async def test_suggestions_endpoint(search_headers, canonical_file_id):
 
 
 @pytest.mark.asyncio
-async def test_popular_datasets_endpoint(search_headers, canonical_file_id):
+async def test_popular_datasets_endpoint(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
@@ -56,7 +56,7 @@ async def test_popular_datasets_endpoint(search_headers, canonical_file_id):
 
 
 @pytest.mark.asyncio
-async def test_events_and_download_export(search_headers, canonical_file_id):
+async def test_events_and_download_export(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
@@ -64,7 +64,7 @@ async def test_events_and_download_export(search_headers, canonical_file_id):
         # Record search event
         event_res = await client.post(
             "/events/search",
-            json={"event_type": "SEARCH", "query": "acceptance", "result_count": 5},
+            json={"event_type": "SEARCH", "query": canonical_title, "result_count": 5},
         )
         assert event_res.status_code == 201
 

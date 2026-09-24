@@ -4,12 +4,12 @@ from app.main import app
 
 
 @pytest.mark.asyncio
-async def test_vector_search_endpoint(search_headers, canonical_file_id):
+async def test_vector_search_endpoint(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
     ) as client:
-        payload = {"query": "acceptance", "limit": 5}
+        payload = {"query": canonical_title, "limit": 5}
         response = await client.post("/search/vector", json=payload)
         assert response.status_code == 200
         data = response.json()

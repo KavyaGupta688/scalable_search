@@ -36,12 +36,15 @@ class Settings(BaseSettings):
     RRF_VECTOR_WEIGHT: float = 0.5
     DEFAULT_SEARCH_LIMIT: int = 20
     MAX_SEARCH_LIMIT: int = 100
-    # Vector relevance: only hits within VECTOR_SCORE_MARGIN (cosine) of the best hit
-    # are candidates, out of the VECTOR_CANDIDATES nearest. Without a cutoff every
-    # eligible document is returned for any query. CLIP text similarities are tightly
-    # clustered, so tune the margin against labelled queries before relying on it.
+    # Broad CLIP candidate window; query/document reranking rejects weak matches.
+    USE_MULTIMODAL_INDEX: bool = True
+    SEMANTIC_CANDIDATE_MIN: float = 0.0
+    VISUAL_CANDIDATE_MIN: float = 0.26
+    SEMANTIC_ACCEPT_MIN: float = 0.42
+    VISUAL_ACCEPT_MIN: float = 0.28
     VECTOR_CANDIDATES: int = 200
     VECTOR_SCORE_MARGIN: float = 0.08
+    RELEVANCE_MIN_LOGIT: float = -3.0
 
     # Ranked results scanned when planning a download of the top N. It also bounds how many
     # files an oversized-file skip can look past.

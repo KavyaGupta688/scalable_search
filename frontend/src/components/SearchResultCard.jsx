@@ -1,3 +1,4 @@
+import { matchLabel } from '../services/presentation';
 import { FileImage, FileVideo, FileAudio, FileText, Table2 } from 'lucide-react';
 import React from 'react';
 import { m, timing, ease, useReducedMotion } from './Motion';
@@ -23,7 +24,7 @@ export const SearchResultCard = ({
   const description = result.description || result.aiDescription || '';
   const PreviewIcon = ({image:FileImage,video:FileVideo,audio:FileAudio,document:FileText,tabular:Table2})[modality] || FileText;
   const tags = result.tags || [];
-  const score = result.score_info?.rrf_score?.toFixed(4) ?? null;
+  const score = matchLabel(result.score_info);
 
   return (
     <m.div
@@ -44,9 +45,9 @@ export const SearchResultCard = ({
         <ModalityBadge type={modality} />
 
         <div className="flex flex-wrap items-center gap-2">
-          {score != null && (
+          {score && (
             <span className="text-sm font-mono font-bold text-nexus-brandText bg-nexus-brandSubtle border border-nexus-border px-1.5 py-0.5 rounded-xs">
-              Relevance {score}
+              {score}
             </span>
           )}
 

@@ -429,7 +429,13 @@ def _run_persistence(file_id: str, storage_path: str, file_type: str, ctx: dict)
     ctx["persisted_record_id"] = record_id
 
     # Qdrant is part of persistence; a failure must be retried.
-    metadata_persistence.forward_for_embedding(file_id, persist_dict)
+    from pathlib import PurePosixPath
+    embedding_metadata = {
+        **persist_dict,
+        "title": (ctx.get("source_metadata") or {}).get("title") or "",
+        "file_name": PurePosixPath(str(ctx.get("storage_path") or storage_path).replace("\\", "/")).name,
+    }
+    metadata_persistence.forward_for_embedding(file_id, embedding_metadata, storage_path, file_type)
 
 
 STAGE_FUNCTIONS = {

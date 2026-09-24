@@ -1,12 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { search,getSuggestions,getSimilar,postSearchEvent,getPopularDatasets } from '../src/services/searchApi.js';
-import { createBatchDownload,getDownloadStatus } from '../src/services/downloadApi.js';
+import { createBatchDownload,getDownloadStatus,previewDownload } from '../src/services/downloadApi.js';
 import { protectedBlob } from '../src/services/http.js';
 import { modalityCounts, facetCount, formatCount, resolutionCounts, RESOLUTIONS } from '../src/services/facets.js';
 import { formatBytes, sizeCounts, SIZES, bytesToMb, mbToBytes } from '../src/services/sizes.js';
 import { planDownload } from '../src/services/downloadApi.js';
+import { sizeAt, positionAt, sizeRangeFilters, SIZE_RANGE_MAX } from '../src/services/sizeRange.js';
+
+test('size sliders preserve bounds, use bytes and allow an unbounded maximum', () => {
+ assert.equal(sizeAt(0), 0);
+ assert.equal(sizeAt(100), SIZE_RANGE_MAX);
+ for (let step=1; step<=100; step++) assert.ok(sizeAt(step)>sizeAt(step-1));
+ for (const size of [100*1024, 128*1024**2, 2*1024**3]) assert.ok(Math.abs(sizeAt(positionAt(size))-size)<=1);
+ assert.deepEqual(sizeRangeFilters(0,100), {min_size:undefined,max_size:undefined,size_buckets:undefined});
+ assert.deepEqual(sizeRangeFilters(20,60), {min_size:sizeAt(20),max_size:sizeAt(60),size_buckets:undefined});
+});
 global.localStorage={getItem:k=>k==='nexus_token'?'session-token':null};
+test('download form forwards required details and CSV choice with selected IDs', async () => {
+ const details={project_name:'Wildlife',usage_purpose:'Campaign',include_metadata_csv:false,source_context:'Search: dog'};
+ global.fetch=async(url,options)=>{assert.equal(url,'/downloads/batch');assert.deepEqual(JSON.parse(options.body),{file_ids:['chosen'],...details});return Response.json({download_id:'saved'});};
+ assert.equal((await createBatchDownload(['chosen'],details)).download_id,'saved');
+});
+test('download preview is authenticated, cancellable and preserves server licence data', async () => {
+ const controller=new AbortController(); const summary={count:1,total_bytes:640,licence_expiry:'2027-01-01T00:00:00Z'};
+ global.fetch=async(url,options)=>{assert.equal(url,'/downloads/preview');assert.equal(options.headers.Authorization,'Bearer session-token');assert.equal(options.signal,controller.signal);assert.deepEqual(JSON.parse(options.body),{file_ids:['chosen']});return Response.json(summary);};
+ assert.deepEqual(await previewDownload(['chosen'],controller.signal),summary);
+});
 test('search forwards mode, filters and pagination without changing server order',async()=>{
  let call;const results=[{file_id:'second',score:0.1},{file_id:'first',score:0.9}];
  global.fetch=async(url,options)=>{call={url,options};return Response.json({results,total:45});};
@@ -59,4 +79,28 @@ test('download planning asks for the same search and returns ids only when reque
  assert.deepEqual(calls[0].body,{query:'ice',search_mode:'hybrid',filters:{file_types:['image']},count:3,include_ids:false});
  await planDownload({query:'*',mode:'text'},{includeIds:true});
  assert.deepEqual(calls[1].body,{query:'*',search_mode:'text',filters:{},count:null,include_ids:true});
+});
+
+
+test('archive save asks for destination before fetch and reports verified completion', async () => {
+ const {saveArchive}=await import('../src/services/http.js');
+ const order=[], progress=[]; let received=0,closed=false;
+ global.window={showSaveFilePicker:async()=>{order.push('picker');return {name:'chosen.zip',createWritable:async()=>({write:async data=>{received+=data.length;},close:async()=>{closed=true;},abort:async()=>{}})};}};
+ global.fetch=async()=>{order.push('fetch');return new Response(new Uint8Array([1,2,3]),{headers:{'content-length':'3'}});};
+ const result=await saveArchive('test',1,1,3,{onProgress:p=>progress.push(p)});
+ assert.deepEqual(order,['picker','fetch']);assert.equal(received,3);assert.ok(closed);
+ assert.equal(result.state,'saved');assert.equal(result.filename,'chosen.zip');assert.equal(result.bytes,3);
+ assert.ok(result.elapsed>=0);assert.ok(result.average>0);assert.equal(progress.at(-1).state,'saved');
+});
+test('cancelled destination picker does not start a transfer',async()=>{
+ const {saveArchive}=await import('../src/services/http.js');let fetched=false;
+ global.window={showSaveFilePicker:async()=>{throw new DOMException('cancel','AbortError');}};
+ global.fetch=async()=>{fetched=true;};
+ await assert.rejects(saveArchive('test'),{name:'AbortError'});assert.equal(fetched,false);
+});
+test('incomplete archive aborts the destination instead of reporting success',async()=>{
+ const {saveArchive}=await import('../src/services/http.js');let aborted=false,closed=false;
+ global.window={showSaveFilePicker:async()=>({createWritable:async()=>({write:async()=>{},close:async()=>{closed=true;},abort:async()=>{aborted=true;}})})};
+ global.fetch=async()=>new Response(new Uint8Array([1]),{headers:{'content-length':'3'}});
+ await assert.rejects(saveArchive('test'),/interrupted/);assert.ok(aborted);assert.equal(closed,false);
 });

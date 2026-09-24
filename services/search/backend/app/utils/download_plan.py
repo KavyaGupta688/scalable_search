@@ -40,7 +40,7 @@ def build_plan(
     eligible: List[Tuple[str, int]] = []
     oversized_positions: List[int] = []  # index in `eligible` before which each oversized file sat
     for file_id, size in ranked:
-        if size > max_file:
+        if max_file and size > max_file:
             oversized_positions.append(len(eligible))
         else:
             eligible.append((file_id, size))
@@ -64,6 +64,7 @@ def build_plan(
         "requested": count,
         "count": len(selected),
         "available": len(eligible),
+        "available_bytes": sum(size for _, size in eligible),
         "total_bytes": total_bytes,
         "size_basis": "source",
         "estimated_parts": _part_count(sizes, part_bytes),

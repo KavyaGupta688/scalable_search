@@ -13,7 +13,8 @@ class TextSearchService:
         query: str,
         filters: Optional[SearchFilters] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        match_all: bool = True
     ) -> Tuple[List[RankedItem], int, Dict[str, FileMetadata]]:
         """
         Executes full-text keyword search and returns ranked items.
@@ -22,7 +23,7 @@ class TextSearchService:
             query=query,
             filters=filters,
             limit=limit,
-            offset=offset
+            offset=offset, match_all=match_all
         )
 
         ranked_items: List[RankedItem] = []

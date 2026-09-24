@@ -1,3 +1,4 @@
+import { SearchTiming } from '../components/SearchTiming';
 import { Presence, FeedbackMotion } from '../components/Motion';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {useCatalog,CatalogPagination,CatalogFilters} from '../components/CatalogControls';
@@ -5,8 +6,6 @@ import { TrendingSearches } from '../components/TrendingSearches';
 import { PopularDatasets } from '../components/PopularDatasets';
 import { SearchResultCard } from '../components/SearchResultCard';
 import { SuggestionOptions } from '../components/SuggestionOptions';
-import { ResolutionFilter } from '../components/ResolutionFilter';
-import { SizeFilter } from '../components/SizeFilter';
 import { BulkDownload } from '../components/BulkDownload';
 import { MODALITIES, modalityCounts, formatCount } from '../services/facets';
 import { DownloadBar } from '../components/DownloadBar';
@@ -22,7 +21,7 @@ import {
 const DEBOUNCE_MS = 300;
 
 /**
- * UserSearchView — User workspace for discovering datasets, searching multimodal files,
+ * UserSearchView â€” User workspace for discovering datasets, searching multimodal files,
  * previewing neural annotations, and exporting batch downloads.
  */
 export const UserSearchView = ({ showToast }) => {
@@ -135,8 +134,6 @@ export const UserSearchView = ({ showToast }) => {
               );
             })}
           </div>
-          <ResolutionFilter catalog={catalog} layout="chips" />
-          <SizeFilter catalog={catalog} layout="chips" />
         </div>
 
         <CatalogFilters catalog={catalog}/>{error && <p role="alert" className="text-sm text-nexus-danger">{error}</p>}
@@ -165,6 +162,7 @@ export const UserSearchView = ({ showToast }) => {
               )}
             </div>
 
+            <SearchTiming catalog={catalog} />
             <BulkDownload catalog={catalog} />
 
             {/* Skeletons */}

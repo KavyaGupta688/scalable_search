@@ -89,7 +89,7 @@ def persist_metadata(
             return str(new_record.id)
 
 
-def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool:
+def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any], source_path=None, mime_type="") -> bool:
     """Generate CLIP embedding and upsert to Qdrant."""
     try:
         tags = metadata_record.get("generated_tags", [])
@@ -129,6 +129,9 @@ def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any]) -> bool
 
         # Upsert
         qdrant_manager.upsert_embedding(file_id, vector, payload)
+        from modules.shared.semantic_index import collection_name, index_file
+        if qdrant_manager.client.collection_exists(collection_name()):
+            index_file(file_id, metadata_record, payload, source_path, mime_type)
         return True
     except Exception as e:
         raise TransientError(f"Failed to forward embedding for {file_id}: {e}") from e

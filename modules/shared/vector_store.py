@@ -10,6 +10,7 @@ def client():
     return QdrantClient(
         url=os.getenv("QDRANT_URL", "http://localhost:6333"),
         api_key=os.getenv("QDRANT_API_KEY") or None,
+        timeout=float(os.getenv("QDRANT_TIMEOUT_SECONDS", "30")),
     )
 
 

@@ -4,13 +4,13 @@ from app.main import app
 
 
 @pytest.mark.asyncio
-async def test_hybrid_search_rrf_endpoint(search_headers, canonical_file_id):
+async def test_hybrid_search_rrf_endpoint(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
     ) as client:
         payload = {
-            "query": "acceptance",
+            "query": canonical_title,
             "search_mode": "hybrid",
             "rrf_k": 60,
             "keyword_weight": 0.5,
@@ -32,7 +32,7 @@ async def test_hybrid_search_rrf_endpoint(search_headers, canonical_file_id):
 
 
 @pytest.mark.asyncio
-async def test_facets_endpoint(search_headers, canonical_file_id):
+async def test_facets_endpoint(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers
@@ -47,7 +47,7 @@ async def test_facets_endpoint(search_headers, canonical_file_id):
 
 
 @pytest.mark.asyncio
-async def test_hybrid_filters_apply_and_counts_match_results(search_headers, canonical_file_id):
+async def test_hybrid_filters_apply_and_counts_match_results(search_headers, canonical_file_id, canonical_title):
     from sqlalchemy import text
     from modules.shared.integration import database_engine
 
@@ -63,7 +63,7 @@ async def test_hybrid_filters_apply_and_counts_match_results(search_headers, can
         response = await client.post(
             "/search",
             json={
-                "query": "acceptance",
+                "query": canonical_title,
                 "search_mode": "hybrid",
                 "filters": {"file_types": [file_type]},
                 "limit": 100,
@@ -77,7 +77,7 @@ async def test_hybrid_filters_apply_and_counts_match_results(search_headers, can
 
 
 @pytest.mark.asyncio
-async def test_resolution_filter_validates_tiers_and_keeps_counts_consistent(search_headers, canonical_file_id):
+async def test_resolution_filter_validates_tiers_and_keeps_counts_consistent(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers, timeout=60
@@ -107,7 +107,7 @@ async def test_resolution_filter_validates_tiers_and_keeps_counts_consistent(sea
 
 
 @pytest.mark.asyncio
-async def test_download_plan_follows_search_order_and_reports_size(search_headers, canonical_file_id):
+async def test_download_plan_follows_search_order_and_reports_size(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers, timeout=60
@@ -123,7 +123,7 @@ async def test_download_plan_follows_search_order_and_reports_size(search_header
         assert plan["count"] == len(plan["file_ids"]) <= 3
         # The top N are the first N downloadable files of the results list, in that order.
         limit = plan["limits"]["max_file_bytes"]
-        downloadable = [r for r in results["results"] if r["file_size"] <= limit]
+        downloadable = [r for r in results["results"] if not limit or r["file_size"] <= limit]
         assert plan["file_ids"] == [r["file_id"] for r in downloadable][: plan["count"]]
         assert plan["total_bytes"] == sum(r["file_size"] for r in downloadable[: plan["count"]])
         # Ids are only returned when asked for.
@@ -134,7 +134,7 @@ async def test_download_plan_follows_search_order_and_reports_size(search_header
 
 
 @pytest.mark.asyncio
-async def test_size_filter_validates_and_keeps_bucket_counts(search_headers, canonical_file_id):
+async def test_size_filter_validates_and_keeps_bucket_counts(search_headers, canonical_file_id, canonical_title):
     transport = ASGITransport(app=app)
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=search_headers, timeout=60

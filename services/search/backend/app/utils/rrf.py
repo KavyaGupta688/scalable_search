@@ -8,6 +8,10 @@ class RankedItem(BaseModel):
     metadata: Dict[str, Any] = {}
 
 class FusionResult(BaseModel):
+    relevance_score: Optional[float] = None
+    visual_similarity: Optional[float] = None
+    semantic_similarity: Optional[float] = None
+    matched_passage: Optional[str] = None
     id: str
     rrf_score: float
     keyword_rank: Optional[int] = None
@@ -27,10 +31,12 @@ def reciprocal_rank_fusion(
     Applies Reciprocal Rank Fusion (RRF) to merge and rank results from keyword and vector retrieval paths.
     Formula: RRF(d) = sum_m ( w_m / (k + rank_m(d)) )
     """
+    if k < 1 or keyword_weight < 0 or vector_weight < 0 or keyword_weight + vector_weight <= 0:
+        raise ValueError("Fusion requires positive k and at least one positive weight")
     scores: Dict[str, Dict[str, Any]] = {}
 
     # Process keyword ranked items
-    for item in keyword_results:
+    for item in keyword_results if keyword_weight > 0 else []:
         doc_id = item.id
         rank = item.rank
         contribution = keyword_weight * (1.0 / (k + rank))
@@ -54,7 +60,7 @@ def reciprocal_rank_fusion(
         scores[doc_id]["rrf_score"] += contribution
 
     # Process vector ranked items
-    for item in vector_results:
+    for item in vector_results if vector_weight > 0 else []:
         doc_id = item.id
         rank = item.rank
         contribution = vector_weight * (1.0 / (k + rank))
@@ -78,5 +84,14 @@ def reciprocal_rank_fusion(
         scores[doc_id]["rrf_score"] += contribution
 
     # Sort items descending by combined RRF score
-    sorted_items = sorted(scores.values(), key=lambda x: x["rrf_score"], reverse=True)
-    return [FusionResult(**item) for item in sorted_items]
+    sorted_items = sorted(scores.values(), key=lambda x: (-x["rrf_score"], x["id"]))
+    results = [FusionResult(**item) for item in sorted_items]
+    evidence = {r.id: r.metadata for r in vector_results} if vector_weight > 0 else {}
+    for result in results:
+        metadata = evidence.get(result.id, {})
+        result.visual_similarity = metadata.get("visual_similarity")
+        result.semantic_similarity = metadata.get("text_similarity")
+        result.matched_passage = metadata.get("matched_passage")
+        if result.semantic_similarity is not None:
+            result.vector_similarity = result.semantic_similarity
+    return results
