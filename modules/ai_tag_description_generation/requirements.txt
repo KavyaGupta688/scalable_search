@@ -31,6 +31,8 @@ pandas>=2.0.0
 
 # --- Vision models ---
 open_clip_torch==2.29.0
+timm==1.0.15
+torchvision>=0.16.0
 ultralytics>=8.0.0
 # Supports BLIP while retaining the Transformers API required by RAM++.
 transformers==4.28.1

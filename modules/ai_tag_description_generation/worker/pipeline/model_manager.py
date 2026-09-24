@@ -36,7 +36,7 @@ MODEL_VERSIONS = {
     "summarizer": "bart-large-cnn",
     "face_detector": "retinaface-resnet50",
     "toxicity": "detoxify-unbiased",
-    "ai_generated_detector": "clip-zero-shot",
+    "ai_generated_detector": settings.AI_GENERATED_MODEL_NAME,
 }
 
 
@@ -84,6 +84,23 @@ def model_execution_slot():
         finally:
             if os.environ.get("AI_MODEL_CACHE_POLICY") == "single":
                 release_models()
+
+
+class AIGeneratedDetector:
+    """Adapt a one-logit image classifier to the pipeline's score contract."""
+
+    def __init__(self, model, preprocess, device: str = DEVICE):
+        self.model = model
+        self.preprocess = preprocess
+        self.device = device
+
+    def score(self, image) -> float:
+        """Return the checkpoint's probability that the image is generated."""
+        image_input = self.preprocess(image.convert("RGB")).unsqueeze(0).to(self.device)
+        with torch.inference_mode():
+            logit = self.model(image_input).reshape(-1)[0]
+            probability = torch.sigmoid(logit)
+        return float(probability.cpu().item())
 
 
 def get_model_version_string() -> str:
@@ -285,65 +302,71 @@ def _load_ram():
 
 def _build_ai_generated_detector():
     """
-    CLIP zero-shot AI-generated image detector.
+    Load the Community Forensics binary classifier from Hugging Face.
 
-    Compares image embeddings against text prompts for "AI generated" vs
-    "real photograph" and returns a score (0.0 = real, 1.0 = AI generated).
+    The checkpoint emits one logit where label 0 is real and label 1 is
+    AI-generated. Its official evaluation transform resizes the shorter image
+    edge to 440 pixels, takes a 384-pixel center crop, and applies ImageNet
+    normalization.
     """
-    clip_bundle = get_model("clip")
-    clip_model = clip_bundle["model"]
-    tokenizer = clip_bundle["tokenizer"]
-    preprocess = clip_bundle["preprocess"]
+    import torch.nn as nn
+    import timm
+    from huggingface_hub import PyTorchModelHubMixin
+    from torchvision import transforms
 
-    ai_prompts = [
-        "an AI generated image",
-        "a synthetic image made by artificial intelligence",
-        "a computer generated image",
-        "a deepfake image",
-    ]
-    real_prompts = [
-        "a real photograph",
-        "a photo taken by a camera",
-        "a natural photograph of a real scene",
-        "an authentic unedited photograph",
-    ]
+    class CommunityForensicsClassifier(nn.Module, PyTorchModelHubMixin):
+        """Architecture used by the official Community Forensics checkpoint."""
 
-    with torch.no_grad():
-        ai_tokens = tokenizer(ai_prompts).to(DEVICE)
-        real_tokens = tokenizer(real_prompts).to(DEVICE)
-        ai_text_features = clip_model.encode_text(ai_tokens)
-        real_text_features = clip_model.encode_text(real_tokens)
-        ai_text_features /= ai_text_features.norm(dim=-1, keepdim=True)
-        real_text_features /= real_text_features.norm(dim=-1, keepdim=True)
-        # Average the prompt embeddings for a more robust centroid
-        ai_centroid = ai_text_features.mean(dim=0, keepdim=True)
-        ai_centroid /= ai_centroid.norm(dim=-1, keepdim=True)
-        real_centroid = real_text_features.mean(dim=0, keepdim=True)
-        real_centroid /= real_centroid.norm(dim=-1, keepdim=True)
+        def __init__(
+            self,
+            model_size: str = "small",
+            input_size: int = 384,
+            patch_size: int = 16,
+            freeze_backbone: bool = False,
+            device: str = DEVICE,
+            dtype: torch.dtype = torch.float32,
+        ):
+            super().__init__()
+            if (model_size, input_size, patch_size) != ("small", 384, 16):
+                raise ValueError(
+                    "OwensLab/commfor-model-384 requires model_size='small', "
+                    "input_size=384, and patch_size=16"
+                )
 
-    class AIGeneratedDetector:
-        def __init__(self):
-            self.clip_model = clip_model
-            self.preprocess = preprocess
-            self.ai_centroid = ai_centroid
-            self.real_centroid = real_centroid
+            # The Hub checkpoint contains the complete backbone. Avoid a second
+            # download of timm's ImageNet initialization before loading it.
+            self.vit = timm.create_model(
+                "vit_small_patch16_384.augreg_in21k_ft_in1k",
+                pretrained=False,
+            )
+            self.vit.head = nn.Linear(384, 1, bias=True)
+            if freeze_backbone:
+                for parameter in self.vit.parameters():
+                    parameter.requires_grad = False
+                for parameter in self.vit.head.parameters():
+                    parameter.requires_grad = True
+            self.to(device=device, dtype=dtype)
 
-        def score(self, image) -> float:
-            """Return 0.0–1.0 score where higher = more likely AI-generated."""
-            image_input = self.preprocess(image).unsqueeze(0).to(DEVICE)
-            with torch.no_grad():
-                image_features = self.clip_model.encode_image(image_input)
-                image_features /= image_features.norm(dim=-1, keepdim=True)
-                ai_sim = (image_features @ self.ai_centroid.T).item()
-                real_sim = (image_features @ self.real_centroid.T).item()
-            # Softmax over the two similarities to get a probability
-            import math
+        def forward(self, image_tensor):
+            return self.vit(image_tensor)
 
-            exp_ai = math.exp(ai_sim * 100.0)
-            exp_real = math.exp(real_sim * 100.0)
-            return exp_ai / (exp_ai + exp_real)
+    model = CommunityForensicsClassifier.from_pretrained(
+        settings.AI_GENERATED_MODEL_NAME,
+        device=DEVICE,
+        map_location=DEVICE,
+        strict=True,
+    ).eval()
+    preprocess = transforms.Compose([
+        transforms.Resize(440),
+        transforms.CenterCrop(384),
+        transforms.ToTensor(),
+        transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+        ),
+    ])
 
-    return AIGeneratedDetector()
+    return AIGeneratedDetector(model, preprocess)
 
 
 # --- Precomputed CLIP text embeddings - used only by the fine-grained

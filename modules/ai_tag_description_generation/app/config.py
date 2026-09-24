@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     QDRANT_CREATE_COLLECTION_IF_MISSING: bool = False
     RAM_CHECKPOINT_PATH: str = "./checkpoints/ram_plus_swin_large_14m.pth"
     YOLO_MODEL_NAME: str = "yolov8s.pt"
+    AI_GENERATED_MODEL_NAME: str = "OwensLab/commfor-model-384"
     # Ingestion remains the only component allowed to resolve vendor S3/NAS
     # credentials. AI obtains short-lived or streamed bytes through its API.
     INGESTION_API_BASE_URL: str = "http://ingestion-api:8000"
@@ -80,7 +81,7 @@ class Settings(BaseSettings):
     CONFIDENCE_THRESHOLD_REVIEW: float = 0.4
     PII_SENSITIVITY: str = "high"
     NSFW_THRESHOLD: float = 0.3
-    AI_GENERATED_THRESHOLD: float = 0.8
+    AI_GENERATED_THRESHOLD: float = 0.5
     TOXICITY_THRESHOLD: float = 0.8
 
     @field_validator("RAM_CHECKPOINT_PATH", mode="before")
