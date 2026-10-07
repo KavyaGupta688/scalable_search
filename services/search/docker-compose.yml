@@ -48,7 +48,6 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgrespassword@search-postgres:5432/multimodal_search
       QDRANT_HOST: search-qdrant
       QDRANT_PORT: 6333
-      QDRANT_EMBEDDED: "False"
       REDIS_HOST: search-redis
       REDIS_PORT: 6379
       REDIS_FALLBACK_MEMORY: "False"

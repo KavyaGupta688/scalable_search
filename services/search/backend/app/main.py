@@ -28,6 +28,13 @@ async def lifespan(app: FastAPI):
 
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1 FROM file_metadata LIMIT 1"))
+    if engine.url.get_backend_name() == "postgresql":
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from app.repositories.file_repository import detect_fts
+
+        async with AsyncSession(engine) as session:
+            enabled = await detect_fts(session)
+        logger.info("Full-text keyword prefilter %s", "enabled" if enabled else "not available")
     init_qdrant()
     from starlette.concurrency import run_in_threadpool
     from app.clients.embedding_client import get_embedding_client
@@ -81,9 +88,18 @@ async def health_check():
         "status": "healthy",
         "service": settings.APP_NAME,
         "environment": settings.APP_ENV,
-        "qdrant_embedded": settings.QDRANT_EMBEDDED,
         "redis_fallback": settings.REDIS_FALLBACK_MEMORY,
     }
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    # Per-replica series; Prometheus scrapes every replica (see deploy/integration/monitoring).
+    from fastapi import Response
+    from app.core.metrics import render
+
+    body, content_type = render()
+    return Response(body, media_type=content_type)
 
 
 @app.get("/ready")

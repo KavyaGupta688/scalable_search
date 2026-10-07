@@ -25,6 +25,10 @@ class FakeSession:
         self.added = []
         self.commits = 0
         self.rollbacks = 0
+        self.executed = []
+
+    async def execute(self, statement):
+        self.executed.append(statement)
 
     async def scalars(self, _query):
         return Rows(self.row_batches.pop(0))
@@ -46,7 +50,8 @@ class FakeSession:
 async def test_due_entitlement_is_marked_expired_without_source_deletion():
     now = datetime(2029, 1, 1, tzinfo=UTC)
     entitlement = SimpleNamespace(id=uuid4(), status="active", expires_at=now - timedelta(seconds=1))
-    session = FakeSession([[entitlement]])
+    # Second batch: documents under the expired entitlement (none here).
+    session = FakeSession([[entitlement], []])
 
     result = await reconcile_retention_once(
         session=session,
@@ -57,6 +62,27 @@ async def test_due_entitlement_is_marked_expired_without_source_deletion():
     assert result.expired == 1
     assert entitlement.status == "expired"
     assert session.added == []
+    assert session.commits == 1
+    assert session.executed == []
+
+
+@pytest.mark.asyncio
+async def test_expiry_queues_search_refresh_in_the_same_transaction():
+    now = datetime(2029, 1, 1, tzinfo=UTC)
+    entitlement = SimpleNamespace(id=uuid4(), status="active", expires_at=now - timedelta(seconds=1))
+    document_id = uuid4()
+    session = FakeSession([[entitlement], [document_id]])
+
+    await reconcile_retention_once(
+        session=session,
+        retention=RetentionSettings(enabled=True, dry_run=False),
+        now=now,
+    )
+
+    assert len(session.executed) == 1
+    params = session.executed[0].compile().params
+    assert params["kind"] == "search-refresh"
+    assert params["payload"] == {"document_id": str(document_id)}
     assert session.commits == 1
 
 

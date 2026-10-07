@@ -131,7 +131,6 @@ services:
       <<: *env
       DATABASE_SCHEMA: search
       REDIS_HOST: redis
-      QDRANT_EMBEDDED: "false"
       REDIS_FALLBACK_MEMORY: "false"
     volumes: [models:/models]
   search-outbox:

@@ -67,7 +67,8 @@ def document_index(document_id: UUID):
         from modules.shared.semantic_index import collection_name
         representations = []
         visual_status = "not_indexed"
-        if q.collection_exists(collection_name()):
+        from modules.shared.vector_store import resolve
+        if resolve(q, collection_name()) is not None:
             semantic = q.retrieve(collection_name(), ids=[point_id(did)], with_vectors=True, with_payload=True)
             if semantic:
                 visual_status = semantic[0].payload.get("visual_status", "not_indexed")

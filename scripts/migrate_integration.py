@@ -29,6 +29,18 @@ QUERY_INDEXES = (
         "ON file_metadata (dataset_id) WHERE published",
     ),
     (
+        # Keyword prefilter (services/search/backend/app/repositories/file_repository.py).
+        "file_metadata_search_vector_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS file_metadata_search_vector_idx "
+        "ON file_metadata USING gin (search_vector)",
+    ),
+    (
+        # Rows whose vector could not be built still reach the regex match through this.
+        "file_metadata_search_vector_missing_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS file_metadata_search_vector_missing_idx "
+        "ON file_metadata (file_id) WHERE search_vector IS NULL",
+    ),
+    (
         "search_events_dataset_views_idx",
         "CREATE INDEX CONCURRENTLY IF NOT EXISTS search_events_dataset_views_idx "
         "ON search_events (event_type, dataset_id, created_at)",
@@ -36,7 +48,7 @@ QUERY_INDEXES = (
 )
 
 
-def create_query_indexes(engine):
+def create_query_indexes(engine, indexes=QUERY_INDEXES):
     """Build indexes without blocking writes or running inside a transaction.
 
     A cancelled CREATE INDEX CONCURRENTLY can leave an invalid index behind. Remove an
@@ -45,7 +57,7 @@ def create_query_indexes(engine):
     with engine.connect() as raw_connection:
         connection = raw_connection.execution_options(isolation_level="AUTOCOMMIT")
         schema = connection.execute(text("SELECT current_schema()")).scalar_one()
-        for name, ddl in QUERY_INDEXES:
+        for name, ddl in indexes:
             valid = connection.execute(
                 text(
                     "SELECT index_info.indisvalid "
@@ -61,6 +73,100 @@ def create_query_indexes(engine):
             if valid is False:
                 connection.execute(text(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"'))
             connection.execute(text(ddl))
+
+
+# The searchable text of a row, in the same field order Search's keyword match uses.
+SEARCH_TEXT_SQL = (
+    "concat_ws(' ', {r}title, {r}description, {r}file_name, {r}category, {r}content_summary, "
+    "{r}ocr_text, {r}transcript, {r}caption, {r}tags::text)"
+)
+
+# Every non-alphanumeric run becomes a space before parsing, so each lexeme is exactly a
+# maximal [[:alnum:]] run: the same word boundary the regex keyword match uses. That keeps
+# the full-text match a superset of the regex match. A text too large for a tsvector yields
+# NULL instead of failing the write; NULL rows are always passed on to the regex match.
+SEARCH_VECTOR_DDL = (
+    """CREATE OR REPLACE FUNCTION search_fts_vector(document text) RETURNS tsvector
+    LANGUAGE plpgsql IMMUTABLE SET search_path FROM CURRENT AS $$
+    BEGIN
+        RETURN strip(to_tsvector('simple',
+            regexp_replace(lower(coalesce(document, '')), '[^[:alnum:]]+', ' ', 'g')));
+    EXCEPTION WHEN others THEN
+        RETURN NULL;
+    END $$""",
+    """CREATE OR REPLACE FUNCTION file_metadata_search_vector_refresh() RETURNS trigger
+    LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
+    BEGIN
+        NEW.search_vector := search_fts_vector("""
+    + SEARCH_TEXT_SQL.format(r="NEW.")
+    + """);
+        RETURN NEW;
+    END $$""",
+    "DROP TRIGGER IF EXISTS file_metadata_search_vector_trigger ON file_metadata",
+    """CREATE TRIGGER file_metadata_search_vector_trigger
+    BEFORE INSERT OR UPDATE OF title, description, file_name, category, content_summary,
+        ocr_text, transcript, caption, tags
+    ON file_metadata FOR EACH ROW EXECUTE FUNCTION file_metadata_search_vector_refresh()""",
+)
+
+
+# Must equal SEARCH_DOCUMENT_SQL in services/search/backend/app/repositories/file_repository.py.
+SEARCH_DOCUMENT_SQL = (
+    "coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || "
+    "coalesce(file_name, '') || ' ' || coalesce(category, '') || ' ' || "
+    "coalesce(content_summary, '') || ' ' || coalesce(ocr_text, '') || ' ' || "
+    "coalesce(transcript, '') || ' ' || coalesce(caption, '') || ' ' || "
+    "coalesce(CAST(tags AS VARCHAR), '')"
+)
+TRIGRAM_INDEX = (
+    "file_metadata_search_text_trgm_idx",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS file_metadata_search_text_trgm_idx "
+    "ON file_metadata USING gin ((" + SEARCH_DOCUMENT_SQL + ") gin_trgm_ops)",
+)
+
+
+def create_trigram_index(engine):
+    """Speeds up keyword search in scripts the full-text vector skips (e.g. CJK, accents).
+
+    Optional: it needs the pg_trgm extension and roughly doubles the keyword-text storage.
+    Set SEARCH_TRIGRAM_INDEX=false to skip it. Search detects it at startup.
+    """
+    if os.getenv("SEARCH_TRIGRAM_INDEX", "true").strip().lower() not in ("1", "true", "yes"):
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    except Exception as exc:
+        print(f"Skipping trigram index: pg_trgm is unavailable ({type(exc).__name__})")
+        return
+    create_query_indexes(engine, indexes=(TRIGRAM_INDEX,))
+
+
+def backfill_search_vectors(engine, batch=5000):
+    """Fill search_vector for existing rows in short keyset-paged transactions."""
+    last = ""
+    while True:
+        with engine.begin() as conn:
+            ids = list(
+                conn.execute(
+                    text(
+                        "SELECT file_id FROM file_metadata WHERE file_id > :last "
+                        "AND search_vector IS NULL ORDER BY file_id LIMIT :batch"
+                    ),
+                    {"last": last, "batch": batch},
+                ).scalars()
+            )
+            if not ids:
+                return
+            conn.execute(
+                text(
+                    "UPDATE file_metadata SET search_vector = search_fts_vector("
+                    + SEARCH_TEXT_SQL.format(r="")
+                    + ") WHERE file_id = ANY(:ids)"
+                ),
+                {"ids": ids},
+            )
+        last = ids[-1]
 
 
 def main():
@@ -180,8 +286,15 @@ def main():
         conn.execute(
             text("ALTER TABLE datasets ALTER COLUMN total_size_bytes TYPE bigint")
         )
+        conn.execute(
+            text("ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS search_vector tsvector")
+        )
+        for ddl in SEARCH_VECTOR_DDL:
+            conn.execute(text(ddl))
+    backfill_search_vectors(database_engine("search"))
     # Build query-path indexes concurrently after the schema transaction commits.
     create_query_indexes(database_engine("search"))
+    create_trigram_index(database_engine("search"))
     sys.path.insert(0, str(ROOT / "services/download"))
     from integrated import Base as DownloadBase
     from database.models import Base as ForensicBase
@@ -213,6 +326,13 @@ def main():
     from modules.shared.vector_store import provision
 
     provision(create=True)
+    # Search filters the semantic collection with the same payload keys; index them too.
+    from modules.shared import semantic_index
+    from modules.shared.vector_store import client, ensure_payload_indexes, resolve
+
+    physical = resolve(client(), semantic_index.collection_name())
+    if physical is not None:
+        ensure_payload_indexes(client(), physical, semantic_index.payload_indexes())
     print("Integration migrations and vector collection verified")
 
 

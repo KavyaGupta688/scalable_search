@@ -130,7 +130,8 @@ def forward_for_embedding(file_id: str, metadata_record: Dict[str, Any], source_
         # Upsert
         qdrant_manager.upsert_embedding(file_id, vector, payload)
         from modules.shared.semantic_index import collection_name, index_file
-        if qdrant_manager.client.collection_exists(collection_name()):
+        from modules.shared.vector_store import resolve
+        if resolve(qdrant_manager.client, collection_name()) is not None:
             index_file(file_id, metadata_record, payload, source_path, mime_type)
         return True
     except Exception as e:

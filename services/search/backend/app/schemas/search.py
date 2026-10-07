@@ -129,6 +129,10 @@ class SearchResponse(BaseModel):
     execution_time_ms: float
     results: List[SearchResultItem]
     facets: Optional[FacetsResponse] = None
+    # True when a component (vector retrieval, relevance verifier) was unavailable and
+    # the results come from the remaining ones; degraded_components names them.
+    partial_results: bool = False
+    degraded_components: List[str] = []
 
 
 class SuggestionItem(BaseModel):

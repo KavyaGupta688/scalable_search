@@ -21,3 +21,25 @@ groups:
         for: 10m
         labels: {severity: warning}
         annotations: {summary: 'Persistent delivery backlog in {{ $labels.module }}'}
+  - name: search
+    rules:
+      - alert: SearchLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le, mode) (rate(search_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: 'Search p95 latency above 2s in {{ $labels.mode }} mode'}
+      - alert: SearchDegraded
+        expr: sum by (component) (rate(search_degraded_total[5m])) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'Search is answering without {{ $labels.component }} (partial results)'}
+      - alert: SearchVectorPayloadPath
+        expr: sum(rate(search_vector_gate_total{path="payload"}[15m])) > 0
+        for: 30m
+        labels: {severity: info}
+        annotations: {summary: 'Vector searches exceed the exact licence gate; check QDRANT_EXTENDED_PAYLOAD and payload backfill'}
+      - alert: SearchCacheIneffective
+        expr: sum(rate(search_cache_requests_total{outcome="hit"}[30m])) / clamp_min(sum(rate(search_cache_requests_total[30m])), 1e-9) < 0.05 and sum(rate(search_cache_requests_total[30m])) > 1
+        for: 1h
+        labels: {severity: info}
+        annotations: {summary: 'Search cache hit rate below 5%'}

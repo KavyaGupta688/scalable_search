@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./multimodal_search.db"
+    # Optional read replica for keyword ranking and facets. Result rows and licence checks
+    # always come from DATABASE_URL (the primary).
+    DATABASE_READ_URL: Optional[str] = None
+    # Set to 0 behind PgBouncer in transaction mode, which cannot keep prepared statements.
+    DB_STATEMENT_CACHE_SIZE: Optional[int] = None
 
     # Qdrant Vector DB
     QDRANT_HOST: str = "localhost"
@@ -20,8 +25,6 @@ class Settings(BaseSettings):
     QDRANT_GRPC_PORT: int = 6334
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str = "multimodal_files"
-    QDRANT_EMBEDDED: bool = False
-    QDRANT_STORAGE_PATH: str = "./qdrant_storage"
 
     # Redis Cache
     REDIS_HOST: str = "localhost"
@@ -43,6 +46,24 @@ class Settings(BaseSettings):
     SEMANTIC_ACCEPT_MIN: float = 0.42
     VISUAL_ACCEPT_MIN: float = 0.28
     VECTOR_CANDIDATES: int = 200
+    # Up to this many visible ids are sent to Qdrant as an exact HasId list. Larger
+    # candidate sets use payload filters plus SQL verification instead of being refused.
+    VECTOR_EXACT_GATE_MAX: int = 100000
+    # Payload-filtered retrieval fetches this multiple of the window, since SQL
+    # verification can drop hits whose canonical state changed after indexing.
+    VECTOR_OVERFETCH: int = 3
+    # If too few fetched hits pass the SQL check, fetch the next batch, up to this many.
+    VECTOR_MAX_ROUNDS: int = 5
+    # Hybrid search answers from keywords alone when vector retrieval fails or is slow,
+    # and skips it for a cool-down after repeated failures.
+    VECTOR_TIMEOUT_SECONDS: float = 10.0
+    VECTOR_BREAKER_THRESHOLD: int = 5
+    VECTOR_BREAKER_COOLDOWN_SECONDS: float = 30.0
+
+    # Short-lived Redis caches for hybrid candidates and facets, invalidated whenever the
+    # indexer changes the catalogue (see app/services/search_cache.py).
+    SEARCH_CACHE_ENABLED: bool = True
+    SEARCH_CACHE_TTL_SECONDS: int = 60
     VECTOR_SCORE_MARGIN: float = 0.08
     RELEVANCE_MIN_LOGIT: float = -3.0
 

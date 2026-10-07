@@ -45,6 +45,12 @@ def deliver(item):
             item.payload["document_id"],
             event_id=item.key,
         )
+    elif item.kind == "search-refresh":
+        # A licence changed status; re-project so Qdrant drops the document from
+        # candidate sets. Search's SQL visibility check already hides it meanwhile.
+        from modules.shared.indexer import refresh_document
+
+        refresh_document(item.payload["document_id"])
     elif item.kind == "audit":
         from modules.shared.audit import record
 

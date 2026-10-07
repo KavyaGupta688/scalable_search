@@ -2,7 +2,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from qdrant_client import QdrantClient
 
-from app.db.postgres import get_db_session
+from app.db.postgres import get_db_session, get_read_db_session
 from app.db.qdrant import get_qdrant_client
 from app.clients.embedding_client import get_embedding_client, EmbeddingClient
 from app.clients.metadata_client import get_metadata_client, MetadataClient
@@ -28,8 +28,11 @@ from app.services.event_service import EventService
 from app.services.search_service import SearchService
 
 # Repositories
-def get_file_repository(db: AsyncSession = Depends(get_db_session)) -> FileRepository:
-    return FileRepository(db)
+def get_file_repository(
+    db: AsyncSession = Depends(get_db_session),
+    read_db: AsyncSession = Depends(get_read_db_session),
+) -> FileRepository:
+    return FileRepository(db, read_db=read_db)
 
 def get_dataset_repository(db: AsyncSession = Depends(get_db_session)) -> DatasetRepository:
     return DatasetRepository(db)

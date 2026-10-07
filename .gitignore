@@ -67,3 +67,6 @@ Thumbs.db
 !.env.docker.example
 modules/ai_tag_description_generation/checkpoints/
 *.pt
+
+# PgBouncer credentials (deploy/integration/pgbouncer)
+deploy/integration/pgbouncer/userlist.txt

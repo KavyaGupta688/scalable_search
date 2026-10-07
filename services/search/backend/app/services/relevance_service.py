@@ -66,6 +66,46 @@ def excluded_match(terms, file):
                for field in ('title', 'file_name', 'description', 'caption', 'ocr_text', 'transcript'))
 
 
+def _shared_key(pair):
+    import hashlib
+    digest = hashlib.sha256((pair[0] + '\0' + pair[1]).encode()).hexdigest()
+    return 'search:rel:' + REVISION[:12] + ':' + digest
+
+
+def _shared_scores(pairs):
+    """Pair scores other replicas already computed. The model is deterministic, so a
+    shared score is the score this replica would compute; Redis being down just
+    means computing locally."""
+    from app.clients.embedding_client import _redis, _redis_state
+    import time
+    client = _redis()
+    if client is None:
+        return {}
+    try:
+        values = client.mget([_shared_key(pair) for pair in pairs])
+    except Exception:
+        _redis_state['down_until'] = time.monotonic() + 30
+        return {}
+    return {pair: float(value) for pair, value in zip(pairs, values) if value is not None}
+
+
+def _store_shared(scores):
+    import os
+    import time
+    from app.clients.embedding_client import _redis, _redis_state
+    client = _redis()
+    if client is None:
+        return
+    ttl = int(os.getenv('SEARCH_RELEVANCE_CACHE_TTL_SECONDS', '86400'))
+    try:
+        pipe = client.pipeline(transaction=False)
+        for pair, score in scores.items():
+            pipe.set(_shared_key(pair), repr(float(score)), ex=ttl)
+        pipe.execute()
+    except Exception:
+        _redis_state['down_until'] = time.monotonic() + 30
+
+
 def rerank(query, items, files):
     if query.strip().lower() in ('', '*', 'all') or not items:
         return items
@@ -88,6 +128,11 @@ def rerank(query, items, files):
     pairs = [pair for group in groups for pair in group]
     with _lock:
         missing = list(dict.fromkeys(pair for pair in pairs if pair not in _scores))
+    shared = _shared_scores(missing) if missing else {}
+    with _lock:
+        _scores.update(shared)
+        missing = [pair for pair in missing if pair not in _scores]
+        computed = {}
         if missing:
             tokenizer, model = bundle()
             for offset in range(0, len(missing), 16):
@@ -95,10 +140,13 @@ def rerank(query, items, files):
                 encoded = tokenizer(batch, padding=True, truncation=True, max_length=256, return_tensors='pt')
                 with torch.inference_mode():
                     scores = model(**encoded).logits.flatten().tolist()
-                _scores.update(zip(batch, scores))
+                computed.update(zip(batch, scores))
+            _scores.update(computed)
         values = [max(_scores[pair] for pair in group) for group in groups]
         while len(_scores) > 4096:
             del _scores[next(iter(_scores))]
+    if computed:
+        _store_shared(computed)
     kept = []
     for item, score in zip(items, values):
         supported = direct_name_match(query, files[item.id])

@@ -121,6 +121,11 @@ def index_document(document_id):
             tags=tags,
             expires_at=row["expires_at"].isoformat(),
             ingested_at=row["license_start_at"].isoformat(),
+            # Lets Search filter licence, size and resolution inside Qdrant; the SQL
+            # visibility gate stays authoritative for every returned hit.
+            license_status=row.get("license_status"),
+            file_size=row["size_bytes"],
+            long_edge=_long_edge(values["width"], values["height"]),
         )
         q = client()
         points = q.retrieve(collection(), ids=[point_id(document_id)])
@@ -132,7 +137,8 @@ def index_document(document_id):
             )
         # Publish the new representations only through the canonical projection.
         from modules.shared.semantic_index import collection_name
-        if q.collection_exists(collection_name()):
+        from modules.shared.vector_store import resolve
+        if resolve(q, collection_name()) is not None:
             semantic = q.retrieve(collection_name(), ids=[point_id(document_id)])
             if published and not semantic:
                 raise RuntimeError("Semantic representations are not durable yet; rebuild or retry enrichment")
@@ -168,3 +174,51 @@ def index_document(document_id):
             total_size_bytes=(SELECT coalesce(sum(file_size),0) FROM file_metadata WHERE dataset_id=:id AND published) WHERE id=:id"""),
             {"id": values["dataset_id"]},
         )
+    bump_catalog_version()
+
+
+def _long_edge(width, height):
+    """Longer pixel edge, as Search's resolution tiers use it; None when unknown."""
+    edges = []
+    for value in (width, height):
+        try:
+            edges.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    edge = max(edges, default=0)
+    return edge if edge > 0 else None
+
+
+CATALOG_VERSION_KEY = "search:catalog_version"
+
+
+def bump_catalog_version():
+    """Invalidate Search's short-lived result and facet caches after any catalogue change.
+
+    Best effort: the caches also expire on their own, so a Redis outage only delays reuse.
+    """
+    url = os.getenv("REDIS_URL")
+    if not url:
+        return
+    try:
+        import redis
+
+        redis.Redis.from_url(url, socket_timeout=2, socket_connect_timeout=2).incr(
+            CATALOG_VERSION_KEY
+        )
+    except Exception:
+        pass
+
+
+def refresh_document(document_id):
+    """Re-project a document whose licence changed, if Search has ever indexed it.
+
+    Documents that never finished enrichment have no Search row and nothing to refresh;
+    index_document would otherwise fail permanently for them.
+    """
+    with database_engine("search").connect() as conn:
+        exists = conn.execute(
+            text("SELECT 1 FROM file_metadata WHERE file_id=:id"), {"id": str(document_id)}
+        ).scalar()
+    if exists:
+        index_document(str(document_id))

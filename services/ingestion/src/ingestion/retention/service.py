@@ -35,6 +35,29 @@ async def _pending_count(session: AsyncSession, now: datetime) -> int:
     )
 
 
+async def _enqueue_search_refresh(db: AsyncSession, entitlements, now: datetime) -> None:
+    """Ask Search to re-project documents whose licence status just changed.
+
+    Written in the same transaction as the status change, so the refresh cannot be lost.
+    """
+    if not entitlements:
+        return
+    from modules.shared.delivery import enqueue_async
+    from ingestion.models.document import Document
+
+    ids = [entitlement.id for entitlement in entitlements]
+    document_ids = (
+        await db.scalars(select(Document.id).where(Document.entitlement_id.in_(ids)))
+    ).all()
+    for document_id in document_ids:
+        await enqueue_async(
+            db,
+            f"search-refresh:{document_id}:{now.isoformat()}",
+            "search-refresh",
+            {"document_id": str(document_id)},
+        )
+
+
 async def reconcile_retention_once(
     *,
     session: AsyncSession | None = None,
@@ -78,6 +101,7 @@ async def reconcile_retention_once(
                 entitlement.status = "expired"
                 result.expired += 1
                 METRICS.RETENTION_OBJECTS_TOTAL.labels(outcome="expiry_recorded").inc()
+            await _enqueue_search_refresh(db, entitlements, current_time)
 
         await db.commit()
         pending = await _pending_count(db, current_time)

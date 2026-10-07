@@ -86,8 +86,16 @@ def build_qdrant_filter(filters: Optional[SearchFilters]) -> Optional[qmodels.Fi
             key="expires_at", range=qmodels.DatetimeRange(gt=datetime.now(timezone.utc))
         ),
     ]
+    # A revoked or early-expired licence drops out of the vector candidate set. Written as
+    # must_not so points indexed before license_status existed still pass; the SQL
+    # visibility gate stays authoritative for every returned hit.
+    must_not = [
+        qmodels.FieldCondition(
+            key="license_status", match=qmodels.MatchExcept(**{"except": ["active"]})
+        )
+    ]
     if not filters:
-        return qmodels.Filter(must=must_conditions)
+        return qmodels.Filter(must=must_conditions, must_not=must_not)
 
     if filters.file_types:
         must_conditions.append(
@@ -144,5 +152,81 @@ def build_qdrant_filter(filters: Optional[SearchFilters]) -> Optional[qmodels.Fi
             must_conditions.append(
                 qmodels.FieldCondition(key=key, range=qmodels.Range(gte=low, lte=high))
             )
+    if extended_payload_enabled():
+        must_conditions.extend(_size_and_resolution_conditions(filters))
 
-    return qmodels.Filter(must=must_conditions)
+    return qmodels.Filter(must=must_conditions, must_not=must_not)
+
+
+def extended_payload_enabled() -> bool:
+    """Size and resolution live in Qdrant payloads only after scripts/reindex_search_payloads.py.
+
+    Until then, filtering on them in Qdrant would hide un-backfilled points, so they are
+    applied by the SQL post-filter alone.
+    """
+    import os
+
+    return os.getenv("QDRANT_EXTENDED_PAYLOAD", "").strip().lower() in ("1", "true", "yes")
+
+
+def _size_and_resolution_conditions(filters: SearchFilters) -> List[Any]:
+    """Qdrant equivalents of size_clause, resolution_clause and min/max size."""
+    from app.utils.resolution import MEDIA_TYPES, RESOLUTION_TIERS, UNKNOWN
+    from app.utils.size_buckets import SIZE_BUCKETS
+
+    conditions = []
+    if filters.min_size is not None or filters.max_size is not None:
+        conditions.append(
+            qmodels.FieldCondition(
+                key="file_size", range=qmodels.Range(gte=filters.min_size, lte=filters.max_size)
+            )
+        )
+    if filters.size_buckets:
+        conditions.append(
+            qmodels.Filter(
+                should=[
+                    qmodels.FieldCondition(
+                        key="file_size", range=qmodels.Range(gte=minimum, lt=maximum)
+                    )
+                    for bucket_id, _, minimum, maximum in SIZE_BUCKETS
+                    if bucket_id in filters.size_buckets
+                ]
+            )
+        )
+    if filters.resolutions:
+        should = []
+        for index, (tier_id, _, minimum) in enumerate(RESOLUTION_TIERS):
+            if tier_id in filters.resolutions:
+                upper = RESOLUTION_TIERS[index - 1][2] if index else None
+                should.append(
+                    qmodels.FieldCondition(
+                        key="long_edge", range=qmodels.Range(gte=minimum, lt=upper)
+                    )
+                )
+        if UNKNOWN in filters.resolutions:
+            should.append(
+                qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="file_type", match=qmodels.MatchAny(any=list(MEDIA_TYPES))
+                        ),
+                        qmodels.IsEmptyCondition(is_empty=qmodels.PayloadField(key="long_edge")),
+                    ]
+                )
+            )
+        conditions.append(qmodels.Filter(should=should))
+    return conditions
+
+
+def payload_keys(condition) -> set:
+    """Every payload key a Qdrant filter (or nested condition) reads."""
+    if isinstance(condition, qmodels.Filter):
+        keys = set()
+        for group in (condition.must, condition.should, condition.must_not):
+            for child in group or []:
+                keys |= payload_keys(child)
+        return keys
+    if isinstance(condition, qmodels.IsEmptyCondition):
+        return {condition.is_empty.key}
+    key = getattr(condition, "key", None)
+    return {key} if key else set()

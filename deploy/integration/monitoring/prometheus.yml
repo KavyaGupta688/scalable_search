@@ -16,3 +16,7 @@ scrape_configs:
     static_configs: [{targets: ['ingestion-worker:9100']}]
   - job_name: qdrant
     static_configs: [{targets: ['qdrant:6333']}]
+  # Every Search replica: Docker DNS returns one A record per replica of the service.
+  - job_name: search
+    metrics_path: /metrics
+    dns_sd_configs: [{names: ['search'], type: A, port: 8000, refresh_interval: 30s}]

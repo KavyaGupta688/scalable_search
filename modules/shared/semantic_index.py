@@ -98,22 +98,34 @@ def visual_vectors(path, mime_type):
 
 def provision(create=True):
     from qdrant_client import models
-    from modules.shared.vector_store import client
+    from modules.shared.vector_store import client, resolve, layout_config, ensure_payload_indexes
     q = client()
-    if not q.collection_exists(collection_name()):
+    physical = resolve(q, collection_name())
+    if physical is None:
         if not create:
             raise RuntimeError("Semantic index is not provisioned; run scripts/rebuild_semantic_index.py")
         q.create_collection(collection_name(), vectors_config={
             name: models.VectorParams(size=size, distance=models.Distance.COSINE,
                 multivector_config=models.MultiVectorConfig(comparator=models.MultiVectorComparator.MAX_SIM))
             for name, size in (("text", 384), ("visual", 512))
-        })
-    vectors = q.get_collection(collection_name()).config.params.vectors
+        }, **layout_config())
+        physical = collection_name()
+    vectors = q.get_collection(physical).config.params.vectors
     for name, size in (("text", 384), ("visual", 512)):
         config = vectors[name]
         if config.size != size or str(config.distance).lower() != "cosine" or config.multivector_config is None:
             raise RuntimeError("Incompatible semantic index schema")
+    if create:
+        # Search filters this collection with the same payload keys as the CLIP collection.
+        ensure_payload_indexes(q, physical, payload_indexes())
     return q
+
+
+def payload_indexes():
+    """CLIP-collection payload indexes plus the representation version filter."""
+    from qdrant_client import models
+    from modules.shared.vector_store import PAYLOAD_INDEXES
+    return {**PAYLOAD_INDEXES, "representation_version": models.PayloadSchemaType.KEYWORD}
 
 
 def index_file(file_id, metadata, payload, source_path=None, mime_type="", visual_error=None):

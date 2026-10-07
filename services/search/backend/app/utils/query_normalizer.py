@@ -49,17 +49,21 @@ def normalize_query_for_trending(query: str) -> str:
     return normalized
 
 
-def term_pattern(term):
-    """Conservative, symmetric English plurals; preserve identifiers and other scripts."""
+def term_variants(term):
+    """The literal word forms a term matches: itself plus conservative English plurals.
+
+    term_pattern turns these into a regex; the full-text prefilter turns them into lexemes,
+    so both always agree on which words a term covers.
+    """
     if term in ('person', 'people'):
-        return '(?:person|people|man|men|woman|women|child|children)'
+        return ['child', 'children', 'man', 'men', 'people', 'person', 'woman', 'women']
     for group in [('man', 'men'), ('woman', 'women'), ('person', 'people'), ('child', 'children')]:
         if term in group:
-            return '(?:' + '|'.join(group) + ')'
+            return list(group)
     base = term
     if term.isascii() and term.isalpha() and len(term) > 3:
         if term.endswith('ies'):
-            return '(?:' + re.escape(term) + '|' + re.escape(term[:-3] + 'y') + ')'
+            return sorted({term, term[:-3] + 'y'})
         if term.endswith('s') and not term.endswith(('ss', 'us', 'is')):
             base = term[:-1]
     variants = {term, base}
@@ -67,7 +71,20 @@ def term_pattern(term):
         variants.add(base + 's')
         if base.endswith('y'):
             variants.add(base[:-1] + 'ies')
-    return '(?:' + '|'.join(re.escape(value) for value in sorted(variants)) + ')'
+    return sorted(variants)
+
+
+def term_pattern(term):
+    """Conservative, symmetric English plurals; preserve identifiers and other scripts."""
+    if term in ('person', 'people'):
+        return '(?:person|people|man|men|woman|women|child|children)'
+    for group in [('man', 'men'), ('woman', 'women'), ('person', 'people'), ('child', 'children')]:
+        if term in group:
+            return '(?:' + '|'.join(group) + ')'
+    variants = term_variants(term)
+    if term.isascii() and term.isalpha() and len(term) > 3 and term.endswith('ies'):
+        return '(?:' + re.escape(term) + '|' + re.escape(term[:-3] + 'y') + ')'
+    return '(?:' + '|'.join(re.escape(value) for value in variants) + ')'
 
 
 def retrieval_query(query):

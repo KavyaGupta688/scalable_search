@@ -1,0 +1,3 @@
+; Copy to userlist.txt (ignored by git) and replace with the role's SCRAM secret:
+;   SELECT rolname, rolpassword FROM pg_authid WHERE rolname = 'platform';
+"platform" "SCRAM-SHA-256$4096:REPLACE_WITH_SECRET_FROM_PG_AUTHID"

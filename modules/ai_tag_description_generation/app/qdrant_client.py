@@ -27,8 +27,13 @@ class QdrantManager:
         Network, authentication, and TLS errors are intentionally propagated.
         They must never be treated as a missing collection in a cloud setup.
         """
-        if self.client.collection_exists(self.collection_name):
-            info = self.client.get_collection(self.collection_name)
+        # The configured name may be an alias after a layout migration
+        # (scripts/migrate_vector_collection.py); upserts through an alias are valid.
+        from modules.shared.vector_store import resolve
+
+        physical = resolve(self.client, self.collection_name)
+        if physical is not None:
+            info = self.client.get_collection(physical)
             vectors = info.config.params.vectors
             if (
                 vectors.size != self.vector_size

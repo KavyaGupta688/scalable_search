@@ -95,23 +95,24 @@ class SearchService:
             fused_results = ranked_all[req.offset : req.offset + req.limit]
 
         elif mode == "text":
+            # Text order is final in SQL (no fusion or boosts), so only the requested page
+            # is loaded; the window count supplies the total.
             ranked_txt, total_hits, files_map = await self.text_service.search(
                 query=req.query,
                 filters=active_filters,
-                limit=max(settings.VECTOR_CANDIDATES, req.offset + req.limit),
-                offset=0,
+                limit=req.limit,
+                offset=req.offset,
             )
-            ranked_all = [
+            fused_results = [
                 FusionResult(
                     id=r.id,
                     rrf_score=r.raw_score,
-                    keyword_rank=r.rank,
+                    keyword_rank=req.offset + r.rank,
                     text_score=r.raw_score,
                     match_sources=["keyword"],
                 )
                 for r in ranked_txt
             ]
-            fused_results = ranked_all[req.offset : req.offset + req.limit]
             total = total_hits
 
         else:
@@ -131,6 +132,14 @@ class SearchService:
             total = len(ranked_all)
             scope_ids = [r.id for r in ranked_all]
             fused_results = ranked_all[req.offset : req.offset + req.limit]
+
+        # Ranking may have come from a read replica; the page itself is always re-checked
+        # on the primary so replica lag cannot show a revoked or expired document.
+        repo = self.metadata_service.file_repo
+        if getattr(repo, "has_replica", False) and fused_results:
+            primary = {f.file_id: f for f in await repo.get_by_ids([r.id for r in fused_results])}
+            fused_results = [r for r in fused_results if r.id in primary]
+            files_map.update(primary)
 
         # 3. Metadata Hydration
         hydrated_results = await self.metadata_service.hydrate_results(
@@ -154,6 +163,9 @@ class SearchService:
         )
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+        from app.core.metrics import SEARCH_LATENCY
+        SEARCH_LATENCY.labels(mode=mode).observe(elapsed_ms / 1000.0)
+        degraded = list(getattr(self.hybrid_service, "degraded_components", []))
 
         # 6. Asynchronously record search event
         norm_q = normalize_query_for_trending(req.query)
@@ -179,6 +191,8 @@ class SearchService:
             execution_time_ms=round(elapsed_ms, 2),
             results=hydrated_results,
             facets=facets,
+            partial_results=bool(degraded),
+            degraded_components=degraded,
         )
 
     async def download_plan(self, req):
@@ -192,20 +206,10 @@ class SearchService:
         scan = settings.DOWNLOAD_PLAN_SCAN
 
         if mode == "text":
-            text_results, total, files_map = await self.text_service.search(
-                query=req.query, filters=filters, limit=scan, offset=0
+            # Same conditions and order as text search, reading only id and size.
+            ranked, total = await self.text_service.file_repo.ranked_sizes(
+                req.query, filters, limit=scan
             )
-            ordered = [
-                FusionResult(
-                    id=result.id,
-                    rrf_score=result.raw_score,
-                    keyword_rank=result.rank,
-                    text_score=result.raw_score,
-                    match_sources=["keyword"],
-                )
-                for result in text_results
-            ]
-            ranked = [(result.id, int(files_map[result.id].file_size)) for result in ordered]
         elif mode == "vector":
             relevant, total = await self.vector_service.search_by_query(
                 query=req.query, filters=filters, limit=settings.VECTOR_CANDIDATES, offset=0

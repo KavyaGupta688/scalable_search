@@ -17,9 +17,26 @@ class FacetService:
         Computes faceted metadata aggregation for the current search context, or for
         the exact result set of a hybrid/vector search when scope_ids is given.
         """
-        return await self.file_repo.compute_facets(
+        import time
+        from app.core.metrics import STAGE_LATENCY
+        from app.services import search_cache
+
+        parts = [
+            query,
+            filters.model_dump(mode="json") if filters else None,
+            sorted(scope_ids) if scope_ids is not None else None,
+            {k: sorted(v) for k, v in (relaxed_scope_ids or {}).items() if v is not None},
+        ]
+        hit, cached = await search_cache.get("facets", parts)
+        if hit:
+            return FacetsResponse.model_validate(cached)
+        started, computed_at = time.perf_counter(), time.time()
+        facets = await self.file_repo.compute_facets(
             query=query,
             filters=filters,
             scope_ids=scope_ids,
             relaxed_scope_ids=relaxed_scope_ids,
         )
+        STAGE_LATENCY.labels(stage="facets").observe(time.perf_counter() - started)
+        await search_cache.put("facets", parts, facets.model_dump(mode="json"), since=computed_at)
+        return facets

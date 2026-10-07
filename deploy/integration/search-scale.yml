@@ -1,0 +1,62 @@
+# Search scale-out overlay. Add after compose.yml (and monitoring.yml if used):
+#   docker compose -f compose.yml -f monitoring.yml -f search-scale.yml up -d
+#
+# - Qdrant becomes a three-node cluster. Collections created after this use
+#   QDRANT_SHARD_NUMBER=6 and QDRANT_REPLICATION_FACTOR=2; move existing ones with
+#   scripts/migrate_vector_collection.py.
+# - Search runs several stateless replicas behind Docker's service DNS; Prometheus scrapes
+#   each replica through the dns_sd job in monitoring/prometheus.yml.
+# - Search reaches PostgreSQL through PgBouncer (transaction pooling). Licence checks and
+#   result rows stay on the primary; set SEARCH_DATABASE_READ_URL to add a replica.
+#
+# See docs/SEARCH_SCALABILITY.md before using this in production.
+x-qdrant-node: &qdrant-node
+  image: qdrant/qdrant:v1.11.5
+  restart: unless-stopped
+  environment:
+    QDRANT__CLUSTER__ENABLED: "true"
+    QDRANT__CLUSTER__P2P__PORT: "6335"
+services:
+  qdrant:
+    <<: *qdrant-node
+    command: [./qdrant, --uri, http://qdrant:6335]
+  qdrant-2:
+    <<: *qdrant-node
+    command: [./qdrant, --bootstrap, http://qdrant:6335, --uri, http://qdrant-2:6335]
+    volumes: [qdrant-2-data:/qdrant/storage]
+    depends_on: [qdrant]
+  qdrant-3:
+    <<: *qdrant-node
+    command: [./qdrant, --bootstrap, http://qdrant:6335, --uri, http://qdrant-3:6335]
+    volumes: [qdrant-3-data:/qdrant/storage]
+    depends_on: [qdrant]
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.23.1-p3
+    restart: unless-stopped
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+  migrate:
+    environment:
+      QDRANT_SHARD_NUMBER: ${QDRANT_SHARD_NUMBER:-6}
+      QDRANT_REPLICATION_FACTOR: ${QDRANT_REPLICATION_FACTOR:-2}
+      QDRANT_WRITE_CONSISTENCY_FACTOR: ${QDRANT_WRITE_CONSISTENCY_FACTOR:-1}
+      QDRANT_QUANTIZATION: ${QDRANT_QUANTIZATION:-}
+  search:
+    deploy:
+      replicas: ${SEARCH_REPLICAS:-3}
+    environment:
+      DATABASE_SCHEMA: search
+      REDIS_HOST: redis
+      REDIS_FALLBACK_MEMORY: "false"
+      DATABASE_URL: postgresql+asyncpg://platform:${POSTGRES_PASSWORD:?required}@pgbouncer:6432/platform
+      DATABASE_READ_URL: ${SEARCH_DATABASE_READ_URL:-}
+      DB_STATEMENT_CACHE_SIZE: "0"
+      QDRANT_HNSW_EF: ${QDRANT_HNSW_EF:-128}
+      QDRANT_QUANTIZATION: ${QDRANT_QUANTIZATION:-}
+      QDRANT_EXTENDED_PAYLOAD: ${QDRANT_EXTENDED_PAYLOAD:-false}
+volumes:
+  qdrant-2-data:
+  qdrant-3-data:
